@@ -9,8 +9,10 @@
   const FIX_TARGETS = {
     setup: "setup",
     context: "context",
+    correction: "correction",
     audio: "audio",
     style: "style",
+    broll: "broll",
     canvas: "canvas",
     moments: "moments",
     workspace: "workspace",
@@ -218,6 +220,36 @@
       ));
     }
 
+    const brollSummary = context.brollSummary || {};
+    if (brollSummary.acceptedCount > 0) {
+      checks.push(check(
+        "broll-ready",
+        "broll",
+        "ok",
+        "Smart b-roll accepted",
+        brollSummary.reviewLine || `${brollSummary.acceptedCount} accepted overlay${brollSummary.acceptedCount === 1 ? "" : "s"}.`,
+        null,
+      ));
+    } else if (brollSummary.generated && brollSummary.pendingCount > 0) {
+      checks.push(check(
+        "broll-pending",
+        "broll",
+        "warning",
+        "B-roll suggestions waiting",
+        `${brollSummary.pendingCount} transcript-tied suggestion${brollSummary.pendingCount === 1 ? "" : "s"} ready — accept or skip each one before export.`,
+        { label: "Review b-roll", target: FIX_TARGETS.broll },
+      ));
+    } else if (brollSummary.generated) {
+      checks.push(check(
+        "broll-reviewed",
+        "broll",
+        "ok",
+        "Smart b-roll reviewed",
+        brollSummary.reviewLine || "All b-roll suggestions were accepted or skipped.",
+        null,
+      ));
+    }
+
     const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
@@ -311,6 +343,15 @@
           ? `${context.momentsSummary.total} moments`
           : "None placed",
         status: sectionStatus("moments"),
+      },
+      {
+        id: "broll",
+        label: "Smart b-roll",
+        time: "40:00",
+        summary: context.brollSummary && context.brollSummary.reviewLine
+          ? context.brollSummary.reviewLine
+          : "Transcript-tied overlay suggestions",
+        status: sectionStatus("broll"),
       },
       {
         id: "export",

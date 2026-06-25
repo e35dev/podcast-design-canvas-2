@@ -1,17 +1,23 @@
 "use strict";
 
-// Guided end-to-end episode workspace for Podcast Design Canvas (#40).
+// Guided end-to-end episode workspace for Podcast Design Canvas (#40, #67).
 //
-// Connects setup, style, audio, moments, template, review, and export into one
-// creator-facing production flow with plain-language stage status and summaries.
+// Connects setup, social context, transcript correction, style, audio, smart b-roll,
+// moments, template, review, and export into one creator-facing production flow.
 // DOM-free so the workspace screen and tests share one source of truth.
 (function (global) {
-  const STAGE_ORDER = ["setup", "style", "audio", "moments", "template", "review", "export"];
+  const STAGE_ORDER = [
+    "setup", "context", "correction", "style", "audio",
+    "broll", "moments", "template", "review", "export",
+  ];
 
   const ACTION_TARGETS = {
     setup: "setup",
+    context: "context",
+    correction: "correction",
     style: "style",
     audio: "audio",
+    broll: "broll",
     moments: "moments",
     template: "canvas",
     review: "review",
@@ -41,13 +47,22 @@
     const context = ctx || {};
     const stages = [];
 
-    // Setup -------------------------------------------------------------------
     const setupComplete = Boolean(episode.episodeName) && (episode.speakerCount || 0) > 0;
+    const needsContext = (episode.socialLinkCount || 0) > 0;
+    const contextApproved = !needsContext || Boolean(context.contextApproved);
+    const correctionApproved = Boolean(context.correctionApproved);
+    const styleApplied = context.appliedStyle && context.appliedStyle.presetName;
+    const audioApplied = context.audioPolish && context.audioPolish.presetName;
+    const bs = context.brollSummary || {};
+    const brollAccepted = (bs.acceptedCount || 0) > 0;
+    const brollGenerated = Boolean(bs.generated);
+
+    // Setup -------------------------------------------------------------------
     let setupSummary = setupComplete
       ? `${episode.speakerCount} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`
       : "Add your episode name, sources, and speaker roles.";
-    if (setupComplete && episode.socialLinkCount > 0) {
-      setupSummary += context.contextApproved
+    if (setupComplete && needsContext) {
+      setupSummary += contextApproved
         ? " · Social context approved"
         : " · Social context needs review";
     }
@@ -60,14 +75,43 @@
       ACTION_TARGETS.setup,
     ));
 
+    // Social context ----------------------------------------------------------
+    stages.push(stage(
+      "context",
+      "Social context",
+      !needsContext || contextApproved ? STATUS.COMPLETE : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
+      !needsContext
+        ? "No social links on this episode."
+        : contextApproved
+          ? "Speaker names and brands approved from social links."
+          : "Review names, brands, and spelling from social links.",
+      contextApproved || !needsContext ? "Review context" : "Approve context",
+      ACTION_TARGETS.context,
+    ));
+
+    // Transcript correction -----------------------------------------------------
+    const correctionReady = setupComplete && contextApproved;
+    stages.push(stage(
+      "correction",
+      "Transcript & captions",
+      correctionApproved
+        ? STATUS.COMPLETE
+        : correctionReady ? STATUS.ACTIVE : STATUS.PENDING,
+      correctionApproved
+        ? "Speaker labels and caption lines approved."
+        : "Fix speaker names, brands, and caption text once for the whole episode.",
+      correctionApproved ? "Edit corrections" : "Review transcript",
+      ACTION_TARGETS.correction,
+    ));
+
     // Style -------------------------------------------------------------------
-    const styleApplied = context.appliedStyle && context.appliedStyle.presetName;
+    const styleReady = correctionApproved;
     stages.push(stage(
       "style",
       "Visual style",
       styleApplied
         ? STATUS.COMPLETE
-        : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
+        : styleReady ? STATUS.ACTIVE : STATUS.PENDING,
       styleApplied
         ? `${context.appliedStyle.presetName} · ${context.appliedStyle.layoutLabel || "layout"}`
         : "Pick a preset look and pacing for your speakers.",
@@ -76,13 +120,12 @@
     ));
 
     // Audio -------------------------------------------------------------------
-    const audioApplied = context.audioPolish && context.audioPolish.presetName;
     stages.push(stage(
       "audio",
       "Audio polish",
       audioApplied
         ? STATUS.COMPLETE
-        : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
+        : styleReady ? STATUS.ACTIVE : STATUS.PENDING,
       audioApplied
         ? `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"}`
         : "Choose a sound quality preset for every speaker track.",
@@ -90,16 +133,34 @@
       ACTION_TARGETS.audio,
     ));
 
+    // Smart b-roll ------------------------------------------------------------
+    const brollReady = correctionApproved && styleApplied && audioApplied;
+    stages.push(stage(
+      "broll",
+      "Smart b-roll",
+      brollAccepted
+        ? STATUS.COMPLETE
+        : brollReady ? STATUS.ACTIVE : STATUS.PENDING,
+      brollAccepted
+        ? `${bs.acceptedCount} accepted overlay${bs.acceptedCount === 1 ? "" : "s"}`
+        : brollGenerated
+          ? `${bs.pendingCount || 0} suggestion${bs.pendingCount === 1 ? "" : "s"} ready to review`
+          : "Generate transcript-tied b-roll from social context and captions.",
+      brollAccepted ? "Review b-roll" : brollGenerated ? "Review suggestions" : "Generate b-roll",
+      ACTION_TARGETS.broll,
+    ));
+
     // Visual moments ----------------------------------------------------------
     const ms = context.momentsSummary || {};
     const momentTotal = ms.total || 0;
     const momentVisible = ms.visibleCount || 0;
+    const momentsReady = brollAccepted || brollGenerated;
     stages.push(stage(
       "moments",
       "Visual moments",
       momentTotal > 0
         ? STATUS.COMPLETE
-        : styleApplied && audioApplied ? STATUS.ATTENTION : STATUS.PENDING,
+        : momentsReady && styleApplied && audioApplied ? STATUS.ATTENTION : STATUS.PENDING,
       momentTotal > 0
         ? `${momentVisible} of ${momentTotal} moment${momentTotal === 1 ? "" : "s"} live`
         : "Add captions, titles, b-roll, and callouts at key points.",

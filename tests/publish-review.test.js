@@ -64,7 +64,7 @@ test("blocked review lists required fixes when audio and style are missing", () 
   assert.ok(review.blockers(result).some((item) => item.id === "audio-missing"));
   assert.ok(review.blockers(result).some((item) => item.id === "style-missing"));
   assert.ok(review.warnings(result).some((item) => item.id === "captions-missing"));
-  assert.strictEqual(result.timeline.length, 7);
+  assert.strictEqual(result.timeline.length, 8);
 });
 
 test("social context is a blocker when links exist but context is not approved", () => {

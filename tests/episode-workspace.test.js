@@ -40,6 +40,7 @@ function baseCtx(episode, overrides) {
     templateName: "Founders Format",
     momentsSummary: moments.summarizeBoard(board),
     contextApproved: true,
+    correctionApproved: true,
     exportReady: true,
     publishReviewApproved: false,
     exportStatus: "draft",
@@ -51,21 +52,28 @@ test("buildWorkspace lists ordered stages for setup through export", () => {
   const episode = setup.summarize(completeDraft());
   const ws = workspace.buildWorkspace(episode, {});
   assert.deepStrictEqual(ws.stages.map((s) => s.id), workspace.STAGE_ORDER);
-  assert.strictEqual(ws.totalStages, 7);
+  assert.strictEqual(ws.totalStages, 10);
   const setupStage = workspace.getStage(ws, "setup");
   assert.strictEqual(setupStage.status, workspace.STATUS.COMPLETE);
 });
 
 test("workspace reflects style progress when a preset is applied", () => {
   const episode = setup.summarize(completeDraft());
-  const ctx = baseCtx(episode, { audioPolish: null, appliedStyle: null, templateName: "", momentsSummary: { total: 0 } });
+  const ctx = baseCtx(episode, {
+    audioPolish: null,
+    appliedStyle: null,
+    templateName: "",
+    momentsSummary: { total: 0 },
+    correctionApproved: false,
+  });
   let ws = workspace.buildWorkspace(episode, ctx);
-  assert.strictEqual(workspace.getStage(ws, "style").status, workspace.STATUS.ACTIVE);
+  assert.strictEqual(workspace.getStage(ws, "correction").status, workspace.STATUS.ACTIVE);
 
   const withStyle = baseCtx(episode, {
     audioPolish: null,
     templateName: "",
     momentsSummary: { total: 0 },
+    correctionApproved: true,
   });
   ws = workspace.buildWorkspace(episode, withStyle);
   const styleStage = workspace.getStage(ws, "style");
@@ -107,7 +115,7 @@ test("ACCEPTANCE: workspace tracks setup, style, review, and export progress", (
   // After setup only
   let ws = workspace.buildWorkspace(episode, {});
   assert.strictEqual(workspace.getStage(ws, "setup").status, workspace.STATUS.COMPLETE);
-  assert.strictEqual(workspace.getStage(ws, "style").status, workspace.STATUS.ACTIVE);
+  assert.strictEqual(workspace.getStage(ws, "correction").status, workspace.STATUS.ACTIVE);
   assert.strictEqual(workspace.getStage(ws, "export").status, workspace.STATUS.PENDING);
 
   // After style + audio

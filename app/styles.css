@@ -1885,3 +1885,129 @@ button:disabled {
   }
 }
 
+/* Smart b-roll suggestions (#67) */
+.broll-workspace-card,
+.broll-review-card,
+.broll-moments-link {
+  margin-top: 16px;
+}
+
+.broll-summary-line {
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.broll-suggestions-step .workspace-head .hint {
+  max-width: 52ch;
+}
+
+.broll-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.broll-suggestion-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+}
+
+.broll-suggestion-main {
+  flex: 1;
+}
+
+.broll-suggestion-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #64748b);
+  margin-right: 8px;
+}
+
+.broll-suggestion-asset {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.broll-suggestion-detail {
+  font-weight: 600;
+  margin: 4px 0;
+}
+
+.broll-suggestion-reason {
+  font-size: 14px;
+  color: var(--muted, #64748b);
+  margin: 0;
+}
+
+.broll-suggestion-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.broll-suggestion-status {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.broll-status-accepted {
+  color: var(--ok, #15803d);
+}
+
+.broll-status-skipped {
+  color: var(--muted, #64748b);
+}
+
+.broll-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.broll-preview-item {
+  padding: 10px 12px;
+  background: var(--surface-2, #f8fafc);
+  border-radius: 8px;
+}
+
+.broll-preview-time {
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.broll-preview-text {
+  font-weight: 600;
+}
+
+.broll-preview-reason {
+  font-size: 13px;
+  color: var(--muted, #64748b);
+  margin: 6px 0 0;
+}
+
+.broll-workspace-actions,
+.broll-review-actions {
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .broll-suggestion-row {
+    flex-direction: column;
+  }
+
+  .broll-suggestion-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+

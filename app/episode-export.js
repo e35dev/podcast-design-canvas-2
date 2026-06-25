@@ -139,6 +139,9 @@
     if (ctx.correctionSummary && ctx.correctionSummary.lines) {
       ctx.correctionSummary.lines.forEach((line) => lines.push(line));
     }
+    if (ctx.brollSummary && ctx.brollSummary.exportLines) {
+      ctx.brollSummary.exportLines.forEach((line) => lines.push(line));
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);
