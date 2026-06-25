@@ -9,6 +9,7 @@
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
+  const VM = window.PdcVisualMoments;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -30,6 +31,30 @@
   let canvasDoc = null;
   let canvasLayerCounter = 20;
   let workspaceSummaryCache = null;
+  // Visual moments editor (#19) state. The placed moments persist in localStorage so the
+  // produced episode survives navigating away and back.
+  let momentsDoc = null;
+  let selectedMomentId = null;
+  const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
+
+  function safeLoadMoments() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(MOMENTS_STORAGE_KEY) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistMoments() {
+    if (!VM || typeof localStorage === "undefined" || !momentsDoc) {
+      return;
+    }
+    try {
+      localStorage.setItem(MOMENTS_STORAGE_KEY, VM.serialize(momentsDoc));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
 
   function safeLoadTemplates() {
     try {
@@ -638,6 +663,17 @@
         actions.appendChild(audioButton);
       }
     }
+    // Visual moments — the contextual editing stage. Available once the episode is set up.
+    if (VM) {
+      const momentsSummary = momentsDoc ? VM.summarizeMoments(momentsDoc) : null;
+      const momentsButton = el(
+        "button",
+        { type: "button", class: "ghost" },
+        momentsSummary && momentsSummary.total ? "Edit visual moments →" : "Add visual moments →",
+      );
+      momentsButton.addEventListener("click", () => renderVisualMoments(summary));
+      actions.appendChild(momentsButton);
+    }
     actions.appendChild(
       (function () {
         const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
@@ -657,6 +693,22 @@
         actions,
       ),
     );
+
+    // Visual moments rollup, so the workspace reflects how produced the episode is.
+    if (VM && momentsDoc) {
+      const ms = VM.summarizeMoments(momentsDoc);
+      if (ms.total) {
+        view.appendChild(
+          el(
+            "section",
+            { class: "card moments-rollup" },
+            el("h3", {}, "Visual moments"),
+            el("p", { class: "review-line" }, ms.line),
+            el("p", { class: "hint" }, `${ms.visibleCount} of ${ms.total} moment${ms.total === 1 ? "" : "s"} will appear in the episode.`),
+          ),
+        );
+      }
+    }
 
     if (TM) {
       const saved = TM.listTemplates(templateStore);
@@ -1001,6 +1053,312 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Visual moments editor (#19) --------------------------------------------
+
+  // Colors for the preview stage come from the applied style when one is chosen, so the
+  // moment preview reads against the real episode look.
+  function momentStageColors() {
+    if (appliedStyle && appliedStyle.background) {
+      return { background: appliedStyle.background, accent: appliedStyle.accent || "#6c4cff", ink: readableInk(appliedStyle.background) };
+    }
+    return { background: "#10131f", accent: "#6c4cff", ink: "#f6f7fb" };
+  }
+
+  function readableInk(hex) {
+    const match = /^#?([0-9a-fA-F]{6})$/.exec(hex || "");
+    if (!match) {
+      return "#f6f7fb";
+    }
+    const n = parseInt(match[1], 16);
+    const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    return lum > 0.6 ? "#10131f" : "#f6f7fb";
+  }
+
+  function snippet(text, max) {
+    const value = (text || "").trim();
+    return value.length > max ? `${value.slice(0, max)}…` : value;
+  }
+
+  // The preview stage for the selected moment: the underlying speaker context plus the
+  // moment's visual treatment, so the creator sees how it changes the episode look.
+  function buildMomentStage(moment, colors) {
+    const stage = el("div", { class: "moment-stage" });
+    stage.style.background = colors.background;
+    stage.style.color = colors.ink;
+
+    if (!moment) {
+      stage.appendChild(el("p", { class: "moment-stage-empty" }, "Add a moment to preview how it appears on screen."));
+      return stage;
+    }
+
+    const segment = VM.nearestSegment(momentsDoc, moment.time);
+    const speakerLine = segment ? `${segment.speakerRole} · ${snippet(segment.text, 48)}` : "On screen";
+    stage.appendChild(el("div", { class: "moment-stage-speaker" }, speakerLine));
+
+    if (moment.visible === false) {
+      stage.appendChild(el("div", { class: "moment-stage-hidden" }, `${moment.typeLabel} hidden — it won't appear in the episode.`));
+      return stage;
+    }
+
+    const text = (moment.text || "").trim() || VM.getType(moment.type).defaultText;
+    if (moment.type === "title") {
+      const card = el("div", { class: "moment-treat moment-treat-title" }, text);
+      card.style.borderColor = colors.accent;
+      stage.appendChild(card);
+    } else if (moment.type === "caption") {
+      const band = el("div", { class: "moment-treat moment-treat-caption" }, text);
+      band.style.background = colors.accent;
+      stage.appendChild(band);
+    } else if (moment.type === "broll") {
+      const box = el("div", { class: "moment-treat moment-treat-broll" }, el("span", { class: "moment-treat-tag" }, "B-roll"), el("span", {}, text));
+      box.style.borderColor = colors.accent;
+      stage.appendChild(box);
+    } else if (moment.type === "callout") {
+      const pill = el("div", { class: "moment-treat moment-treat-callout" }, text);
+      pill.style.background = colors.accent;
+      pill.style.color = readableInk(colors.accent);
+      stage.appendChild(pill);
+    } else {
+      const note = el("div", { class: "moment-treat moment-treat-note" }, text);
+      note.style.borderColor = colors.accent;
+      stage.appendChild(note);
+    }
+    return stage;
+  }
+
+  function loadMomentsDoc(summary) {
+    if (!VM) {
+      return null;
+    }
+    return VM.deserialize(safeLoadMoments(), summary);
+  }
+
+  function renderVisualMoments(summary) {
+    workspaceSummaryCache = summary;
+    if (!VM) {
+      renderWorkspace(summary);
+      return;
+    }
+    if (!momentsDoc) {
+      momentsDoc = loadMomentsDoc(summary);
+    }
+    root.innerHTML = "";
+    setStep("Step 5 of 6 · Visual moments");
+
+    const colors = momentStageColors();
+    const view = el("div", { class: "moments-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Visual moments"),
+        el("h2", {}, `Produce ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Place captions, title moments, b-roll, and callouts along the conversation — no frame-by-frame editing."),
+      ),
+    );
+
+    const grid = el("div", { class: "moments-layout" });
+
+    // Left column: the transcript-style timeline, the add control, and the placed moments.
+    const left = el("div", { class: "moments-col" });
+
+    const timelineCard = el("section", { class: "card" }, el("h3", {}, "Episode timeline"));
+    timelineCard.appendChild(el("p", { class: "hint" }, "A speaker-aware read of your full episode. Add a moment at any point."));
+    const timelineList = el("div", { class: "timeline-list" });
+    momentsDoc.timeline.forEach((segment) => {
+      const addHere = el("button", { type: "button", class: "link-button add-here" }, "+ Add moment");
+      addHere.addEventListener("click", () => {
+        const moment = VM.addMoment(momentsDoc, addTypeSelect.value, segment.time);
+        selectedMomentId = moment.id;
+        afterStructuralChange();
+      });
+      timelineList.appendChild(
+        el(
+          "div",
+          { class: "timeline-row" },
+          el("span", { class: "timeline-time" }, segment.timecode),
+          el(
+            "div",
+            { class: "timeline-body" },
+            el("span", { class: "timeline-speaker" }, segment.speakerRole),
+            el("span", { class: "timeline-text" }, segment.text),
+          ),
+          addHere,
+        ),
+      );
+    });
+    timelineCard.appendChild(timelineList);
+    left.appendChild(timelineCard);
+
+    // Add control (type chosen here; the timeline's "+ Add moment" places it in time).
+    const addCard = el("section", { class: "card" }, el("h3", {}, "Add a moment"));
+    const addTypeSelect = el("select", { id: "moment-add-type", "aria-label": "Moment type" });
+    VM.MOMENT_TYPES.forEach((type) => {
+      addTypeSelect.appendChild(el("option", { value: type.id }, type.label));
+    });
+    const addPosSelect = el("select", { id: "moment-add-pos", "aria-label": "Place at" });
+    momentsDoc.timeline.forEach((segment) => {
+      addPosSelect.appendChild(el("option", { value: String(segment.time) }, `${segment.timecode} · ${segment.speakerRole}`));
+    });
+    const addButton = el("button", { type: "button", class: "primary" }, "Add moment");
+    addButton.addEventListener("click", () => {
+      const moment = VM.addMoment(momentsDoc, addTypeSelect.value, Number(addPosSelect.value));
+      selectedMomentId = moment.id;
+      afterStructuralChange();
+    });
+    addCard.appendChild(field("Type", addTypeSelect, null, VM.getType(addTypeSelect.value).hint));
+    addCard.appendChild(field("Place at", addPosSelect, null, "Choose a point in the conversation."));
+    addCard.appendChild(el("div", { class: "actions" }, addButton));
+    left.appendChild(addCard);
+
+    // Placed moments list (repainted in place on structural changes; text edits keep focus).
+    const momentsCard = el("section", { class: "card" }, el("h3", {}, "Placed moments"));
+    const summaryLine = el("p", { class: "hint moments-summary-line" });
+    momentsCard.appendChild(summaryLine);
+    const listHolder = el("div", { class: "moments-list" });
+    momentsCard.appendChild(listHolder);
+    left.appendChild(momentsCard);
+
+    grid.appendChild(left);
+
+    // Right column: the live preview stage for the selected moment.
+    const previewCard = el("section", { class: "card moments-preview-card" }, el("h3", {}, "Preview"));
+    const previewHolder = el("div", { class: "moments-preview-holder" });
+    previewCard.appendChild(previewHolder);
+    const previewCaption = el("p", { class: "moments-preview-caption hint" });
+    previewCard.appendChild(previewCaption);
+    grid.appendChild(previewCard);
+
+    view.appendChild(grid);
+
+    const done = el("button", { type: "button", class: "primary" }, "Done → workspace");
+    done.addEventListener("click", () => renderWorkspace(summary));
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, done, back));
+
+    // ---- in-place painters (focus-safe) ----
+    function selectedMoment() {
+      const list = VM.listMoments(momentsDoc);
+      if (!list.length) {
+        selectedMomentId = null;
+        return null;
+      }
+      if (!selectedMomentId || !VM.findMoment(momentsDoc, selectedMomentId)) {
+        selectedMomentId = list[list.length - 1].id;
+      }
+      return VM.findMoment(momentsDoc, selectedMomentId);
+    }
+
+    function paintPreview() {
+      const moment = selectedMoment();
+      previewHolder.innerHTML = "";
+      previewHolder.appendChild(buildMomentStage(moment, colors));
+      const info = moment ? VM.previewMoment(momentsDoc, moment.id) : null;
+      previewCaption.textContent = info ? info.effect : "";
+      paintList(); // keep selection highlight in sync (safe: not called from text input)
+    }
+
+    // Repaint only the preview + summary; used by the text input so the field keeps focus.
+    function paintPreviewOnly() {
+      const moment = selectedMoment();
+      previewHolder.innerHTML = "";
+      previewHolder.appendChild(buildMomentStage(moment, colors));
+      const info = moment ? VM.previewMoment(momentsDoc, moment.id) : null;
+      previewCaption.textContent = info ? info.effect : "";
+      summaryLine.textContent = VM.summarizeMoments(momentsDoc).line;
+    }
+
+    function paintList() {
+      summaryLine.textContent = VM.summarizeMoments(momentsDoc).line;
+      listHolder.innerHTML = "";
+      const list = VM.listMoments(momentsDoc);
+      if (!list.length) {
+        listHolder.appendChild(el("p", { class: "hint" }, "No moments yet — add one from the timeline above."));
+        return;
+      }
+      list.forEach((moment) => {
+        listHolder.appendChild(buildMomentRow(moment));
+      });
+    }
+
+    function afterStructuralChange() {
+      persistMoments();
+      paintPreview();
+    }
+
+    function buildMomentRow(moment) {
+      const isSelected = moment.id === selectedMomentId;
+      const row = el("div", { class: `moment-row${isSelected ? " selected" : ""}` });
+
+      const head = el(
+        "div",
+        { class: "moment-row-head" },
+        el("span", { class: "moment-type-tag" }, moment.typeLabel),
+        el("span", { class: "moment-row-time" }, `Starts at ${moment.timecode}${moment.speakerRole ? ` · ${moment.speakerRole}` : ""}`),
+      );
+      row.appendChild(head);
+
+      // On-screen text — edited in place so typing never loses focus.
+      const textInput = el("input", { id: `moment-text-${moment.id}`, type: "text", value: moment.text, placeholder: VM.getType(moment.type).defaultText });
+      textInput.addEventListener("focus", () => {
+        if (selectedMomentId !== moment.id) {
+          selectedMomentId = moment.id;
+          paintPreviewOnly();
+        }
+      });
+      textInput.addEventListener("input", (e) => {
+        VM.updateMoment(momentsDoc, moment.id, { text: e.target.value });
+        persistMoments();
+        paintPreviewOnly(); // do NOT rebuild the list — keep the input focused
+      });
+      row.appendChild(field("On-screen text", textInput, null));
+
+      // Timing — a select over the timeline points (fires on change, so a rebuild is fine).
+      const posSelect = el("select", { id: `moment-pos-${moment.id}`, "aria-label": "Moment timing" });
+      momentsDoc.timeline.forEach((segment) => {
+        posSelect.appendChild(el("option", { value: String(segment.time), selected: segment.time === moment.time ? true : null }, `${segment.timecode} · ${segment.speakerRole}`));
+      });
+      // If the moment's time matches no segment exactly, show it as an extra option.
+      if (!momentsDoc.timeline.some((segment) => segment.time === moment.time)) {
+        posSelect.appendChild(el("option", { value: String(moment.time), selected: true }, `${moment.timecode}`));
+      }
+      posSelect.addEventListener("change", (e) => {
+        VM.updateMoment(momentsDoc, moment.id, { time: Number(e.target.value) });
+        selectedMomentId = moment.id;
+        afterStructuralChange();
+      });
+      row.appendChild(field("Timing", posSelect, null));
+
+      const controlsRow = el("div", { class: "moment-controls" });
+      const visToggle = el("input", { type: "checkbox", id: `moment-vis-${moment.id}`, checked: moment.visible !== false ? true : null });
+      visToggle.addEventListener("change", () => {
+        VM.updateMoment(momentsDoc, moment.id, { visible: visToggle.checked });
+        selectedMomentId = moment.id;
+        afterStructuralChange();
+      });
+      controlsRow.appendChild(el("label", { class: "toggle-row", for: `moment-vis-${moment.id}` }, visToggle, el("span", {}, "Show in episode")));
+
+      const removeButton = el("button", { type: "button", class: "link-button" }, "Remove");
+      removeButton.addEventListener("click", () => {
+        VM.removeMoment(momentsDoc, moment.id);
+        if (selectedMomentId === moment.id) {
+          selectedMomentId = null;
+        }
+        afterStructuralChange();
+      });
+      controlsRow.appendChild(removeButton);
+      row.appendChild(controlsRow);
+
+      return row;
+    }
+
+    paintPreview();
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
