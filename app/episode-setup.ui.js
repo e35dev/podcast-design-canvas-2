@@ -4,7 +4,7 @@
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
-// and transcript correction (#63).
+// and transcript correction (#63), episode import before brand setup (#73).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -22,6 +22,7 @@
   const SI = window.PdcShowIdentity;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const EIF = window.PdcEpisodeImportFlow;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -263,20 +264,33 @@
     const shows = LIB.listShows(showLibrary);
     const summary = LIB.summarizeLibrary(showLibrary);
 
+    const libraryHint = EIF
+      ? EIF.primaryLibraryAction().hint
+      : "Import recordings and assign speakers before brand or template work.";
+
     const header = el(
       "div",
       { class: "workspace-header" },
       el("h1", {}, "Show Library"),
       el("p", { class: "hint" }, summary.libraryLine),
+      el("p", { class: "hint show-library-import-hint" }, libraryHint),
     );
 
-    const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
+    const startEpisodeBtn = el(
+      "button",
+      { class: "btn-primary", type: "button" },
+      EIF ? EIF.primaryLibraryAction().label : "Start episode →",
+    );
+    startEpisodeBtn.addEventListener("click", () => startBlankEpisode());
+
+    const newShowBtn = el(
+      "button",
+      { class: "btn-secondary", type: "button" },
+      EIF ? EIF.primaryLibraryAction().secondaryLabel : "+ New show",
+    );
     newShowBtn.addEventListener("click", () => renderNewShowForm());
 
-    const blankEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start blank episode");
-    blankEpisodeBtn.addEventListener("click", () => startBlankEpisode());
-
-    const actions = el("div", { class: "workspace-actions" }, newShowBtn, blankEpisodeBtn);
+    const actions = el("div", { class: "workspace-actions" }, startEpisodeBtn, newShowBtn);
 
     const listEl = el("div", { class: "show-library-list" });
 
@@ -367,6 +381,13 @@
       { class: "card" },
       el("h2", {}, "Create new show"),
       el(
+        "p",
+        { class: "hint" },
+        EIF
+          ? EIF.afterShowCreated({ name: "" }).message
+          : "After creating your show you will import recordings and assign speakers before brand kit work.",
+      ),
+      el(
         "div",
         { class: "field" },
         el("label", { for: "f-show-name" }, "Show name"),
@@ -383,7 +404,7 @@
     const cancelBtn = el("button", { class: "btn-secondary", type: "button" }, "Cancel");
     cancelBtn.addEventListener("click", () => renderShowLibrary());
 
-    const saveBtn = el("button", { class: "btn-primary", type: "button" }, "Create show");
+    const saveBtn = el("button", { class: "btn-primary", type: "button" }, "Create show & import episode →");
     saveBtn.addEventListener("click", () => {
       const name = nameInput.value;
       const check = LIB.validateShowName(showLibrary, name);
@@ -400,7 +421,7 @@
       showLibrary = LIB.addShow(showLibrary, show);
       persistShowLibrary();
       activeShowId = show.id;
-      renderShowDetail(show.id);
+      startEpisodeFromShow(show.id);
     });
 
     const footer = el("div", { class: "workspace-actions" }, cancelBtn, saveBtn);
@@ -424,8 +445,11 @@
     const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Library");
     backBtn.addEventListener("click", () => renderShowLibrary());
 
-    const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
+    const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "Start episode →");
     newEpBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+
+    const importHeadline = EIF ? EIF.afterShowCreated(show).headline : "Import your episode first";
+    const importMessage = EIF ? EIF.afterShowCreated(show).message : "Add recordings, assign speakers, and add social links before brand kit work.";
 
     const header = el(
       "div",
@@ -433,6 +457,29 @@
       el("div", { class: "workspace-header-row" }, backBtn, newEpBtn),
       el("h1", {}, show.name),
       metaParts.length ? el("p", { class: "hint" }, metaParts.join(" · ")) : null,
+    );
+
+    const episodeHero = el(
+      "section",
+      { class: "card show-episode-hero" },
+      el("h2", {}, importHeadline),
+      el("p", { class: "hint" }, importMessage),
+      el(
+        "ul",
+        { class: "show-episode-import-steps" },
+        el("li", {}, "Paste a Riverside link or upload separate synced speaker video files"),
+        el("li", {}, "Assign each source to Host, Guest 1, or Guest 2"),
+        el("li", {}, "Add optional social links so names and context stay accurate"),
+      ),
+      el(
+        "div",
+        { class: "actions show-episode-hero-actions" },
+        el("button", {
+          type: "button",
+          class: "primary",
+          onclick: () => startEpisodeFromShow(showId),
+        }, "Start episode import →"),
+      ),
     );
 
     const epListEl = el("div", { class: "show-episode-list" });
@@ -453,26 +500,30 @@
       });
     }
 
-    const view = el("div", { class: "workspace-root" }, header, el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
+    const episodesCard = el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl);
 
     const kit = show.brandKit;
     const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
-    const brandCard = el("section", { class: "card brand-kit-card" }, el("h2", {}, "Brand kit"));
+    const brandDetails = el("details", { class: "card brand-kit-card brand-kit-collapsed" });
+    brandDetails.appendChild(el("summary", {}, "Brand kit (optional — after episode import)"));
     if (kitSummary && kitSummary.identityLine !== "No brand kit configured") {
-      brandCard.appendChild(el("p", { class: "brand-kit-line" }, kitSummary.identityLine));
+      brandDetails.appendChild(el("p", { class: "brand-kit-line" }, kitSummary.identityLine));
       if (kitSummary.colorSummary) {
-        brandCard.appendChild(el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`));
+        brandDetails.appendChild(el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`));
       }
       if (kitSummary.overlayCount) {
-        brandCard.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
+        brandDetails.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
       }
     } else {
-      brandCard.appendChild(el("p", { class: "hint" }, "Define logo, colors, type, captions, and overlay assets so every episode feels on-brand."));
+      brandDetails.appendChild(
+        el("p", { class: "hint" }, "Set logo, colors, and overlays after you import the episode and assign speakers."),
+      );
     }
     const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, kit ? "Edit brand kit" : "Create brand kit");
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
-    brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
-    view.insertBefore(brandCard, view.lastChild);
+    brandDetails.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
+
+    const view = el("div", { class: "workspace-root" }, header, episodeHero, episodesCard, brandDetails);
 
     root.appendChild(view);
   }
@@ -495,14 +546,17 @@
     const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Back to show");
     backBtn.addEventListener("click", () => renderShowDetail(showId));
 
+    const episodeBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "Start episode import →");
+    episodeBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+
     const view = el("div", { class: "workspace-root brand-kit-editor" });
     view.appendChild(
       el(
         "div",
         { class: "workspace-header" },
-        el("div", { class: "workspace-header-row" }, backBtn),
+        el("div", { class: "workspace-header-row" }, backBtn, episodeBtn),
         el("h1", {}, "Brand kit"),
-        el("p", { class: "hint" }, `Reusable identity for ${show.name} — logo, colors, type, captions, and overlay assets.`),
+        el("p", { class: "hint" }, `Optional identity for ${show.name} — import your episode and assign speakers first.`),
       ),
     );
 
@@ -710,7 +764,7 @@
 
   function renderSetup() {
     root.innerHTML = "";
-    setStep("Step 1 of 8 · Set up episode");
+    setStep(EIF ? EIF.episodeSetupStepLabel() : "Step 1 of 8 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
     const form = el("form", { class: "setup", novalidate: true });
@@ -767,6 +821,7 @@
       "section",
       { class: "card" },
       el("h2", {}, "Episode details"),
+      el("p", { class: "hint" }, "Name this episode, then import your recording and assign each speaker below."),
       field("Episode name", nameInput, "episodeName"),
     );
     form.appendChild(detailsCard);
@@ -937,7 +992,7 @@
     }
 
     // Optional social links
-    const social = el("details", { class: "social" });
+    const social = el("details", { class: "social", open: true });
     social.appendChild(el("summary", {}, "Social links (optional)"));
     const socialHint = el(
       "p",
