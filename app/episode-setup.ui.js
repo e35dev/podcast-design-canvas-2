@@ -1,12 +1,14 @@
 "use strict";
 
-// Browser wiring for the episode setup flow (#1) and the preset style step (#3). Renders
-// the setup wizard, the episode workspace, and the preset style selection + preview from
-// the shared PdcEpisodeSetup / PdcEpisodeStyle rules. Loaded as a classic script so the
-// app runs by opening index.html directly or via `npm run preview`.
+// Browser wiring for the episode setup flow (#1), preset style step (#3), and canvas
+// layer controls (#5). Renders the setup wizard, episode workspace, style selection,
+// and layer stack editor from the shared PdcEpisodeSetup / PdcEpisodeStyle /
+// PdcCanvasLayers rules. Loaded as a classic script so the app runs by opening
+// index.html directly or via `npm run preview`.
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
+  const CL = window.PdcCanvasLayers;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -19,6 +21,9 @@
   // Style step state, kept across navigation so choices survive Edit setup / Back.
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
+  let canvasLayers = CL ? CL.sampleLayers() : null;
+  let canvasLayoutSaved = false;
+  let canvasLayerCounter = 20;
 
   function setStep(label) {
     if (stepPill) {
@@ -473,8 +478,9 @@
       view.appendChild(styleCard);
     }
 
-    // Next step — choose or change the visual style
+    // Next step — choose or change the visual style / canvas layout
     const styleAvailable = Boolean(STY);
+    const canvasAvailable = Boolean(CL);
     const styleButton = el(
       "button",
       { type: "button", class: "primary", disabled: styleAvailable ? null : true },
@@ -483,20 +489,31 @@
     if (styleAvailable) {
       styleButton.addEventListener("click", () => renderStyle(summary));
     }
+    const canvasButton = el(
+      "button",
+      { type: "button", class: appliedStyle ? "primary" : "ghost", disabled: canvasAvailable && appliedStyle ? null : true },
+      canvasLayoutSaved ? "Edit layout →" : "Customize layout →",
+    );
+    if (canvasAvailable && appliedStyle) {
+      canvasButton.addEventListener("click", () => renderCanvas(summary));
+    }
     view.appendChild(
       el(
         "section",
         { class: "card next-step" },
-        el("h3", {}, appliedStyle ? "Style applied" : "Ready for the next step"),
+        el("h3", {}, appliedStyle ? (canvasLayoutSaved ? "Layout saved" : "Style applied") : "Ready for the next step"),
         el(
           "p",
           {},
           appliedStyle
-            ? "Your style is set. Detailed editing and export come next."
+            ? canvasLayoutSaved
+              ? "Your layer stack is saved. Detailed editing and export come next."
+              : "Your style is set. Stack and lock layers so branding cannot move by accident."
             : "Your sources, speaker roles, and context are saved. Pick a visual style next.",
         ),
         el("div", { class: "actions" },
-          styleButton,
+          appliedStyle && canvasAvailable ? canvasButton : styleButton,
+          appliedStyle && canvasAvailable ? styleButton : null,
           (function () {
             const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
             back.addEventListener("click", () => {
@@ -508,6 +525,266 @@
         ),
       ),
     );
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Canvas layer stack + locking (#5) ---------------------------------------
+
+  function shortLayerLabel(type) {
+    const meta = CL.getLayerType(type);
+    if (type === "speaker") {
+      return "Speaker";
+    }
+    if (type === "captions") {
+      return "Captions";
+    }
+    if (type === "lower-thirds") {
+      return "Lower-third";
+    }
+    if (type === "title") {
+      return "Title";
+    }
+    if (type === "broll") {
+      return "B-roll";
+    }
+    if (type === "brand") {
+      return "Brand";
+    }
+    if (type === "safe-area") {
+      return "Safe area";
+    }
+    if (type === "background") {
+      return "Background";
+    }
+    return meta.label;
+  }
+
+  function renderCanvasStage(stack) {
+    const stage = el("div", { class: "canvas-stage", "aria-hidden": "true" });
+    CL.visibleLayersForStage(stack).forEach((layer) => {
+      const obj = el("div", { class: `canvas-obj canvas-obj-${layer.type}` }, shortLayerLabel(layer.type));
+      stage.appendChild(obj);
+    });
+    return stage;
+  }
+
+  function renderCanvasLayerRow(layer, index) {
+    const meta = CL.getLayerType(layer.type);
+    const swatch = el("span", { class: "canvas-swatch" });
+    swatch.style.background = meta.swatch;
+
+    const metaBits = [index === 0 ? "Top of stack" : `Layer ${index + 1}`];
+    if (layer.locked) {
+      metaBits.push("position locked");
+    }
+    if (!layer.visible) {
+      metaBits.push("hidden");
+    }
+
+    const up = el(
+      "button",
+      {
+        type: "button",
+        class: "ghost canvas-tiny",
+        "aria-label": `Move ${meta.label} up`,
+        disabled: CL.canMoveLayer(canvasLayers, index, -1) ? null : true,
+      },
+      "▲",
+    );
+    up.addEventListener("click", (event) => {
+      event.stopPropagation();
+      canvasLayers = CL.moveLayer(canvasLayers, index, -1);
+      canvasLayoutSaved = false;
+      renderCanvas(summaryFromWorkspace());
+    });
+
+    const down = el(
+      "button",
+      {
+        type: "button",
+        class: "ghost canvas-tiny",
+        "aria-label": `Move ${meta.label} down`,
+        disabled: CL.canMoveLayer(canvasLayers, index, 1) ? null : true,
+      },
+      "▼",
+    );
+    down.addEventListener("click", (event) => {
+      event.stopPropagation();
+      canvasLayers = CL.moveLayer(canvasLayers, index, 1);
+      canvasLayoutSaved = false;
+      renderCanvas(summaryFromWorkspace());
+    });
+
+    const vis = el("button", { type: "button", class: "ghost canvas-tiny" }, layer.visible ? "Hide" : "Show");
+    vis.addEventListener("click", (event) => {
+      event.stopPropagation();
+      canvasLayers = CL.toggleVisibility(canvasLayers, index);
+      canvasLayoutSaved = false;
+      renderCanvas(summaryFromWorkspace());
+    });
+
+    const lockLabel = layer.locked ? "Unlock position" : "Lock position";
+    const lock = el(
+      "button",
+      {
+        type: "button",
+        class: "ghost canvas-tiny",
+        title: layer.locked
+          ? "Unlock this layer so it can move in the stack again"
+          : "Lock this layer so its stack position cannot move by accident",
+      },
+      lockLabel,
+    );
+    lock.addEventListener("click", (event) => {
+      event.stopPropagation();
+      canvasLayers = CL.toggleLock(canvasLayers, index);
+      canvasLayoutSaved = false;
+      renderCanvas(summaryFromWorkspace());
+    });
+
+    const remove = el(
+      "button",
+      {
+        type: "button",
+        class: "ghost canvas-tiny",
+        "aria-label": `Remove ${meta.label}`,
+        disabled: layer.locked ? true : null,
+      },
+      "Remove",
+    );
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      canvasLayers = CL.removeLayer(canvasLayers, index);
+      canvasLayoutSaved = false;
+      renderCanvas(summaryFromWorkspace());
+    });
+
+    return el(
+      "article",
+      { class: `canvas-layer${layer.visible ? "" : " is-hidden"}${layer.locked ? " is-locked" : ""}` },
+      swatch,
+      el(
+        "div",
+        { class: "canvas-layer-main" },
+        el("span", { class: "canvas-layer-name" }, meta.label),
+        el("span", { class: "canvas-layer-meta" }, metaBits.join(" · ")),
+      ),
+      el("div", { class: "canvas-layer-actions" }, up, down, vis, lock, remove),
+    );
+  }
+
+  let workspaceSummaryCache = null;
+  function summaryFromWorkspace() {
+    return workspaceSummaryCache;
+  }
+
+  function renderCanvas(summary) {
+    workspaceSummaryCache = summary;
+    if (!canvasLayers) {
+      canvasLayers = CL.sampleLayers();
+    }
+    root.innerHTML = "";
+    setStep("Step 3 of 6 · Canvas layers");
+
+    const evaluation = CL.evaluateLayout(canvasLayers);
+    const view = el("div", { class: "canvas-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Canvas layers"),
+        el("h2", {}, `Stack the layout for ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "Top of the list draws on top. Lock brand elements so their stack position cannot move by accident while you edit.",
+        ),
+      ),
+    );
+
+    const grid = el("div", { class: "canvas-layout" });
+    const stackCard = el("section", { class: "card" }, el("h3", {}, "Layer stack"));
+    const list = el("div", { class: "canvas-layers" });
+    canvasLayers.forEach((layer, index) => {
+      list.appendChild(renderCanvasLayerRow(layer, index));
+    });
+    stackCard.appendChild(list);
+
+    const addType = el("select", { id: "canvas-add-type", "aria-label": "Layer type to add" });
+    Object.keys(CL.LAYER_TYPES).forEach((type) => {
+      addType.appendChild(el("option", { value: type }, CL.getLayerType(type).label));
+    });
+    const addButton = el("button", { type: "button", class: "ghost" }, "Add layer");
+    addButton.addEventListener("click", () => {
+      const id = `l${canvasLayerCounter}`;
+      canvasLayerCounter += 1;
+      canvasLayers = CL.addLayer(canvasLayers, addType.value, id);
+      canvasLayoutSaved = false;
+      renderCanvas(summary);
+    });
+    stackCard.appendChild(el("div", { class: "canvas-add-row" }, addType, addButton));
+    grid.appendChild(stackCard);
+
+    const previewCard = el("section", { class: "card" }, el("h3", {}, "Layout preview"));
+    previewCard.appendChild(renderCanvasStage(canvasLayers));
+    const statusClass = canvasLayoutSaved ? "ready" : evaluation.overall;
+    previewCard.appendChild(
+      el(
+        "p",
+        { class: `canvas-status canvas-status-${statusClass}` },
+        canvasLayoutSaved
+          ? "Saved as a reusable layout"
+          : evaluation.overall === "ready"
+            ? "Layout ready to save"
+            : "Review before saving",
+      ),
+    );
+    if (evaluation.checks.length === 0) {
+      previewCard.appendChild(
+        el(
+          "p",
+          { class: "hint" },
+          "No layout conflicts. Reorder, lock positions, and save as a reusable show layout.",
+        ),
+      );
+    } else {
+      const checks = el("div", { class: "canvas-checks" });
+      evaluation.checks.forEach((check) => {
+        checks.appendChild(
+          el(
+            "div",
+            { class: `canvas-check canvas-check-${check.tone}` },
+            el("strong", {}, check.title),
+            el("p", {}, check.action),
+          ),
+        );
+      });
+      previewCard.appendChild(checks);
+    }
+    grid.appendChild(previewCard);
+    view.appendChild(grid);
+
+    const saveButton = el(
+      "button",
+      {
+        type: "button",
+        class: "primary",
+        disabled: evaluation.overall !== "ready" || canvasLayoutSaved ? true : null,
+      },
+      "Save layout & continue →",
+    );
+    saveButton.addEventListener("click", () => {
+      if (evaluation.overall !== "ready") {
+        return;
+      }
+      canvasLayoutSaved = true;
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, saveButton, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
