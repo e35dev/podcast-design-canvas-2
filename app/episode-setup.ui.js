@@ -713,7 +713,7 @@
       { class: "card show-identity-banner" },
       el("h3", {}, showIdentitySummary.headline),
       el("p", { class: "hint" }, showIdentitySummary.identityLine),
-      el("p", { class: "hint show-identity-note" }, "Everything below is prefilled from this show — edit any step as needed."),
+      el("p", { class: "hint show-identity-note" }, "Show context is above — enter each speaker's name and recording source below."),
     );
   }
 
@@ -1007,7 +1007,7 @@
       id: `f-sp-${index}-name`,
       type: "text",
       value: speaker.name,
-      placeholder: "Speaker name",
+      placeholder: "Enter speaker name",
       "aria-invalid": isInvalid(`speaker:${index}:name`) ? "true" : null,
     });
     nameInput.addEventListener("input", (e) => {

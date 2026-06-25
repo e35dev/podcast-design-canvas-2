@@ -53,6 +53,34 @@
     return `${base} — Episode ${nextNumber}`;
   }
 
+  function isShowContextLabel(name, show, draft) {
+    const trimmed = trim(name);
+    if (!trimmed) {
+      return false;
+    }
+    const showName = show && trim(show.name);
+    const episodeName = draft && trim(draft.episodeName);
+    const lowered = trimmed.toLowerCase();
+    if (showName && lowered === showName.toLowerCase()) {
+      return true;
+    }
+    if (episodeName && lowered === episodeName.toLowerCase()) {
+      return true;
+    }
+    if (showName && episodeName && lowered === showName.toLowerCase()) {
+      return true;
+    }
+    return false;
+  }
+
+  function speakerNameForImport(item, show, draft) {
+    const name = trim(item && item.name);
+    if (!name || isShowContextLabel(name, show, draft)) {
+      return "";
+    }
+    return name;
+  }
+
   function applyDefaultSpeakers(draft, show) {
     const ES = setupApi();
     const next = clone(draft || ES.createDraft());
@@ -62,7 +90,7 @@
     }
     next.speakers = defaults.map((item) => {
       const speaker = ES.createSpeaker(item.role || "Host");
-      speaker.name = trim(item.name);
+      speaker.name = "";
       speaker.trackLabel = trim(item.trackLabel);
       if (item.social && typeof item.social === "object") {
         speaker.social = Object.assign({}, speaker.social, item.social);
@@ -231,6 +259,8 @@
 
   const api = {
     suggestedEpisodeName,
+    isShowContextLabel,
+    speakerNameForImport,
     buildSetupDraft,
     resolveStyleSelection,
     resolveTemplate,
