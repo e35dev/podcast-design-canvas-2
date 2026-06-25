@@ -2,7 +2,7 @@
 
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
-// publish review (#37), guided workspace (#40), and export (#30).
+// publish review (#37), guided workspace (#40), export (#30), and show library (#47).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -15,6 +15,7 @@
   const EXP = window.PdcEpisodeExport;
   const PR = window.PdcPublishReview;
   const WS = window.PdcEpisodeWorkspace;
+  const LIB = window.PdcShowLibrary;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -46,6 +47,9 @@
   let contextApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  const LIB_STORAGE_KEY = "pdc-show-library";
+  let showLibrary = { shows: [] };
+  let activeShowId = null;
 
   function safeLoadMoments() {
     try {
@@ -90,6 +94,25 @@
     }
     try {
       localStorage.setItem(TPL_STORAGE_KEY, TM.serializeStore(templateStore));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  function safeLoadShowLibrary() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(LIB_STORAGE_KEY) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistShowLibrary() {
+    if (!LIB || typeof localStorage === "undefined") {
+      return;
+    }
+    try {
+      localStorage.setItem(LIB_STORAGE_KEY, LIB.serializeLibrary(showLibrary));
     } catch (err) {
       /* ignore quota errors */
     }
@@ -185,6 +208,245 @@
     });
     const free = ES.SPEAKER_BUCKETS.find((bucket) => !used[bucket]);
     return free || `Guest ${state.speakers.length}`;
+  }
+
+  // ---- Show library view -----------------------------------------------------
+
+  function renderShowLibrary() {
+    if (!LIB) {
+      renderSetup();
+      return;
+    }
+    root.innerHTML = "";
+    setStep("Show Library");
+
+    const shows = LIB.listShows(showLibrary);
+    const summary = LIB.summarizeLibrary(showLibrary);
+
+    const header = el(
+      "div",
+      { class: "workspace-header" },
+      el("h1", {}, "Show Library"),
+      el("p", { class: "hint" }, summary.libraryLine),
+    );
+
+    const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
+    newShowBtn.addEventListener("click", () => renderNewShowForm());
+
+    const actions = el("div", { class: "workspace-actions" }, newShowBtn);
+
+    const listEl = el("div", { class: "show-library-list" });
+
+    if (!shows.length) {
+      listEl.appendChild(
+        el(
+          "div",
+          { class: "show-library-empty" },
+          el("p", {}, "No shows yet. Create a show to organize your episodes and reuse templates."),
+        ),
+      );
+    } else {
+      shows.forEach((show) => {
+        const meta = [];
+        if (show.templateName) meta.push(show.templateName);
+        if (show.presetName) meta.push(show.presetName);
+        const metaText = meta.length ? meta.join(" · ") : "No template saved";
+
+        const epCount = el("span", { class: "show-ep-count" }, `${show.episodeCount} episode${show.episodeCount === 1 ? "" : "s"}`);
+        const latest = show.latestEpisode
+          ? el("span", { class: "show-latest" }, `Latest: ${show.latestEpisode.name} — ${LIB.episodeStatusLabel(show.latestEpisode.status)}`)
+          : null;
+
+        const openBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "Open");
+        openBtn.addEventListener("click", () => {
+          activeShowId = show.id;
+          renderShowDetail(show.id);
+        });
+
+        const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
+        newEpBtn.addEventListener("click", () => {
+          activeShowId = show.id;
+          startEpisodeFromShow(show.id);
+        });
+
+        const card = el(
+          "div",
+          { class: "show-library-card" },
+          el(
+            "div",
+            { class: "show-library-card-main" },
+            el("h2", { class: "show-library-card-name" }, show.name),
+            el("p", { class: "show-library-card-meta" }, metaText),
+            el("div", { class: "show-library-card-stats" }, epCount, latest),
+          ),
+          el("div", { class: "show-library-card-actions" }, openBtn, newEpBtn),
+        );
+        listEl.appendChild(card);
+      });
+    }
+
+    const view = el("div", { class: "workspace-root" }, header, actions, listEl);
+    root.appendChild(view);
+  }
+
+  function renderNewShowForm(prefillName, errorMsg) {
+    root.innerHTML = "";
+    setStep("Show Library · New Show");
+
+    const saved = TM ? TM.listTemplates(templateStore) : [];
+
+    const nameInput = el("input", { id: "f-show-name", type: "text", value: prefillName || "", placeholder: "e.g. Founders Unfiltered" });
+
+    let selectedTemplateId = "";
+    let selectedPresetName = "";
+    const tplOptions = [el("option", { value: "" }, "No template")].concat(
+      saved.map((t) => el("option", { value: t.id }, t.name)),
+    );
+    const tplSelect = el("select", { id: "f-show-template" }, ...tplOptions);
+    tplSelect.addEventListener("change", () => {
+      selectedTemplateId = tplSelect.value;
+      const tpl = saved.find((t) => t.id === selectedTemplateId);
+      selectedPresetName = tpl && tpl.presetName ? tpl.presetName : "";
+    });
+
+    if (errorMsg) {
+      root.appendChild(el("div", { class: "banner", role: "alert" }, errorMsg));
+    }
+
+    const form = el(
+      "div",
+      { class: "card" },
+      el("h2", {}, "Create new show"),
+      el(
+        "div",
+        { class: "field" },
+        el("label", { for: "f-show-name" }, "Show name"),
+        nameInput,
+      ),
+      el(
+        "div",
+        { class: "field" },
+        el("label", { for: "f-show-template" }, "Start from template (optional)"),
+        tplSelect,
+      ),
+    );
+
+    const cancelBtn = el("button", { class: "btn-secondary", type: "button" }, "Cancel");
+    cancelBtn.addEventListener("click", () => renderShowLibrary());
+
+    const saveBtn = el("button", { class: "btn-primary", type: "button" }, "Create show");
+    saveBtn.addEventListener("click", () => {
+      const name = nameInput.value;
+      const check = LIB.validateShowName(showLibrary, name);
+      if (!check.ok) {
+        renderNewShowForm(name, check.error);
+        return;
+      }
+      const tpl = saved.find((t) => t.id === selectedTemplateId);
+      const show = LIB.createShow(check.name, {
+        templateId: selectedTemplateId,
+        templateName: tpl ? tpl.name : "",
+        presetName: selectedPresetName,
+      });
+      showLibrary = LIB.addShow(showLibrary, show);
+      persistShowLibrary();
+      activeShowId = show.id;
+      renderShowDetail(show.id);
+    });
+
+    const footer = el("div", { class: "workspace-actions" }, cancelBtn, saveBtn);
+    root.appendChild(el("div", { class: "workspace-root" }, form, footer));
+  }
+
+  function renderShowDetail(showId) {
+    const show = LIB.getShow(showLibrary, showId);
+    if (!show) {
+      renderShowLibrary();
+      return;
+    }
+    root.innerHTML = "";
+    setStep(`Show Library · ${show.name}`);
+
+    const episodes = LIB.listEpisodes(showLibrary, showId);
+    const metaParts = [];
+    if (show.templateName) metaParts.push(`Template: ${show.templateName}`);
+    if (show.presetName) metaParts.push(`Style: ${show.presetName}`);
+
+    const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Library");
+    backBtn.addEventListener("click", () => renderShowLibrary());
+
+    const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
+    newEpBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+
+    const header = el(
+      "div",
+      { class: "workspace-header" },
+      el("div", { class: "workspace-header-row" }, backBtn, newEpBtn),
+      el("h1", {}, show.name),
+      metaParts.length ? el("p", { class: "hint" }, metaParts.join(" · ")) : null,
+    );
+
+    const epListEl = el("div", { class: "show-episode-list" });
+    if (!episodes.length) {
+      epListEl.appendChild(el("p", { class: "hint" }, "No episodes yet. Start a new episode from this show."));
+    } else {
+      episodes.forEach((ep) => {
+        const statusLabel = LIB.episodeStatusLabel(ep.status);
+        const statusClass = `ep-status ep-status--${ep.status}`;
+        const epCard = el(
+          "div",
+          { class: "show-episode-card" },
+          el("span", { class: "show-episode-name" }, ep.name),
+          el("span", { class: statusClass }, statusLabel),
+          ep.downloadName ? el("span", { class: "show-episode-download" }, ep.downloadName) : null,
+        );
+        epListEl.appendChild(epCard);
+      });
+    }
+
+    const view = el("div", { class: "workspace-root" }, header, el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
+    root.appendChild(view);
+  }
+
+  function startEpisodeFromShow(showId) {
+    const show = LIB.getShow(showLibrary, showId);
+    const prefill = show ? LIB.newEpisodeDraft(show) : {};
+    // Reset episode state and pre-fill from the show.
+    state = ES.createDraft();
+    errors = {};
+    showErrors = false;
+    styleSelection = STY ? STY.createSelection() : null;
+    appliedStyle = null;
+    layoutCustomized = false;
+    audioPolish = null;
+    appliedAudioPolish = null;
+    canvasDoc = null;
+    momentsBoard = null;
+    selectedMomentId = null;
+    exportJob = null;
+    contextReview = null;
+    contextApproved = false;
+    publishReview = null;
+    publishReviewApproved = false;
+
+    // Apply show prefill.
+    if (prefill.templateId && TM) {
+      activeTemplateId = prefill.templateId;
+      const tpl = TM.listTemplates(templateStore).find((t) => t.id === prefill.templateId);
+      if (tpl) {
+        canvasDoc = tpl.canvasDoc ? JSON.parse(JSON.stringify(tpl.canvasDoc)) : null;
+      }
+    }
+    if (prefill.presetName && STY) {
+      const presets = STY.listPresets ? STY.listPresets() : [];
+      const match = presets.find((p) => p.name === prefill.presetName);
+      if (match) {
+        styleSelection.presetId = match.id;
+        styleSelection.presetName = match.name;
+      }
+    }
+
+    renderSetup();
   }
 
   // ---- Setup view -------------------------------------------------------------
@@ -1966,5 +2228,9 @@
     return el("div", { class: "stat" }, el("span", { class: "stat-value" }, value), el("span", { class: "stat-label" }, label));
   }
 
-  renderSetup();
+  // Initialize show library from localStorage, then show the library dashboard first.
+  if (LIB) {
+    showLibrary = LIB.deserializeLibrary(safeLoadShowLibrary());
+  }
+  renderShowLibrary();
 }());
