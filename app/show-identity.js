@@ -159,7 +159,13 @@
       }
     }
 
-    if (show && show.presetName && STY && STY.STYLE_PRESETS) {
+    if (show && show.presetId && STY) {
+      selection.presetId = show.presetId;
+      const preset = STY.getPreset(show.presetId);
+      if (preset) {
+        selection.layout = preset.defaultLayout || selection.layout;
+      }
+    } else if (show && show.presetName && STY && STY.STYLE_PRESETS) {
       const match = STY.STYLE_PRESETS.find((preset) => preset.name === show.presetName);
       if (match) {
         selection.presetId = match.id;

@@ -3390,3 +3390,68 @@ button.ghost:hover,
   }
 }
 
+.import-ready-summary {
+  margin-bottom: 16px;
+}
+
+.import-ready-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin: 12px 0 0;
+}
+
+.import-ready-summary-item dt {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #6b7280);
+  margin-bottom: 4px;
+}
+
+.import-ready-summary-item dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.import-ready-summary-note {
+  margin-top: 12px;
+}
+
+.setup-first-episode-import .setup-import-head h2 {
+  max-width: 28ch;
+}
+
+.file-placeholder-btn {
+  margin-top: 8px;
+}
+
+.file-placeholder-hint {
+  margin-top: 8px;
+}
+
+.episode-import-recap {
+  margin-bottom: 16px;
+}
+
+.episode-import-recap-source,
+.episode-import-recap-style {
+  margin: 8px 0 0;
+}
+
+.episode-import-recap-speakers {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.episode-import-recap-speaker + .episode-import-recap-speaker {
+  margin-top: 6px;
+}
+
+@media (max-width: 720px) {
+  .import-ready-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

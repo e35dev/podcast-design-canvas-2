@@ -432,6 +432,112 @@
     );
   }
 
+  function isFirstEpisodeImportStep() {
+    if (!activeShowId || !LIB) {
+      return false;
+    }
+    const show = LIB.getShow(showLibrary, activeShowId);
+    if (!show) {
+      return false;
+    }
+    const episodes = LIB.listEpisodes(showLibrary, activeShowId);
+    if (!episodes.length) {
+      return true;
+    }
+    if (episodes.length === 1 && activeEpisodeId && episodes[0].id === activeEpisodeId) {
+      return episodes[0].status === LIB.EPISODE_STATUS.DRAFT;
+    }
+    return false;
+  }
+
+  function importStyleSummaryLine() {
+    if (appliedStyle && appliedStyle.presetName) {
+      return appliedStyle.layoutLabel
+        ? `${appliedStyle.presetName} · ${appliedStyle.layoutLabel}`
+        : appliedStyle.presetName;
+    }
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    if (show && show.presetName) {
+      return show.presetName;
+    }
+    return "Choose during audio polish and style";
+  }
+
+  function renderImportReadySummary() {
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    const sourceLabel = state.sourceMode === "upload" ? "Synced speaker files" : "Riverside link";
+    const bucketLine = state.speakers.map((speaker) => speaker.role || "Unassigned").join(" · ");
+
+    return el(
+      "section",
+      { class: "card import-ready-summary" },
+      el("h3", {}, "What carries into your episode"),
+      el(
+        "dl",
+        { class: "import-ready-summary-grid" },
+        el(
+          "div",
+          { class: "import-ready-summary-item" },
+          el("dt", {}, "Show"),
+          el("dd", {}, show ? show.name : "—"),
+        ),
+        el(
+          "div",
+          { class: "import-ready-summary-item" },
+          el("dt", {}, "Episode look"),
+          el("dd", {}, importStyleSummaryLine()),
+        ),
+        el(
+          "div",
+          { class: "import-ready-summary-item" },
+          el("dt", {}, "Import method"),
+          el("dd", {}, sourceLabel),
+        ),
+        el(
+          "div",
+          { class: "import-ready-summary-item" },
+          el("dt", {}, "Speaker buckets"),
+          el("dd", {}, bucketLine),
+        ),
+      ),
+      el(
+        "p",
+        { class: "hint import-ready-summary-note" },
+        "Assign each synced source to Host or Guest buckets and add social links — then continue to audio polish.",
+      ),
+    );
+  }
+
+  function renderEpisodeImportRecap(summary) {
+    const styleLine = importStyleSummaryLine();
+    const speakerItems = summary.speakers.map((speaker) => {
+      const label = speaker.name ? `${speaker.name} (${speaker.role})` : speaker.role;
+      return el(
+        "li",
+        { class: "episode-import-recap-speaker" },
+        el("strong", {}, label),
+        " — ",
+        speaker.sourceLabel,
+      );
+    });
+
+    return el(
+      "section",
+      { class: "card episode-import-recap" },
+      el("h3", {}, "Episode import summary"),
+      el("p", { class: "episode-import-recap-source" }, `${summary.sourceModeLabel}${summary.riversideLink ? `: ${summary.riversideLink}` : ""}`),
+      el("p", { class: "episode-import-recap-style" }, `Episode look: ${styleLine}`),
+      el("ul", { class: "episode-import-recap-speakers" }, speakerItems),
+      summary.socialLinkCount > 0
+        ? el(
+          "p",
+          { class: "hint episode-import-recap-social" },
+          `${summary.socialLinkCount} social link${summary.socialLinkCount === 1 ? "" : "s"} saved for speaker context`,
+        )
+        : null,
+    );
+  }
+
   function renderSpeakerRoleOverview() {
     const overview = el("div", { class: "setup-role-overview", "aria-label": "Current speaker role assignments" });
     state.speakers.forEach((speaker, index) => {
@@ -927,6 +1033,7 @@
       const show = LIB.createShow(check.name, {
         templateId: isPresetChoice ? "" : selectedTemplateId,
         templateName: tpl ? tpl.name : "",
+        presetId: isPresetChoice ? selectedTemplateId.slice("preset:".length) : "",
         presetName: selectedPresetName,
       });
       showLibrary = LIB.addShow(showLibrary, show);
@@ -1373,6 +1480,11 @@
     persistEpisodeSession();
 
     setPageIntro("episode-setup");
+    renderFirstEpisodeImport();
+  }
+
+  function renderFirstEpisodeImport() {
+    setStep("First episode import");
     renderSetup();
   }
 
@@ -1502,10 +1614,24 @@
     sanitizeSetupState();
     setPageIntro("episode-setup");
     root.innerHTML = "";
-    setStep("Step 1 of 8 · Set up episode");
+    const firstImport = isFirstEpisodeImportStep();
+    if (!firstImport) {
+      setStep("Step 1 of 8 · Set up episode");
+    }
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
-    const form = el("form", { class: "setup setup-import", novalidate: true });
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    const importHeadline = firstImport && show
+      ? `Import your first episode for ${show.name}`
+      : "Set up your recording and speakers";
+    const importLead = firstImport
+      ? "Paste a Riverside link or attach synced speaker files, assign Host and guest buckets, and add social links — then continue to audio polish."
+      : "Import your synced sources, assign each speaker, and add social links — then continue to audio polish and style.";
+
+    const form = el("form", {
+      class: `setup setup-import${firstImport ? " setup-first-episode-import" : ""}`,
+      novalidate: true,
+    });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       onContinue();
@@ -1515,12 +1641,12 @@
       el(
         "div",
         { class: "setup-import-head" },
-        el("p", { class: "eyebrow" }, "Episode import"),
-        el("h2", {}, "Set up your recording and speakers"),
+        el("p", { class: "eyebrow" }, firstImport ? "First episode import" : "Episode import"),
+        el("h2", {}, importHeadline),
         el(
           "p",
           { class: "hint" },
-          "Import your synced sources, assign each speaker, and add social links — then continue to audio polish and style.",
+          importLead,
         ),
       ),
     );
@@ -1530,6 +1656,10 @@
     const identityBanner = renderShowIdentityBanner();
     if (identityBanner) {
       form.appendChild(identityBanner);
+    }
+
+    if (firstImport) {
+      form.appendChild(renderImportReadySummary());
     }
 
     if (showErrors && errors && Object.keys(errors).length) {
@@ -1620,7 +1750,7 @@
       );
     } else {
       sourceCard.appendChild(
-        el("p", { class: "hint" }, "Add a separate synced video file for each speaker in the cards below."),
+        el("p", { class: "hint" }, "Add a separate synced video file for each speaker in the cards below — or attach placeholder files to try the flow without real uploads."),
       );
     }
     form.appendChild(sourceCard);
@@ -1799,8 +1929,29 @@
         speaker.fileSize = file ? file.size : 0;
         chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
       });
+      const placeholderBtn = el(
+        "button",
+        {
+          type: "button",
+          class: "btn-secondary file-placeholder-btn",
+        },
+        speaker.fileName ? "Replace placeholder file" : "Attach placeholder file",
+      );
+      placeholderBtn.addEventListener("click", () => {
+        readSetupFormState();
+        ES.attachPlaceholderFile(speaker);
+        renderSetup();
+      });
       sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
       sourceBlock.appendChild(chosen);
+      sourceBlock.appendChild(
+        el(
+          "p",
+          { class: "hint file-placeholder-hint" },
+          "No real file handy? Attach a synced placeholder to complete the import step in the sandbox.",
+        ),
+      );
+      sourceBlock.appendChild(placeholderBtn);
     } else {
       const trackInput = el("input", {
         id: `f-sp-${index}-source`,
@@ -2134,6 +2285,8 @@
         el("p", { class: "hint" }, "One self-serve flow from import to publish. Each stage shows what is ready and what still needs attention."),
       ),
     );
+
+    view.appendChild(renderEpisodeImportRecap(summary));
 
     if (WS) {
       ensureMomentsBoard(summary);

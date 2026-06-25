@@ -36,7 +36,8 @@ test("import setup screen uses consistent forward CTA classes with create-show",
 });
 
 test("ACCEPTANCE: library → create show → import path keeps polished setup structure", () => {
-  assert.ok(ui.includes('class: "setup setup-import"'));
+  assert.ok(ui.includes("setup setup-import"));
+  assert.ok(ui.includes("setup-first-episode-import"));
   assert.ok(ui.includes("setup-speakers-card"));
   assert.ok(ui.includes("speaker-card"));
   assert.ok(styles.includes(".setup-cta-bar"));

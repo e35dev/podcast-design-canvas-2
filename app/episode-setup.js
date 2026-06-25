@@ -78,6 +78,31 @@
     return `speaker-bucket-${slug}`;
   }
 
+  const PLACEHOLDER_FILES = {
+    Host: "host-synced.mp4",
+    "Co-host": "cohost-synced.mp4",
+    "Guest 1": "guest-1-synced.mp4",
+    "Guest 2": "guest-2-synced.mp4",
+    "Guest 3": "guest-3-synced.mp4",
+    "Guest 4": "guest-4-synced.mp4",
+  };
+
+  function placeholderFileName(role) {
+    const bucket = trim(role);
+    if (PLACEHOLDER_FILES[bucket]) {
+      return PLACEHOLDER_FILES[bucket];
+    }
+    const slug = bucket.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "speaker";
+    return `${slug}-synced.mp4`;
+  }
+
+  function attachPlaceholderFile(speaker) {
+    const next = speaker && typeof speaker === "object" ? speaker : createSpeaker("Host");
+    next.fileName = placeholderFileName(next.role);
+    next.fileSize = 1280000;
+    return next;
+  }
+
   // A fresh episode draft. Seeded with Host / Guest 1 / Guest 2 so the creator starts
   // from sensible defaults instead of a blank list, matching the preset-first taste rule.
   function createDraft() {
@@ -220,6 +245,8 @@
     socialEntries,
     sourceLabel,
     speakerBucketCueClass,
+    placeholderFileName,
+    attachPlaceholderFile,
     summarize,
     validateDraft,
   };
