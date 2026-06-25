@@ -5,7 +5,7 @@
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
 // transcript correction (#63), episode import before brand setup (#73),
-// episode import polish (#77, #86, #89), visual style preset cards (#94, #102),
+// and episode import polish (#77, #86, #89), visual style preset cards (#94, #102),
 // and creator template gallery (#106).
 (function () {
   const ES = window.PdcEpisodeSetup;
@@ -14,7 +14,7 @@
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
-  const CTG = window.PdcCreatorTemplateGallery;
+  const GAL = window.PdcCreatorGallery;
   const VM = window.PdcVisualMoments;
   const SC = window.PdcSocialContext;
   const EXP = window.PdcEpisodeExport;
@@ -48,11 +48,11 @@
   let audioPolish = null;
   let appliedAudioPolish = null;
   const TPL_STORAGE_KEY = "pdc-show-templates";
-  const GALLERY_STORAGE_KEY = "pdc-creator-template-gallery";
+  const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
-  let galleryStore = CTG ? CTG.deserializeGallery(safeLoadGallery()) : { listings: [] };
-  let selectedGalleryListingId = null;
+  let galleryStore = GAL ? GAL.deserializeGallery(safeLoadGallery()) : { listings: [] };
   let activeTemplateId = null;
+  let activeGalleryListingId = null;
   let canvasDoc = null;
   let canvasLayerCounter = 20;
   let workspaceSummaryCache = null;
@@ -164,21 +164,21 @@
   }
 
   function persistGallery() {
-    if (!CTG || typeof localStorage === "undefined") {
+    if (!GAL || typeof localStorage === "undefined") {
       return;
     }
     try {
-      localStorage.setItem(GALLERY_STORAGE_KEY, CTG.serializeGallery(galleryStore));
+      localStorage.setItem(GALLERY_STORAGE_KEY, GAL.serializeGallery(galleryStore));
     } catch (err) {
       /* ignore quota errors */
     }
   }
 
   function ensureGalleryStore() {
-    if (!CTG) {
+    if (!GAL) {
       return;
     }
-    const seeded = CTG.ensureStarterGallery(galleryStore);
+    const seeded = GAL.ensureStarterGallery(galleryStore);
     if (seeded.listings.length !== galleryStore.listings.length) {
       galleryStore = seeded;
       persistGallery();
@@ -582,40 +582,67 @@
     const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
     newShowBtn.addEventListener("click", () => renderNewShowForm());
 
-    const galleryBtn = CTG
-      ? el("button", { class: "btn-primary", type: "button" }, "Try creator gallery →")
-      : null;
-    if (galleryBtn) {
-      galleryBtn.addEventListener("click", () => openGalleryDemo());
-    }
-
     const blankEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start blank episode");
     blankEpisodeBtn.addEventListener("click", () => startBlankEpisode());
 
-    const styleDemoBtn = el("button", { class: "btn-secondary", type: "button" }, "Try style preset cards →");
+    const styleDemoBtn = el("button", { class: "btn-primary", type: "button" }, "Try style preset cards →");
     styleDemoBtn.addEventListener("click", () => openStylePickerDemo());
 
-    const actionButtons = galleryBtn
-      ? [galleryBtn, newShowBtn, styleDemoBtn, blankEpisodeBtn]
-      : [newShowBtn, styleDemoBtn, blankEpisodeBtn];
-    const actions = el("div", { class: "workspace-actions" }, ...actionButtons);
+    const galleryDemoBtn = GAL
+      ? el("button", { class: "btn-primary", type: "button" }, "Gallery walkthrough →")
+      : null;
+    if (galleryDemoBtn) {
+      galleryDemoBtn.addEventListener("click", () => openGalleryDemo());
+    }
 
-    const galleryPromo = CTG
-      ? (function () {
-        const browsePromoBtn = el("button", { type: "button", class: "btn-primary" }, "Try creator gallery →");
-        browsePromoBtn.addEventListener("click", () => openGalleryDemo());
-        return el(
+    const galleryBtn = GAL
+      ? el("button", { class: "btn-secondary", type: "button" }, "Creator template gallery →")
+      : null;
+    if (galleryBtn) {
+      galleryBtn.addEventListener("click", () => {
+        ensureGalleryStore();
+        renderCreatorGalleryBrowse(null, { returnTo: "library" });
+      });
+    }
+
+    const actions = el(
+      "div",
+      { class: "workspace-actions" },
+      newShowBtn,
+      styleDemoBtn,
+      galleryDemoBtn,
+      galleryBtn,
+      blankEpisodeBtn,
+    );
+
+    const galleryCard = GAL
+      ? el(
           "section",
-          { class: "card creator-gallery-promo" },
-          el("h2", {}, "Creator template gallery"),
+          { class: "card show-library-gallery-card" },
+          el("h2", { class: "show-library-gallery-title" }, "Creator template gallery"),
           el(
             "p",
             { class: "hint" },
-            "Browse shared show layouts, preview how they look on your episode, and apply the frames, captions, and branding in one click.",
+            "Publish saved layouts with name, description, style tags, and preview image. Other shows browse, preview on the episode canvas, and apply frames, captions, overlays, and brand styling.",
           ),
-          el("div", { class: "creator-gallery-promo-actions" }, browsePromoBtn),
-        );
-      })()
+          el(
+            "div",
+            { class: "template-library-actions" },
+            (() => {
+              const browseBtn = el("button", { type: "button", class: "ghost" }, "Browse creator gallery →");
+              browseBtn.addEventListener("click", () => {
+                ensureGalleryStore();
+                renderCreatorGalleryBrowse(null, { returnTo: "library" });
+              });
+              return browseBtn;
+            })(),
+            (() => {
+              const publishBtn = el("button", { type: "button", class: "ghost" }, "Try publish flow →");
+              publishBtn.addEventListener("click", () => openPublishGalleryDemo());
+              return publishBtn;
+            })(),
+          ),
+        )
       : null;
 
     const listEl = el("div", { class: "show-library-list" });
@@ -674,7 +701,7 @@
       });
     }
 
-    const view = el("div", { class: "workspace-root" }, header, actions, galleryPromo, listEl);
+    const view = el("div", { class: "workspace-root" }, header, actions, galleryCard, listEl);
     root.appendChild(view);
   }
 
@@ -817,19 +844,6 @@
         presetGrid,
         blankOption,
         saved.length ? savedTemplatesBlock : null,
-        CTG
-          ? (function () {
-            const galleryBrowseBtn = el("button", { type: "button", class: "btn-secondary create-show-gallery-btn" }, "Browse creator gallery →");
-            galleryBrowseBtn.addEventListener("click", () => openGalleryDemo());
-            return el(
-              "div",
-              { class: "create-show-gallery-entry" },
-              el("span", { class: "create-show-saved-label" }, "Creator gallery"),
-              el("p", { class: "hint" }, "Apply a published layout from another creator — preview frames, captions, overlays, and brand styling on your episode."),
-              galleryBrowseBtn,
-            );
-          })()
-          : null,
       ),
       el(
         "section",
@@ -1195,34 +1209,6 @@
     renderSetup();
   }
 
-  function openGalleryDemo() {
-    if (!CTG) {
-      return;
-    }
-    activeShowId = null;
-    activeEpisodeId = null;
-    startingFromShowIdentity = false;
-    showIdentitySummary = null;
-    state = ES.createDraft();
-    state.episodeName = "Gallery Demo Episode";
-    state.sourceMode = "riverside";
-    state.riversideLink = "https://riverside.fm/studio/founders-demo";
-    state.speakers = [
-      Object.assign(ES.createSpeaker("Host"), { name: "Sam Rivera" }),
-      Object.assign(ES.createSpeaker("Guest 1"), { name: "Dana Kim" }),
-      Object.assign(ES.createSpeaker("Guest 2"), { name: "Alex Chen" }),
-    ];
-    styleSelection = STY ? STY.createSelection() : null;
-    appliedStyle = null;
-    canvasDoc = null;
-    activeTemplateId = null;
-    ensureGalleryStore();
-    const listings = CTG.listListings(galleryStore);
-    selectedGalleryListingId = listings.length ? listings[0].id : null;
-    setPageIntro("library");
-    renderCreatorGallery(ES.summarize(state), "library");
-  }
-
   function openStylePickerDemo() {
     activeShowId = null;
     activeEpisodeId = null;
@@ -1253,6 +1239,99 @@
     const summary = ES.summarize(state);
     setPageIntro("episode-setup");
     renderStyle(summary);
+  }
+
+  function buildAgencySplitDemoTemplate() {
+    if (!TM || !CE || !STY || !CL) {
+      return null;
+    }
+    const demoDraft = ES.createDraft();
+    demoDraft.episodeName = "Founders Unfiltered #7";
+    demoDraft.sourceMode = "upload";
+    demoDraft.speakers = [
+      Object.assign(ES.createSpeaker("Host"), { name: "Sam Rivera" }),
+      Object.assign(ES.createSpeaker("Guest 1"), { name: "Dana Kim" }),
+      Object.assign(ES.createSpeaker("Guest 2"), { name: "Alex Chen" }),
+    ];
+    const episodeA = ES.summarize(demoDraft);
+    const selection = STY.createSelection();
+    selection.presetId = "split-stage";
+    selection.layout = "split";
+    const applied = STY.summarizeStyle(selection, episodeA.speakerCount);
+    let doc = CE.createFromStyle(applied, episodeA, selection);
+    doc = CE.updateElement(doc, "titleText", "Agency Split Layout");
+    const captionsIdx = doc.layers.findIndex((layer) => layer.type === "captions");
+    doc = CE.updateLayers(doc, CL.moveLayer(doc.layers, captionsIdx, -1));
+    if (!CE.validateForSave(doc).ok) {
+      return null;
+    }
+    return TM.createTemplate("Agency Split", doc, "tpl-agency-split-demo");
+  }
+
+  function seedGalleryDemoData() {
+    if (!GAL || !TM) {
+      return false;
+    }
+    let template = TM.getTemplate(templateStore, "tpl-agency-split-demo");
+    if (!template) {
+      const built = buildAgencySplitDemoTemplate();
+      if (!built) {
+        return false;
+      }
+      templateStore = TM.saveTemplate(templateStore, built);
+      persistTemplates();
+      template = built;
+    }
+    const existing = GAL.listListings(galleryStore).find((item) => item.sourceTemplateId === template.id);
+    if (existing) {
+      return true;
+    }
+    galleryStore = GAL.publishListing(galleryStore, template, {
+      name: "Founders Split Look",
+      description: "Side-by-side interview layout with bold captions, lower-thirds, and brand styling.",
+      styleTags: GAL.deriveStyleTags(template.canvas).concat(["creator-share", "interview"]),
+      previewImage: GAL.buildPreviewImage(template.canvas),
+      creatorName: "Founders Unfiltered",
+    });
+    persistGallery();
+    return true;
+  }
+
+  function openGalleryDemo() {
+    if (!GAL) {
+      return;
+    }
+    activeShowId = null;
+    activeEpisodeId = null;
+    startingFromShowIdentity = false;
+    showIdentitySummary = null;
+    ensureGalleryStore();
+    state = ES.createDraft();
+    state.episodeName = "New Episode";
+    state.sourceMode = "upload";
+    state.speakers = [
+      Object.assign(ES.createSpeaker("Host"), { name: "Alex Chen" }),
+      Object.assign(ES.createSpeaker("Guest 1"), { name: "Jordan Lee" }),
+    ];
+    workspaceSummaryCache = ES.summarize(state);
+    const listings = GAL.listListings(galleryStore);
+    activeGalleryListingId = listings[0] ? listings[0].id : null;
+    styleSelection = STY ? STY.createSelection() : null;
+    appliedStyle = null;
+    canvasDoc = null;
+    activeTemplateId = null;
+    lastView = "gallery";
+    setPageIntro("library");
+    renderCreatorGalleryBrowse(workspaceSummaryCache, { returnTo: "library" });
+  }
+
+  function openPublishGalleryDemo() {
+    if (!GAL || !TM) {
+      return;
+    }
+    seedGalleryDemoData();
+    const summary = galleryPreviewSummary("Founders Unfiltered");
+    renderPublishToGallery("tpl-agency-split-demo", summary, "library");
   }
 
   function startEpisodeFromShow(showId) {
@@ -1563,7 +1642,10 @@
     form.appendChild(speakersCard);
 
     if (TM) {
-      form.appendChild(renderSavedTemplatesCard(TM.listTemplates(templateStore), null));
+      const saved = TM.listTemplates(templateStore);
+      if (saved.length || GAL) {
+        form.appendChild(renderSavedTemplatesCard(saved, null));
+      }
     }
 
     if (activeShowId) {
@@ -2153,7 +2235,10 @@
     view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
 
     if (TM) {
-      view.appendChild(renderSavedTemplatesCard(TM.listTemplates(templateStore), summary));
+      const saved = TM.listTemplates(templateStore);
+      if (saved.length || GAL) {
+        view.appendChild(renderSavedTemplatesCard(saved, summary));
+      }
     }
 
     root.appendChild(view);
@@ -2801,32 +2886,400 @@
     view.scrollIntoView({ block: "start" });
   }
 
-  function renderSavedTemplatesCard(saved, summary, returnTo) {
-    const card = el("section", { class: "card template-picker template-library" }, el("h3", {}, "Show template library"));
-    const headerActions = el("div", { class: "template-library-actions" });
-    if (CTG) {
-      const galleryButton = el("button", { type: "button", class: "btn-primary btn-sm" }, "Open creator gallery →");
-      galleryButton.addEventListener("click", () => {
-        renderCreatorGallery(summary, returnTo);
-      });
-      headerActions.appendChild(galleryButton);
+  function galleryPreviewSummary(showName) {
+    const base = workspaceSummaryCache || ES.summarize(state);
+    if (base && base.speakerCount > 0) {
+      return base;
     }
-    card.appendChild(
-      el("p", { class: "hint" }, "Pick a saved layout for this episode, or open the gallery to browse shared looks from other creators."),
-    );
-    if (headerActions.childNodes.length) {
-      card.appendChild(headerActions);
+    const title = typeof showName === "string" && showName.trim() ? showName.trim() : "Founders Unfiltered";
+    return {
+      episodeName: `${title} · Episode 12`,
+      showName: title,
+      speakers: [
+        { role: "Host", name: "Sam Rivera" },
+        { role: "Guest 1", name: "Dana Kim" },
+        { role: "Guest 2", name: "Alex Chen" },
+      ],
+      speakerCount: 3,
+    };
+  }
+
+  function renderGalleryPreviewThumb(listing, summary) {
+    if (!GAL || !listing) {
+      return el("div", { class: "creator-gallery-preview-thumb" });
     }
-    const list = el("div", { class: "template-list" });
-    if (!saved.length) {
-      list.appendChild(
+    const previewSummary = summary || galleryPreviewSummary();
+    const styleFromListing = GAL.styleSelectionFromListing(listing);
+    const previewCanvas = GAL.applyListingForEpisode(listing, previewSummary, styleFromListing);
+    const wrap = el("div", { class: "creator-gallery-preview-thumb" });
+    if (previewCanvas) {
+      wrap.appendChild(renderCanvasStage(previewCanvas));
+    }
+    return wrap;
+  }
+
+  function renderCreatorGalleryBrowse(summary, options) {
+    if (!GAL) {
+      return;
+    }
+    ensureGalleryStore();
+    const returnTo = options && options.returnTo;
+    const previewSummary = summary || galleryPreviewSummary();
+    const listings = GAL.listListings(galleryStore);
+    let selectedId = activeGalleryListingId || (listings[0] && listings[0].id) || null;
+
+    root.innerHTML = "";
+    setStep("Creator template gallery");
+
+    const view = el("div", { class: "creator-gallery-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Creator gallery"),
+        el("h2", {}, "Browse reusable podcast layouts"),
         el(
           "p",
-          { class: "hint template-library-empty" },
-          "No saved layouts yet. Customize your look in the canvas editor, save it, then share it in the gallery.",
+          { class: "hint" },
+          "Preview publish-ready layouts from other creators, then apply frames, captions, overlays, and brand styling to your episode.",
+        ),
+      ),
+    );
+
+    if (!listings.length) {
+      const emptyCard = el(
+        "section",
+        { class: "card creator-gallery-empty" },
+        el("h3", {}, "No gallery templates yet"),
+        el(
+          "p",
+          { class: "hint" },
+          "Load the demo gallery to browse a published split-stage layout, or save a show template from the canvas editor and publish it here.",
+        ),
+      );
+      const demoBtn = el("button", { type: "button", class: "primary" }, "Load demo gallery →");
+      demoBtn.addEventListener("click", () => {
+        ensureGalleryStore();
+        renderCreatorGalleryBrowse(summary, { returnTo: returnTo });
+      });
+      emptyCard.appendChild(demoBtn);
+      view.appendChild(emptyCard);
+      const back = el("button", { type: "button", class: "ghost" }, "← Back");
+      back.addEventListener("click", () => {
+        if (returnTo === "style" && summary) {
+          renderStyle(summary);
+        } else if (returnTo === "library") {
+          renderShowLibrary();
+        } else if (summary) {
+          renderWorkspace(summary);
+        } else {
+          renderSetup();
+        }
+      });
+      view.appendChild(el("div", { class: "actions" }, back));
+      root.appendChild(view);
+      return;
+    }
+
+    const layout = el("div", { class: "creator-gallery-layout" });
+    const browsePanel = el("section", { class: "card creator-gallery-browse" }, el("h3", {}, "Gallery listings"));
+    const grid = el("div", { class: "creator-gallery-grid" });
+
+    const previewHost = el("section", { class: "card creator-gallery-preview-panel" }, el("h3", {}, "Episode preview"));
+    const previewBody = el("div", { class: "creator-gallery-preview-body" });
+    const previewMeta = el("div", { class: "creator-gallery-preview-meta" });
+    previewHost.appendChild(previewBody);
+    previewHost.appendChild(previewMeta);
+
+    function renderSelectedPreview() {
+      const listing = selectedId ? GAL.getListing(galleryStore, selectedId) : null;
+      previewBody.innerHTML = "";
+      previewMeta.innerHTML = "";
+      if (!listing) {
+        previewBody.appendChild(el("p", { class: "hint" }, "Select a gallery template to preview its layout."));
+        return;
+      }
+      const styleFromListing = GAL.styleSelectionFromListing(listing);
+      const previewCanvas = GAL.applyListingForEpisode(listing, previewSummary, styleFromListing);
+      previewBody.appendChild(renderCanvasStage(previewCanvas));
+      previewMeta.appendChild(el("h4", { class: "creator-gallery-preview-name" }, listing.name));
+      if (listing.description) {
+        previewMeta.appendChild(el("p", { class: "hint" }, listing.description));
+      }
+      if (listing.styleTags && listing.styleTags.length) {
+        const tags = el("div", { class: "creator-gallery-tags" });
+        listing.styleTags.forEach((tag) => {
+          tags.appendChild(el("span", { class: "creator-gallery-tag" }, tag));
+        });
+        previewMeta.appendChild(tags);
+      }
+      previewMeta.appendChild(
+        el(
+          "p",
+          { class: "hint creator-gallery-preview-note" },
+          `Preview uses ${previewSummary.speakerCount} speaker${previewSummary.speakerCount === 1 ? "" : "s"} from your current episode.`,
         ),
       );
     }
+
+    function renderBrowseGrid() {
+      grid.innerHTML = "";
+      listings.forEach((item) => {
+        const listing = GAL.getListing(galleryStore, item.id);
+        const selected = item.id === selectedId;
+        const card = el(
+          "button",
+          {
+            type: "button",
+            class: `creator-gallery-card${selected ? " selected" : ""}`,
+            "aria-pressed": selected ? "true" : "false",
+          },
+          renderGalleryPreviewThumb(listing, previewSummary),
+          el("span", { class: "creator-gallery-card-name" }, item.name),
+          el("span", { class: "creator-gallery-card-meta" }, item.presetName || item.previewImage.presetName || "Custom layout"),
+        );
+        if (item.description) {
+          card.appendChild(el("span", { class: "creator-gallery-card-desc" }, item.description));
+        }
+        if (item.styleTags && item.styleTags.length) {
+          const tags = el("span", { class: "creator-gallery-card-tags" }, item.styleTags.slice(0, 3).join(" · "));
+          card.appendChild(tags);
+        }
+        card.addEventListener("click", () => {
+          selectedId = item.id;
+          activeGalleryListingId = item.id;
+          renderBrowseGrid();
+          renderSelectedPreview();
+        });
+        grid.appendChild(card);
+      });
+    }
+
+    renderBrowseGrid();
+    renderSelectedPreview();
+    browsePanel.appendChild(grid);
+    layout.appendChild(browsePanel);
+    layout.appendChild(previewHost);
+    view.appendChild(layout);
+
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply gallery template →");
+    applyButton.addEventListener("click", () => {
+      if (!selectedId) {
+        return;
+      }
+      applyGalleryListing(selectedId, previewSummary, { returnTo: returnTo });
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back");
+    back.addEventListener("click", () => {
+      if (returnTo === "style" && summary) {
+        renderStyle(summary);
+      } else if (returnTo === "library") {
+        renderShowLibrary();
+      } else if (summary) {
+        renderWorkspace(summary);
+      } else {
+        renderSetup();
+      }
+    });
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  function renderPublishToGallery(templateId, summary, returnTo) {
+    if (!GAL || !TM) {
+      return;
+    }
+    const template = TM.getTemplate(templateStore, templateId);
+    if (!template) {
+      if (returnTo === "style" && summary) {
+        renderStyle(summary);
+      } else if (summary) {
+        renderWorkspace(summary);
+      } else {
+        renderSetup();
+      }
+      return;
+    }
+
+    root.innerHTML = "";
+    setStep("Publish to creator gallery");
+
+    const view = el("div", { class: "creator-gallery-publish-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Creator gallery"),
+        el("h2", {}, "Publish saved layout"),
+        el(
+          "p",
+          { class: "hint" },
+          "Share this show template with name, description, style tags, and a preview image other shows can browse and apply.",
+        ),
+      ),
+    );
+
+    const layout = el("div", { class: "creator-gallery-publish-layout" });
+    const formCard = el("section", { class: "card creator-gallery-publish-form" }, el("h3", {}, "Listing details"));
+
+    const nameInput = el("input", {
+      id: "gallery-listing-name",
+      type: "text",
+      value: template.name,
+      placeholder: "e.g. Founders Split Stage",
+    });
+    formCard.appendChild(field("Gallery name", nameInput, null, "Public name shown in the creator gallery."));
+
+    const descriptionInput = el("textarea", {
+      id: "gallery-listing-description",
+      rows: "3",
+      placeholder: "Describe the layout, captions, overlays, and when to use it.",
+    }, "");
+    formCard.appendChild(field("Description", descriptionInput, null, "Help other creators understand this layout."));
+
+    const tagsInput = el("input", {
+      id: "gallery-listing-tags",
+      type: "text",
+      value: GAL.deriveStyleTags(template.canvas).join(", "),
+      placeholder: "interview, split-stage, bold-captions",
+    });
+    formCard.appendChild(field("Style tags", tagsInput, null, "Comma-separated tags for browsing and filtering."));
+
+    const publishError = el("p", { class: "field-error", role: "alert", hidden: true });
+    formCard.appendChild(publishError);
+
+    layout.appendChild(formCard);
+
+    const previewCard = el("section", { class: "card creator-gallery-publish-preview" }, el("h3", {}, "Preview image"));
+    previewCard.appendChild(
+      el("p", { class: "hint" }, "Live layout preview saved with the listing — speakers update when others apply it to their episode."),
+    );
+    previewCard.appendChild(renderCanvasStage(template.canvas));
+    layout.appendChild(previewCard);
+    view.appendChild(layout);
+
+    const publishButton = el("button", { type: "button", class: "primary" }, "Publish to gallery →");
+    publishButton.addEventListener("click", () => {
+      const nameResult = GAL.validateListingName(galleryStore, nameInput.value);
+      if (!nameResult.ok) {
+        publishError.hidden = false;
+        publishError.textContent = nameResult.error;
+        return;
+      }
+      publishError.hidden = true;
+      galleryStore = GAL.publishListing(galleryStore, template, {
+        name: nameResult.name,
+        description: descriptionInput.value,
+        styleTags: tagsInput.value,
+        previewImage: GAL.buildPreviewImage(template.canvas),
+        creatorName: previewSummaryShowName(summary),
+      });
+      persistGallery();
+      const published = GAL.listListings(galleryStore).find((item) => item.name === nameResult.name);
+      activeGalleryListingId = published ? published.id : null;
+      renderCreatorGalleryBrowse(summary, { returnTo: returnTo });
+    });
+
+    const back = el("button", { type: "button", class: "ghost" }, "← Back");
+    back.addEventListener("click", () => {
+      if (returnTo === "style" && summary) {
+        renderStyle(summary);
+      } else if (returnTo === "library") {
+        renderShowLibrary();
+      } else if (summary) {
+        renderWorkspace(summary);
+      } else {
+        renderSetup();
+      }
+    });
+    view.appendChild(el("div", { class: "actions" }, publishButton, back));
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  function previewSummaryShowName(summary) {
+    if (summary && summary.showName) {
+      return summary.showName;
+    }
+    if (activeShowId && LIB) {
+      const show = LIB.getShow(showLibrary, activeShowId);
+      if (show && show.name) {
+        return show.name;
+      }
+    }
+    return "Creator";
+  }
+
+  function applyGalleryListing(listingId, summary, options) {
+    if (!GAL || !TM) {
+      return;
+    }
+    const listing = GAL.getListing(galleryStore, listingId);
+    if (!listing) {
+      return;
+    }
+    const episodeSummary = summary || ES.summarize(state);
+    const fromCanvas = GAL.styleSelectionFromListing(listing);
+    styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
+    canvasDoc = GAL.applyListingForEpisode(listing, episodeSummary, styleSelection);
+    activeGalleryListingId = listing.id;
+    activeTemplateId = listing.sourceTemplateId || null;
+    if (STY && styleSelection) {
+      appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
+      if (getActiveBrandKit() && BK) {
+        appliedStyle = BK.applyToStyleSummary(appliedStyle, getActiveBrandKit());
+      }
+    }
+    if (canvasDoc && getActiveBrandKit() && BK) {
+      canvasDoc = BK.applyToCanvas(canvasDoc, getActiveBrandKit());
+    }
+    const returnTo = options && options.returnTo;
+    if (returnTo === "style") {
+      renderStyle(episodeSummary);
+    } else if (summary) {
+      renderWorkspace(episodeSummary);
+    } else {
+      renderSetup();
+    }
+  }
+
+  function renderSavedTemplatesCard(saved, summary, returnTo) {
+    const card = el("section", { class: "card template-picker template-library creator-template-area" });
+    card.appendChild(el("h3", {}, "Show template library"));
+    card.appendChild(
+      el(
+        "p",
+        { class: "hint" },
+        "Pick a saved layout and style — your current episode speakers stay assigned. Publish layouts to the creator gallery for other shows to browse.",
+      ),
+    );
+
+    const headerActions = el("div", { class: "template-library-actions" });
+    if (GAL) {
+      const browseButton = el("button", { type: "button", class: "ghost" }, "Browse creator gallery →");
+      browseButton.addEventListener("click", () => {
+        ensureGalleryStore();
+        renderCreatorGalleryBrowse(summary, { returnTo: returnTo });
+      });
+      headerActions.appendChild(browseButton);
+    }
+    if (headerActions.childNodes.length) {
+      card.appendChild(headerActions);
+    }
+
+    if (!saved.length) {
+      card.appendChild(
+        el(
+          "p",
+          { class: "hint template-library-empty" },
+          "No saved templates yet — customize a layout in the canvas editor, then save it here to publish.",
+        ),
+      );
+      return card;
+    }
+
+    const list = el("div", { class: "template-list" });
     saved.forEach((item) => {
       const row = el(
         "div",
@@ -2838,290 +3291,24 @@
           `${item.presetName || "Custom"} · ${item.titleText || "Untitled"}`,
         ),
       );
-      const rowActions = el("div", { class: "template-row-actions" });
-      const useButton = el("button", { type: "button", class: "btn-secondary btn-sm" }, "Use");
+      const actions = el("div", { class: "template-row-actions" });
+      const useButton = el("button", { type: "button", class: "ghost" }, "Use template");
       useButton.addEventListener("click", () => {
         applySavedTemplate(item.id, summary, { returnTo: returnTo });
       });
-      rowActions.appendChild(useButton);
-      if (CTG) {
-        const publishButton = el("button", { type: "button", class: "btn-secondary btn-sm" }, "Publish");
+      actions.appendChild(useButton);
+      if (GAL) {
+        const publishButton = el("button", { type: "button", class: "ghost" }, "Publish to gallery");
         publishButton.addEventListener("click", () => {
-          renderGalleryPublish(item.id, summary, returnTo);
+          renderPublishToGallery(item.id, summary, returnTo);
         });
-        rowActions.appendChild(publishButton);
+        actions.appendChild(publishButton);
       }
-      row.appendChild(rowActions);
+      row.appendChild(actions);
       list.appendChild(row);
     });
     card.appendChild(list);
     return card;
-  }
-
-  function renderGalleryPublish(templateId, summary, returnTo) {
-    if (!CTG) {
-      return;
-    }
-    const episodeSummary = summary || ES.summarize(state);
-    let canvas = null;
-    let brandKit = getActiveBrandKit();
-    let defaultName = "My Show Layout";
-    let sourceTemplateId = "";
-
-    if (templateId && TM) {
-      const template = TM.getTemplate(templateStore, templateId);
-      if (template && template.canvas) {
-        canvas = template.canvas;
-        defaultName = template.name;
-        sourceTemplateId = template.id;
-      }
-    }
-    if (!canvas && canvasDoc) {
-      canvas = canvasDoc;
-      defaultName = canvasDoc.titleText || defaultName;
-    }
-    if (!canvas && CTG.samplePublishCanvas) {
-      const sample = CTG.samplePublishCanvas();
-      if (sample) {
-        canvas = sample.canvas;
-        brandKit = sample.brandKit || brandKit;
-        defaultName = sample.defaultName;
-      }
-    }
-    if (!canvas) {
-      renderCreatorGallery(summary, returnTo);
-      return;
-    }
-
-    root.innerHTML = "";
-    setStep("Creator gallery · Publish layout");
-    const previewImage = CTG.buildPreviewImage(canvas, brandKit);
-
-    const view = el("div", { class: "gallery-step" });
-    view.appendChild(
-      el("div", { class: "workspace-head" },
-        el("p", { class: "eyebrow" }, "Creator gallery"),
-        el("h2", {}, "Publish your layout"),
-        el("p", { class: "hint" }, "Add a name, short description, and tags so other creators can find and preview your show look."),
-      ),
-    );
-
-    const grid = el("div", { class: "gallery-publish-layout" });
-    const formCard = el("section", { class: "card" }, el("h3", {}, "Listing details"));
-    const nameInput = el("input", { id: "gallery-name", type: "text", value: defaultName });
-    const descriptionInput = el("textarea", {
-      id: "gallery-description",
-      rows: "4",
-      placeholder: "When should other creators use this look?",
-    });
-    formCard.appendChild(field("Layout name", nameInput));
-    formCard.appendChild(field("Description", descriptionInput));
-
-    const tagField = el("div", { class: "field" }, el("label", {}, "Style tags"));
-    const tagGrid = el("div", { class: "gallery-tag-grid" });
-    const selectedTags = new Set(["interview"]);
-    CTG.STYLE_TAGS.forEach((tag) => {
-      const id = `gallery-tag-${tag.id}`;
-      const input = el("input", { id, type: "checkbox", value: tag.id, checked: selectedTags.has(tag.id) ? true : null });
-      input.addEventListener("change", () => {
-        if (input.checked) {
-          selectedTags.add(tag.id);
-        } else {
-          selectedTags.delete(tag.id);
-        }
-      });
-      tagGrid.appendChild(el("label", { class: "gallery-tag-option", for: id }, input, el("span", {}, tag.label)));
-    });
-    tagField.appendChild(tagGrid);
-    formCard.appendChild(tagField);
-
-    const error = el("p", { class: "field-error", role: "alert", hidden: true });
-    formCard.appendChild(error);
-    grid.appendChild(formCard);
-
-    const previewCard = el("section", { class: "card gallery-preview-card" }, el("h3", {}, "Preview image"));
-    previewCard.appendChild(el("img", { class: "gallery-preview-image", src: previewImage, alt: `Preview for ${defaultName}` }));
-    previewCard.appendChild(el("p", { class: "hint" }, "This thumbnail appears on your gallery card."));
-    grid.appendChild(previewCard);
-    view.appendChild(grid);
-
-    const actions = el("div", { class: "workspace-actions setup-actions" });
-    const publishButton = el("button", { type: "button", class: "btn-primary" }, "Publish layout →");
-    publishButton.addEventListener("click", () => {
-      const created = CTG.createListingFromCanvas({
-        canvas: canvas,
-        name: nameInput.value,
-        description: descriptionInput.value,
-        styleTags: Array.from(selectedTags),
-        brandKit: brandKit,
-        previewImage: previewImage,
-        sourceTemplateId: sourceTemplateId,
-      });
-      if (!created.ok) {
-        error.hidden = false;
-        error.textContent = created.error;
-        return;
-      }
-      const published = CTG.publishListing(galleryStore, created.listing);
-      if (!published.ok) {
-        error.hidden = false;
-        error.textContent = published.error;
-        return;
-      }
-      galleryStore = published.gallery;
-      selectedGalleryListingId = published.listing.id;
-      persistGallery();
-      renderCreatorGallery(episodeSummary, returnTo);
-    });
-    const back = el("button", { type: "button", class: "btn-secondary" }, "← Back");
-    back.addEventListener("click", () => {
-      if (returnTo === "library") {
-        renderCreatorGallery(episodeSummary, returnTo);
-      } else if (returnTo === "new-show") {
-        renderNewShowForm();
-      } else if (returnTo === "style") {
-        renderStyle(episodeSummary);
-      } else if (summary) {
-        renderWorkspace(episodeSummary);
-      } else {
-        renderSetup();
-      }
-    });
-    actions.appendChild(back);
-    actions.appendChild(publishButton);
-    view.appendChild(actions);
-    root.appendChild(view);
-    view.scrollIntoView({ block: "start" });
-  }
-
-  function renderCreatorGallery(summary, returnTo) {
-    if (!CTG) {
-      return;
-    }
-    ensureGalleryStore();
-    root.innerHTML = "";
-    setStep("Creator gallery · Browse layouts");
-    const episodeSummary = summary || ES.summarize(state);
-    const listings = CTG.listListings(galleryStore);
-    if (!selectedGalleryListingId && listings.length) {
-      selectedGalleryListingId = listings[0].id;
-    }
-
-    const view = el("div", { class: "gallery-step" });
-    view.appendChild(
-      el("div", { class: "workspace-head" },
-        el("p", { class: "eyebrow" }, "Creator gallery"),
-        el("h2", {}, "Browse shared layouts"),
-        el("p", { class: "hint" }, "Pick a layout to preview it on your episode, then apply the frames, captions, overlays, and branding."),
-      ),
-    );
-
-    const headerActions = el("div", { class: "gallery-header-actions" });
-    const publishBtn = el("button", { type: "button", class: "btn-secondary" }, "Publish your layout →");
-    publishBtn.addEventListener("click", () => renderGalleryPublish(null, episodeSummary, returnTo));
-    headerActions.appendChild(publishBtn);
-    view.appendChild(headerActions);
-
-    const layout = el("div", { class: "gallery-browse-layout" });
-    const listCard = el("section", { class: "card gallery-list-card" }, el("h3", {}, "Shared layouts"));
-    const list = el("div", { class: "gallery-list" });
-    listings.forEach((item) => {
-      const card = el(
-        "button",
-        {
-          type: "button",
-          class: `gallery-listing${selectedGalleryListingId === item.id ? " selected" : ""}`,
-        },
-        el("img", { class: "gallery-listing-thumb", src: item.previewImage, alt: "" }),
-        el("span", { class: "gallery-listing-name" }, item.name),
-        el("span", { class: "gallery-listing-meta" }, item.presetName || "Custom"),
-        el("span", { class: "gallery-listing-tags" }, item.styleTagLabels.join(" · ")),
-      );
-      card.addEventListener("click", () => {
-        selectedGalleryListingId = item.id;
-        renderCreatorGallery(episodeSummary, returnTo);
-      });
-      list.appendChild(card);
-    });
-    listCard.appendChild(list);
-    layout.appendChild(listCard);
-
-    const selected = CTG.getListing(galleryStore, selectedGalleryListingId);
-    const previewCard = el("section", { class: "card gallery-detail-card" }, el("h3", {}, "Episode preview"));
-    if (selected) {
-      previewCard.appendChild(el("p", { class: "gallery-detail-description" }, selected.description));
-      const previewDoc = CTG.buildPreviewCanvas(selected, episodeSummary, styleSelection);
-      if (previewDoc) {
-        previewCard.appendChild(renderCanvasStage(previewDoc));
-      }
-      previewCard.appendChild(
-        el("p", { class: "hint" },
-          CTG.summarizeListing(selected),
-        ),
-      );
-      const applyButton = el("button", { type: "button", class: "btn-primary" }, "Apply this layout →");
-      applyButton.addEventListener("click", () => {
-        applyGalleryListing(selected.id, episodeSummary, { returnTo: returnTo });
-      });
-      previewCard.appendChild(el("div", { class: "gallery-detail-actions" }, applyButton));
-    }
-    layout.appendChild(previewCard);
-    view.appendChild(layout);
-
-    const actions = el("div", { class: "workspace-actions setup-actions" });
-    const back = el("button", { type: "button", class: "btn-secondary" }, returnTo === "library" ? "← Back to library" : "← Back");
-    back.addEventListener("click", () => {
-      if (returnTo === "library") {
-        renderShowLibrary();
-      } else if (returnTo === "new-show") {
-        renderNewShowForm();
-      } else if (returnTo === "style") {
-        renderStyle(episodeSummary);
-      } else if (summary) {
-        renderWorkspace(episodeSummary);
-      } else {
-        renderSetup();
-      }
-    });
-    actions.appendChild(back);
-    view.appendChild(actions);
-    root.appendChild(view);
-    view.scrollIntoView({ block: "start" });
-  }
-
-  function applyGalleryListing(listingId, summary, options) {
-    if (!CTG) {
-      return;
-    }
-    const listing = CTG.getListing(galleryStore, listingId);
-    if (!listing) {
-      return;
-    }
-    const episodeSummary = summary || ES.summarize(state);
-    const result = CTG.applyListing(listing, episodeSummary, styleSelection);
-    if (!result.ok) {
-      return;
-    }
-    styleSelection = result.styleSelection;
-    canvasDoc = result.canvasDoc;
-    appliedStyle = result.appliedStyle;
-    activeTemplateId = null;
-    if (result.brandKit) {
-      activeBrandKit = result.brandKit;
-    }
-    selectedGalleryListingId = listing.id;
-    const returnTo = options && options.returnTo;
-    if (returnTo === "library") {
-      renderShowLibrary();
-    } else if (returnTo === "new-show") {
-      renderNewShowForm();
-    } else if (returnTo === "style") {
-      renderStyle(episodeSummary);
-    } else if (summary) {
-      renderWorkspace(episodeSummary);
-    } else {
-      renderSetup();
-    }
   }
 
   function applySavedTemplate(templateId, summary, options) {
@@ -3137,6 +3324,7 @@
     styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
     canvasDoc = TM.applyTemplateForEpisode(template, episodeSummary, styleSelection);
     activeTemplateId = template.id;
+    activeGalleryListingId = null;
     if (STY && styleSelection) {
       appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
     }
@@ -3427,13 +3615,6 @@
       renderWorkspace(summary);
     });
     saveCard.appendChild(el("div", { class: "actions" }, saveButton));
-    if (CTG && activeTemplateId) {
-      const publishGalleryButton = el("button", { type: "button", class: "btn-secondary" }, "Publish to creator gallery");
-      publishGalleryButton.addEventListener("click", () => {
-        renderGalleryPublish(activeTemplateId, summary, "workspace");
-      });
-      saveCard.appendChild(el("div", { class: "template-save-actions" }, publishGalleryButton));
-    }
     view.appendChild(saveCard);
 
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
@@ -4101,7 +4282,10 @@
     view.appendChild(layoutGrid);
 
     if (TM) {
-      view.appendChild(renderSavedTemplatesCard(TM.listTemplates(templateStore), summary, "style"));
+      const saved = TM.listTemplates(templateStore);
+      if (saved.length || GAL) {
+        view.appendChild(renderSavedTemplatesCard(saved, summary, "style"));
+      }
     }
 
     // Actions

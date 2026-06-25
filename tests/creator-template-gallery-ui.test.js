@@ -31,24 +31,23 @@ test("model seeds starter layouts for a fresh sandbox", () => {
 });
 
 test("show library exposes a one-click gallery demo entry point", () => {
-  assert.ok(ui.includes("Try creator gallery →"));
+  assert.ok(ui.includes("Gallery walkthrough →"));
   assert.ok(ui.includes("function openGalleryDemo"));
   assert.ok(ui.includes("ensureGalleryStore"));
 });
 
 test("gallery browse always has listings, preview, apply, and publish", () => {
   assert.ok(ui.includes("ensureGalleryStore()"));
-  assert.ok(ui.includes("Browse shared layouts"));
-  assert.ok(ui.includes("Publish your layout →"));
-  assert.ok(ui.includes("Apply this layout →"));
-  assert.ok(ui.includes("createListingFromCanvas"));
-  assert.ok(ui.includes("renderCanvasStage(previewDoc)"));
+  assert.ok(ui.includes("Browse reusable podcast layouts"));
+  assert.ok(ui.includes("Apply gallery template →"));
+  assert.ok(ui.includes("renderCreatorGalleryBrowse"));
+  assert.ok(ui.includes("renderPublishToGallery"));
 });
 
 test("saved templates area stays reachable with gallery and publish actions", () => {
-  assert.ok(ui.includes("renderSavedTemplatesCard(TM.listTemplates(templateStore)"));
-  assert.ok(ui.includes("Open creator gallery →"));
-  assert.ok(ui.includes("renderGalleryPublish"));
+  assert.ok(ui.includes("renderSavedTemplatesCard"));
+  assert.ok(ui.includes("Browse creator gallery →"));
+  assert.ok(ui.includes("Publish to gallery"));
 });
 
 console.log(`\ncreator template gallery ui: ${passed} assertions passed`);

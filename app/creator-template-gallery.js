@@ -2,19 +2,10 @@
 
 // Creator template gallery for Podcast Design Canvas (#106).
 //
-// Lets power users publish saved show layouts as browsable creator templates with
-// metadata and preview art. DOM-free — persistence is handled by the UI layer.
+// Lets power users publish saved show layouts as reusable gallery listings other
+// shows can browse, preview, and apply. DOM-free — persistence is handled by the UI.
 (function (global) {
   let listingCounter = 0;
-
-  const STYLE_TAGS = [
-    { id: "spotlight", label: "Spotlight" },
-    { id: "grid", label: "Grid layout" },
-    { id: "interview", label: "Interview" },
-    { id: "bold-captions", label: "Bold captions" },
-    { id: "brand-forward", label: "Brand-forward" },
-    { id: "minimal", label: "Minimal" },
-  ];
 
   function templatesApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
@@ -32,12 +23,12 @@
     return g.PdcEpisodeStyle;
   }
 
-  function brandKitApi() {
+  function setupApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
-      return require("./show-brand-kit.js");
+      return require("./episode-setup.js");
     }
     const g = typeof window !== "undefined" ? window : globalThis;
-    return g.PdcShowBrandKit;
+    return g.PdcEpisodeSetup;
   }
 
   function editorApi() {
@@ -48,22 +39,21 @@
     return g.PdcCanvasEditor;
   }
 
-  function setupApi() {
+  function brandKitApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
-      return require("./episode-setup.js");
+      return require("./show-brand-kit.js");
     }
     const g = typeof window !== "undefined" ? window : globalThis;
-    return g.PdcEpisodeSetup;
+    return g.PdcShowBrandKit;
   }
 
-  // Sample layouts shipped with the gallery so a fresh install can browse, preview, and
-  // apply immediately — the maintainer's rendered UI review starts from an empty sandbox.
+  // Sample layouts so a fresh sandbox can browse, preview, and apply immediately.
   const STARTER_SPECS = [
     {
       id: "gallery-starter-split-interview",
       name: "Split Interview Studio",
       description: "Side-by-side speaker frames with clean captions — ideal for two-person interviews.",
-      styleTags: ["interview", "grid"],
+      styleTags: ["interview", "grid", "split-stage"],
       presetId: "split-stage",
       layout: "split",
       titleText: "Founders Unfiltered",
@@ -85,7 +75,7 @@
       id: "gallery-starter-panel-roundtable",
       name: "Panel Roundtable",
       description: "Balanced grid that keeps every guest on screen with minimal name tags.",
-      styleTags: ["grid", "minimal"],
+      styleTags: ["grid", "minimal", "panel-grid"],
       presetId: "panel-grid",
       layout: "grid",
       titleText: "The Weekly Panel",
@@ -93,10 +83,6 @@
       brandKit: { logoLabel: "PANEL", colors: { background: "#0f1a2b", accent: "#4dd0e1", text: "#eaf6fb" }, captionStyle: "minimal-tag" },
     },
   ];
-
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
-  }
 
   function trim(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -106,165 +92,128 @@
     return { listings: [] };
   }
 
-  function getStyleTag(id) {
-    return STYLE_TAGS.find((tag) => tag.id === id) || null;
+  function cloneCanvas(canvas) {
+    return JSON.parse(JSON.stringify(canvas));
   }
 
-  function normalizeStyleTags(tags) {
-    const raw = Array.isArray(tags) ? tags : [];
-    const seen = new Set();
-    const normalized = [];
-    raw.forEach((tag) => {
-      const id = trim(tag).toLowerCase();
-      if (!id || seen.has(id) || !getStyleTag(id)) {
-        return;
-      }
-      seen.add(id);
-      normalized.push(id);
+  function cloneListing(listing) {
+    return Object.assign({}, listing, {
+      styleTags: Array.isArray(listing.styleTags) ? listing.styleTags.slice() : [],
+      previewImage: Object.assign({}, listing.previewImage || {}),
+      canvas: cloneCanvas(listing.canvas),
     });
-    return normalized;
   }
 
-  function validateListingDraft(draft) {
-    const name = trim(draft && draft.name);
-    const description = trim(draft && draft.description);
-    const styleTags = normalizeStyleTags(draft && draft.styleTags);
-    if (!name) {
-      return { ok: false, error: "Give the gallery listing a name." };
-    }
-    if (!description) {
-      return { ok: false, error: "Add a short description so other creators know what this layout is for." };
-    }
-    if (!styleTags.length) {
-      return { ok: false, error: "Pick at least one style tag." };
-    }
-    return { ok: true, name, description, styleTags };
+  function normalizeName(name) {
+    return trim(name);
   }
 
-  function escapeXml(value) {
-    return String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function buildPreviewImage(canvasDoc, brandKit) {
-    const doc = canvasDoc || {};
-    const kit = brandKit || {};
-    const colors = kit.colors || {};
-    const background = colors.background || doc.background || "#10131f";
-    const accent = colors.accent || doc.accent || "#6c4cff";
-    const text = colors.text || doc.textColor || "#f6f7fb";
-    const title = escapeXml(doc.titleText || doc.presetName || "Creator template");
-    const frameCount = Math.min(Math.max((doc.speakerFrames || []).length, 1), 3);
-    const frameRects = [];
-    const gap = 10;
-    const width = 320;
-    const height = 180;
-    const frameWidth = (width - gap * (frameCount + 1)) / frameCount;
-    for (let i = 0; i < frameCount; i += 1) {
-      const x = gap + i * (frameWidth + gap);
-      frameRects.push(
-        `<rect x="${x}" y="58" width="${frameWidth}" height="72" rx="10" fill="${escapeXml(accent)}" opacity="0.22" stroke="${escapeXml(accent)}" stroke-width="2"/>`,
-      );
+  function normalizeTags(tags) {
+    if (Array.isArray(tags)) {
+      return tags.map((tag) => trim(tag)).filter(Boolean);
     }
-    const logo = kit.logoLabel ? `<text x="16" y="24" fill="${escapeXml(accent)}" font-size="11" font-family="Inter,Segoe UI,sans-serif" font-weight="700">${escapeXml(kit.logoLabel)}</text>` : "";
-    const caption = doc.captionText
-      ? `<rect x="16" y="142" width="188" height="24" rx="8" fill="${escapeXml(accent)}"/><text x="24" y="158" fill="#10131f" font-size="10" font-family="Inter,Segoe UI,sans-serif" font-weight="700">${escapeXml(doc.captionText.slice(0, 28))}</text>`
-      : "";
-    const svg = [
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-      `<rect width="${width}" height="${height}" rx="14" fill="${escapeXml(background)}"/>`,
-      logo,
-      `<text x="16" y="${kit.logoLabel ? 42 : 28}" fill="${escapeXml(text)}" font-size="14" font-family="Inter,Segoe UI,sans-serif" font-weight="700">${title}</text>`,
-      frameRects.join(""),
-      caption,
-      `</svg>`,
-    ].join("");
-    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    if (typeof tags === "string") {
+      return tags.split(/[,;]+/).map((tag) => trim(tag)).filter(Boolean);
+    }
+    return [];
   }
 
-  function createListingFromCanvas(options) {
-    const opts = options || {};
-    const canvas = opts.canvas;
+  function buildPreviewImage(canvas) {
     if (!canvas) {
-      return { ok: false, error: "Choose a layout to publish." };
+      return {
+        background: "#10131f",
+        accent: "#6c4cff",
+        layoutId: "grid",
+        presetName: "Custom",
+        titleText: "",
+        captionText: "",
+      };
     }
-    const draftCheck = validateListingDraft({
-      name: opts.name,
-      description: opts.description,
-      styleTags: opts.styleTags,
-    });
-    if (!draftCheck.ok) {
-      return draftCheck;
-    }
-    listingCounter += 1;
-    const listing = {
-      id: opts.id || `gallery-${listingCounter}`,
-      name: draftCheck.name,
-      description: draftCheck.description,
-      styleTags: draftCheck.styleTags,
-      previewImage: opts.previewImage || buildPreviewImage(canvas, opts.brandKit),
-      canvas: clone(canvas),
-      brandKit: opts.brandKit ? clone(opts.brandKit) : null,
-      sourceTemplateId: opts.sourceTemplateId || "",
-      publishedAt: Date.now(),
-      presetName: canvas.presetName || "",
+    return {
+      background: canvas.background || "#10131f",
+      accent: canvas.accent || "#6c4cff",
+      layoutId: canvas.layoutId || "grid",
+      presetName: canvas.presetName || "Custom",
       titleText: canvas.titleText || "",
+      captionText: canvas.captionText || "",
+      presetId: canvas.presetId || "",
     };
-    return { ok: true, listing };
   }
 
-  function createListingFromSavedTemplate(options) {
-    const opts = options || {};
-    const template = opts.template;
-    if (!template || !template.canvas) {
-      return { ok: false, error: "Save a show template before publishing to the gallery." };
+  function deriveStyleTags(canvas) {
+    const tags = [];
+    if (!canvas) {
+      return tags;
     }
-    const draftCheck = validateListingDraft({
-      name: opts.name || template.name,
-      description: opts.description,
-      styleTags: opts.styleTags,
-    });
-    if (!draftCheck.ok) {
-      return draftCheck;
+    if (canvas.presetName) {
+      tags.push(canvas.presetName.toLowerCase().replace(/\s+/g, "-"));
     }
+    if (canvas.layoutId) {
+      tags.push(canvas.layoutId);
+    }
+    if (canvas.pacingId) {
+      tags.push(canvas.pacingId);
+    }
+    if (canvas.presetId) {
+      tags.push(canvas.presetId);
+    }
+    return [...new Set(tags)];
+  }
+
+  function validateListingName(gallery, name, excludeId) {
+    const trimmed = normalizeName(name);
+    if (!trimmed) {
+      return { ok: false, error: "Give your gallery template a name." };
+    }
+    const list = gallery && Array.isArray(gallery.listings) ? gallery.listings : [];
+    const duplicate = list.find(
+      (listing) => listing.name.toLowerCase() === trimmed.toLowerCase() && listing.id !== excludeId,
+    );
+    if (duplicate) {
+      return { ok: false, error: "A gallery template with that name already exists." };
+    }
+    return { ok: true, name: trimmed };
+  }
+
+  function createListing(meta, canvas, id) {
     listingCounter += 1;
-    const listing = {
-      id: opts.id || `gallery-${listingCounter}`,
-      name: draftCheck.name,
-      description: draftCheck.description,
-      styleTags: draftCheck.styleTags,
-      previewImage: opts.previewImage || buildPreviewImage(template.canvas, opts.brandKit),
-      canvas: clone(template.canvas),
-      brandKit: opts.brandKit ? clone(opts.brandKit) : null,
-      sourceTemplateId: template.id || "",
+    const previewImage = meta.previewImage || buildPreviewImage(canvas);
+    return {
+      id: id || `gal-${listingCounter}`,
+      name: normalizeName(meta.name),
+      description: trim(meta.description),
+      styleTags: normalizeTags(meta.styleTags !== undefined ? meta.styleTags : deriveStyleTags(canvas)),
+      previewImage,
+      canvas: cloneCanvas(canvas),
+      sourceTemplateId: meta.sourceTemplateId || null,
+      creatorName: trim(meta.creatorName) || "Creator",
       publishedAt: Date.now(),
-      presetName: template.canvas.presetName || "",
-      titleText: template.canvas.titleText || "",
     };
-    return { ok: true, listing };
   }
 
-  function publishListing(gallery, listing) {
+  function saveListing(gallery, listing) {
     const next = createGallery();
     const existing = gallery && Array.isArray(gallery.listings) ? gallery.listings : [];
     next.listings = existing.slice();
-    const duplicate = next.listings.find(
-      (item) => item.name.toLowerCase() === listing.name.toLowerCase() && item.id !== listing.id,
-    );
-    if (duplicate) {
-      return { ok: false, error: "A gallery listing with that name already exists." };
-    }
     const index = next.listings.findIndex((item) => item.id === listing.id);
     if (index >= 0) {
-      next.listings[index] = clone(listing);
+      next.listings[index] = cloneListing(listing);
     } else {
-      next.listings.push(clone(listing));
+      next.listings.push(cloneListing(listing));
     }
     next.listings.sort((a, b) => a.name.localeCompare(b.name));
-    return { ok: true, gallery: next, listing: clone(listing) };
+    return next;
+  }
+
+  function publishListing(gallery, template, meta) {
+    if (!template || !template.canvas) {
+      return gallery || createGallery();
+    }
+    const listingMeta = Object.assign({}, meta || {}, {
+      sourceTemplateId: (meta && meta.sourceTemplateId) || template.id || null,
+    });
+    const listing = createListing(listingMeta, template.canvas);
+    return saveListing(gallery, listing);
   }
 
   function listListings(gallery) {
@@ -273,12 +222,12 @@
       id: listing.id,
       name: listing.name,
       description: listing.description,
-      styleTags: listing.styleTags.slice(),
-      styleTagLabels: listing.styleTags.map((tag) => (getStyleTag(tag) || { label: tag }).label),
-      previewImage: listing.previewImage,
-      presetName: listing.presetName,
-      titleText: listing.titleText,
+      styleTags: Array.isArray(listing.styleTags) ? listing.styleTags.slice() : [],
+      previewImage: Object.assign({}, listing.previewImage || {}),
+      creatorName: listing.creatorName,
       publishedAt: listing.publishedAt,
+      presetName: listing.previewImage && listing.previewImage.presetName,
+      sourceTemplateId: listing.sourceTemplateId,
     }));
   }
 
@@ -288,63 +237,23 @@
     if (!found) {
       return null;
     }
-    return clone(found);
+    return cloneListing(found);
   }
 
-  function buildPreviewCanvas(listing, episodeSummary, styleSelection) {
+  function applyListingForEpisode(listing, episodeSummary, styleSelection) {
     const TM = templatesApi();
-    const BK = brandKitApi();
-    if (!listing || !listing.canvas || !TM) {
+    if (!TM || !listing || !listing.canvas) {
       return null;
     }
-    const pseudoTemplate = { canvas: listing.canvas };
-    const fromCanvas = TM.styleSelectionFromCanvas(listing.canvas);
-    const selection = fromCanvas || styleSelection || null;
-    let canvasDoc = TM.applyTemplateForEpisode(pseudoTemplate, episodeSummary, selection);
-    if (listing.brandKit && BK && canvasDoc) {
-      canvasDoc = BK.applyToCanvas(canvasDoc, listing.brandKit);
-    }
-    return canvasDoc;
+    return TM.applyTemplateForEpisode({ canvas: listing.canvas }, episodeSummary, styleSelection);
   }
 
-  function applyListing(listing, episodeSummary, styleSelection) {
+  function styleSelectionFromListing(listing) {
     const TM = templatesApi();
-    const STY = styleApi();
-    const BK = brandKitApi();
-    if (!listing || !listing.canvas || !TM || !STY) {
-      return { ok: false, error: "This gallery template is unavailable." };
+    if (!TM || !listing) {
+      return null;
     }
-    const pseudoTemplate = { canvas: listing.canvas };
-    const fromCanvas = TM.styleSelectionFromCanvas(listing.canvas);
-    const selection = clone(fromCanvas || styleSelection || STY.createSelection());
-    let canvasDoc = TM.applyTemplateForEpisode(pseudoTemplate, episodeSummary, selection);
-    let appliedStyle = STY.summarizeStyle(selection, episodeSummary.speakerCount);
-    const brandKit = listing.brandKit ? clone(listing.brandKit) : null;
-    if (brandKit && BK) {
-      if (canvasDoc) {
-        canvasDoc = BK.applyToCanvas(canvasDoc, brandKit);
-      }
-      appliedStyle = BK.applyToStyleSummary(appliedStyle, brandKit);
-    }
-    return {
-      ok: true,
-      styleSelection: selection,
-      canvasDoc,
-      appliedStyle,
-      brandKit,
-      listingId: listing.id,
-      listingName: listing.name,
-    };
-  }
-
-  function summarizeListing(listing) {
-    if (!listing) {
-      return "";
-    }
-    const tags = normalizeStyleTags(listing.styleTags)
-      .map((tag) => (getStyleTag(tag) || { label: tag }).label)
-      .join(", ");
-    return `${listing.name} · ${listing.presetName || "Custom"}${tags ? ` · ${tags}` : ""}`;
+    return TM.styleSelectionFromCanvas(listing.canvas);
   }
 
   function serializeGallery(gallery) {
@@ -366,10 +275,12 @@
     }
   }
 
-  function sampleEpisodeSummary() {
+  function buildCanvasFromSpec(spec) {
     const setup = setupApi();
     const STY = styleApi();
-    if (!setup || !STY) {
+    const CE = editorApi();
+    const BK = brandKitApi();
+    if (!setup || !STY || !CE || !spec) {
       return null;
     }
     const draft = setup.createDraft();
@@ -380,18 +291,7 @@
       Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "guest.mp4" }),
       Object.assign(setup.createSpeaker("Guest 2"), { name: "Alex Chen", fileName: "guest2.mp4" }),
     ];
-    return setup.summarize(draft);
-  }
-
-  function buildCanvasFromSpec(spec) {
-    const setup = setupApi();
-    const STY = styleApi();
-    const CE = editorApi();
-    const BK = brandKitApi();
-    if (!setup || !STY || !CE || !spec) {
-      return null;
-    }
-    const episode = sampleEpisodeSummary();
+    const episode = setup.summarize(draft);
     const selection = STY.createSelection();
     selection.presetId = spec.presetId;
     selection.layout = spec.layout;
@@ -399,32 +299,11 @@
     let doc = CE.createFromStyle(applied, episode, selection);
     doc = CE.updateElement(doc, "titleText", spec.titleText);
     doc = CE.updateElement(doc, "captionText", spec.captionText);
-    let kit = null;
     if (BK && spec.brandKit) {
-      kit = BK.createBrandKit("gallery-starter", spec.brandKit);
+      const kit = BK.createBrandKit("gallery-starter", spec.brandKit);
       doc = BK.applyToCanvas(doc, kit);
     }
-    return { canvas: doc, brandKit: kit, presetName: applied.presetName };
-  }
-
-  function buildStarterListing(spec) {
-    const built = buildCanvasFromSpec(spec);
-    if (!built) {
-      return null;
-    }
-    return {
-      id: spec.id,
-      name: spec.name,
-      description: spec.description,
-      styleTags: normalizeStyleTags(spec.styleTags),
-      previewImage: buildPreviewImage(built.canvas, built.brandKit),
-      canvas: clone(built.canvas),
-      brandKit: built.brandKit ? clone(built.brandKit) : null,
-      sourceTemplateId: "",
-      publishedAt: Date.now(),
-      presetName: built.presetName || built.canvas.presetName || "",
-      titleText: spec.titleText,
-    };
+    return doc;
   }
 
   function ensureStarterGallery(gallery) {
@@ -434,27 +313,20 @@
     }
     let next = createGallery();
     STARTER_SPECS.forEach((spec) => {
-      const listing = buildStarterListing(spec);
-      if (listing) {
-        const published = publishListing(next, listing);
-        if (published.ok) {
-          next = published.gallery;
-        }
+      const canvas = buildCanvasFromSpec(spec);
+      if (!canvas) {
+        return;
       }
+      const listing = createListing({
+        name: spec.name,
+        description: spec.description,
+        styleTags: spec.styleTags,
+        previewImage: buildPreviewImage(canvas),
+        creatorName: "Podcast Design Canvas",
+      }, canvas, spec.id);
+      next = saveListing(next, listing);
     });
     return next;
-  }
-
-  function samplePublishCanvas() {
-    const built = buildCanvasFromSpec(STARTER_SPECS[0]);
-    if (!built) {
-      return null;
-    }
-    return {
-      canvas: clone(built.canvas),
-      brandKit: built.brandKit ? clone(built.brandKit) : null,
-      defaultName: "My Interview Layout",
-    };
   }
 
   function _resetListingCounter() {
@@ -462,23 +334,19 @@
   }
 
   const api = {
-    STYLE_TAGS,
     STARTER_SPECS,
     createGallery,
-    getStyleTag,
-    normalizeStyleTags,
-    validateListingDraft,
     buildPreviewImage,
-    createListingFromCanvas,
-    createListingFromSavedTemplate,
+    deriveStyleTags,
+    validateListingName,
+    createListing,
+    saveListing,
     publishListing,
     listListings,
     getListing,
-    buildPreviewCanvas,
-    applyListing,
-    summarizeListing,
+    applyListingForEpisode,
+    styleSelectionFromListing,
     ensureStarterGallery,
-    samplePublishCanvas,
     serializeGallery,
     deserializeGallery,
     _resetListingCounter,
@@ -489,5 +357,5 @@
     return;
   }
 
-  global.PdcCreatorTemplateGallery = api;
+  global.PdcCreatorGallery = api;
 }(typeof window !== "undefined" ? window : globalThis));

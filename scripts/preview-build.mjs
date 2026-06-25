@@ -88,7 +88,7 @@ if (existsSync("index.html")) {
     "app/canvas-layers.js",
     "app/canvas-editor.js",
     "app/show-templates.js",
-  "app/creator-template-gallery.js",
+    "app/creator-template-gallery.js",
     "app/episode-setup.ui.js",
     'id="app"',
   ]) {

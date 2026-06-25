@@ -1,14 +1,18 @@
 "use strict";
 
 // Creator template gallery smoke suite for Podcast Design Canvas (#106).
+// Guards publishing saved layouts, browsing listings, preview metadata, and applying
+// gallery templates to new episodes with current speaker assignments.
 // Run with: `node tests/creator-template-gallery.test.js`.
 
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const setup = require("../app/episode-setup.js");
 const style = require("../app/episode-style.js");
 const editor = require("../app/canvas-editor.js");
+const layers = require("../app/canvas-layers.js");
 const templates = require("../app/show-templates.js");
-const brandKit = require("../app/show-brand-kit.js");
 const gallery = require("../app/creator-template-gallery.js");
 
 let passed = 0;
@@ -17,6 +21,10 @@ function test(name, fn) {
   passed += 1;
   console.log(`  ok ${name}`);
 }
+
+const ui = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "utf8");
+const styles = fs.readFileSync(path.join(__dirname, "../app/styles.css"), "utf8");
+const indexHtml = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
 
 function completeUploadDraft() {
   const draft = setup.createDraft();
@@ -41,182 +49,158 @@ function twoSpeakerDraft() {
   return draft;
 }
 
-test("validateListingDraft requires name, description, and style tags", () => {
-  const missingName = gallery.validateListingDraft({ name: "", description: "Interview layout", styleTags: ["interview"] });
-  assert.strictEqual(missingName.ok, false);
-  const missingDescription = gallery.validateListingDraft({ name: "Studio Split", description: "", styleTags: ["grid"] });
-  assert.strictEqual(missingDescription.ok, false);
-  const missingTags = gallery.validateListingDraft({ name: "Studio Split", description: "A clean split layout.", styleTags: [] });
-  assert.strictEqual(missingTags.ok, false);
-  const ok = gallery.validateListingDraft({
-    name: "Studio Split",
-    description: "A clean split layout for two-person interviews.",
-    styleTags: ["grid", "interview", "invalid-tag"],
-  });
-  assert.strictEqual(ok.ok, true);
-  assert.deepStrictEqual(ok.styleTags, ["grid", "interview"]);
-});
-
-test("buildPreviewImage returns an SVG data URL", () => {
-  const image = gallery.buildPreviewImage(
-    { background: "#10131f", accent: "#6c4cff", titleText: "Agency Weekly", speakerFrames: [{}, {}] },
-    brandKit.createBrandKit("show-1", { logoLabel: "AW" }),
-  );
-  assert.ok(image.startsWith("data:image/svg+xml,"));
-  assert.ok(decodeURIComponent(image).includes("Agency Weekly"));
-});
-
-test("publishListing stores browsable listings with preview metadata", () => {
-  gallery._resetListingCounter();
-  templates._resetTemplateCounter();
-  const doc = { titleText: "Gallery Layout", presetName: "Split Stage", background: "#112233", accent: "#ff8844", speakerFrames: [{}, {}], layers: [] };
-  const template = templates.createTemplate("Private Layout", doc, "tpl-private");
-  const created = gallery.createListingFromSavedTemplate({
-    template,
-    description: "Bold split-screen interview look.",
-    styleTags: ["interview", "bold-captions"],
-    brandKit: brandKit.createBrandKit("show-1", { logoLabel: "Split Co" }),
-  });
-  assert.strictEqual(created.ok, true);
-  const published = gallery.publishListing(gallery.createGallery(), created.listing);
-  assert.strictEqual(published.ok, true);
-  const list = gallery.listListings(published.gallery);
-  assert.strictEqual(list.length, 1);
-  assert.strictEqual(list[0].name, "Private Layout");
-  assert.ok(list[0].previewImage.startsWith("data:image/svg+xml,"));
-  assert.deepStrictEqual(list[0].styleTagLabels, ["Interview", "Bold captions"]);
-});
-
-test("buildPreviewCanvas and applyListing adopt frames, captions, overlays, and brand styling", () => {
-  gallery._resetListingCounter();
+function agencySplitTemplate() {
   templates._resetTemplateCounter();
   const episodeA = setup.summarize(completeUploadDraft());
   const selection = style.createSelection();
   selection.presetId = "split-stage";
   selection.layout = "split";
   const applied = style.summarizeStyle(selection, episodeA.speakerCount);
+
   let doc = editor.createFromStyle(applied, episodeA, selection);
-  doc = editor.updateElement(doc, "titleText", "Creator Split Layout");
-  doc = editor.updateElement(doc, "captionText", "Live from the studio");
-  const kit = brandKit.createBrandKit("show-1", {
-    logoLabel: "Split Co",
-    colors: { background: "#15192b", accent: "#ffb347", text: "#ffffff" },
-    captionStyle: "bold-lower-third",
-  });
-  doc = brandKit.applyToCanvas(doc, kit);
+  doc = editor.updateElement(doc, "titleText", "Agency Split Layout");
+  const captionsIdx = doc.layers.findIndex((layer) => layer.type === "captions");
+  doc = editor.updateLayers(doc, layers.moveLayer(doc.layers, captionsIdx, -1));
+  assert.strictEqual(editor.validateForSave(doc).ok, true);
 
-  const template = templates.createTemplate("Creator Split", doc, "tpl-creator");
-  const created = gallery.createListingFromSavedTemplate({
-    template,
-    description: "Split stage with bold captions and brand overlays.",
-    styleTags: ["brand-forward", "bold-captions"],
-    brandKit: kit,
-  });
+  return templates.createTemplate("Agency Split", doc, "tpl-agency-split");
+}
+
+test("buildPreviewImage and deriveStyleTags capture layout metadata", () => {
+  const template = agencySplitTemplate();
+  const preview = gallery.buildPreviewImage(template.canvas);
+  assert.strictEqual(preview.presetName, "Split Stage");
+  assert.strictEqual(preview.layoutId, "split");
+  assert.strictEqual(preview.titleText, "Agency Split Layout");
+
+  const tags = gallery.deriveStyleTags(template.canvas);
+  assert.ok(tags.includes("split-stage"));
+  assert.ok(tags.includes("split"));
+});
+
+test("publishListing stores name, description, style tags, and preview image", () => {
+  gallery._resetListingCounter();
+  const template = agencySplitTemplate();
   let store = gallery.createGallery();
-  store = gallery.publishListing(store, created.listing).gallery;
+  store = gallery.publishListing(store, template, {
+    name: "Founders Split Look",
+    description: "Side-by-side interview with bold captions and lower-thirds.",
+    styleTags: ["interview", "split-stage", "bold-captions"],
+    creatorName: "Sam Rivera",
+  });
 
+  const list = gallery.listListings(store);
+  assert.strictEqual(list.length, 1);
+  assert.strictEqual(list[0].name, "Founders Split Look");
+  assert.strictEqual(list[0].description, "Side-by-side interview with bold captions and lower-thirds.");
+  assert.deepStrictEqual(list[0].styleTags, ["interview", "split-stage", "bold-captions"]);
+  assert.strictEqual(list[0].previewImage.titleText, "Agency Split Layout");
+  assert.strictEqual(list[0].sourceTemplateId, "tpl-agency-split");
+});
+
+test("applyListingForEpisode keeps layout but uses the new episode speakers", () => {
+  gallery._resetListingCounter();
+  const template = agencySplitTemplate();
+  let store = gallery.createGallery();
+  store = gallery.publishListing(store, template, {
+    name: "Agency Split Look",
+    description: "Reusable split layout",
+  });
+
+  const listing = gallery.getListing(store, gallery.listListings(store)[0].id);
   const episodeB = setup.summarize(twoSpeakerDraft());
-  const listing = gallery.getListing(store, created.listing.id);
-  const previewDoc = gallery.buildPreviewCanvas(listing, episodeB, style.createSelection());
-  assert.strictEqual(previewDoc.titleText, "Creator Split Layout");
-  assert.strictEqual(previewDoc.captionText, "Live from the studio");
-  assert.strictEqual(previewDoc.speakerFrames.length, 2);
-  assert.deepStrictEqual(previewDoc.speakerFrames.map((frame) => frame.name), ["Alex Chen", "Jordan Lee"]);
-  assert.strictEqual(previewDoc.brandLogoLabel, "Split Co");
+  const styleFromListing = gallery.styleSelectionFromListing(listing);
+  const applied = gallery.applyListingForEpisode(listing, episodeB, styleFromListing);
+  const styleForB = style.summarizeStyle(styleFromListing, episodeB.speakerCount);
 
-  const appliedListing = gallery.applyListing(listing, episodeB, style.createSelection());
-  assert.strictEqual(appliedListing.ok, true);
-  assert.strictEqual(appliedListing.canvasDoc.titleText, "Creator Split Layout");
-  assert.strictEqual(appliedListing.appliedStyle.captionStyle, kit.captionStyleLabel);
-  assert.ok(appliedListing.canvasDoc.layers.length >= 5, "saved layout layers carry over");
+  assert.strictEqual(applied.titleText, "Agency Split Layout");
+  assert.strictEqual(styleForB.presetName, "Split Stage");
+  assert.strictEqual(applied.speakerFrames.length, 2);
+  assert.deepStrictEqual(applied.speakerFrames.map((frame) => frame.name), ["Alex Chen", "Jordan Lee"]);
+  assert.ok(applied.layers.length >= 5, "gallery layout layers carry over");
+});
+
+test("serializeGallery and deserializeGallery round-trip the gallery store", () => {
+  gallery._resetListingCounter();
+  const template = agencySplitTemplate();
+  let store = gallery.createGallery();
+  store = gallery.publishListing(store, template, {
+    name: "Round Trip Layout",
+    description: "Persisted gallery listing",
+    styleTags: ["panel", "broadcast"],
+  });
+
+  const restored = gallery.deserializeGallery(gallery.serializeGallery(store));
+  assert.strictEqual(gallery.listListings(restored).length, 1);
+  const listing = gallery.getListing(restored, gallery.listListings(restored)[0].id);
+  assert.strictEqual(listing.name, "Round Trip Layout");
+  assert.strictEqual(listing.canvas.titleText, "Agency Split Layout");
+});
+
+test("UI exposes creator gallery browse, publish, and demo entry points", () => {
+  assert.ok(ui.includes("renderCreatorGalleryBrowse"));
+  assert.ok(ui.includes("renderPublishToGallery"));
+  assert.ok(ui.includes("openGalleryDemo"));
+  assert.ok(ui.includes("Browse creator gallery"));
+  assert.ok(ui.includes("Publish to gallery"));
+  assert.ok(ui.includes("Creator template gallery"));
+  assert.ok(ui.includes("Apply gallery template"));
+  assert.ok(indexHtml.includes("creator-template-gallery.js"));
+  assert.ok(styles.includes(".creator-gallery-grid"));
+  assert.ok(styles.includes(".creator-gallery-layout"));
 });
 
 test("ensureStarterGallery seeds browsable sample layouts in a fresh gallery", () => {
   gallery._resetListingCounter();
   const seeded = gallery.ensureStarterGallery(gallery.createGallery());
-  assert.ok(seeded.listings.length >= 3, "ships starter layouts for immediate browse/preview/apply");
-  const list = gallery.listListings(seeded);
-  list.forEach((item) => {
-    assert.ok(item.previewImage.startsWith("data:image/svg+xml,"));
-    assert.ok(item.description);
-    assert.ok(item.styleTagLabels.length >= 1);
-  });
+  assert.strictEqual(seeded.listings.length, 3);
+  const browse = gallery.listListings(seeded);
+  assert.ok(browse.some((item) => item.name === "Split Interview Studio"));
+  assert.ok(browse.some((item) => item.name === "Panel Roundtable"));
 });
 
-test("createListingFromCanvas publishes without a saved private template", () => {
-  gallery._resetListingCounter();
-  const sample = gallery.samplePublishCanvas();
-  assert.ok(sample && sample.canvas);
-  const created = gallery.createListingFromCanvas({
-    canvas: sample.canvas,
-    name: "Creator Weekly Look",
-    description: "A clean weekly show layout with branded captions.",
-    styleTags: ["interview", "brand-forward"],
-    brandKit: sample.brandKit,
-  });
-  assert.strictEqual(created.ok, true);
-  const store = gallery.publishListing(gallery.createGallery(), created.listing).gallery;
-  assert.strictEqual(gallery.listListings(store).length, 1);
-});
-
-test("serializeGallery and deserializeGallery round-trip published listings", () => {
+test("ACCEPTANCE: publish, browse, preview, and apply a creator gallery template", () => {
   gallery._resetListingCounter();
   templates._resetTemplateCounter();
-  const template = templates.createTemplate("Round Trip", { titleText: "Weekly", presetName: "Studio Spotlight", speakerFrames: [{}], layers: [] }, "tpl-rt");
-  const created = gallery.createListingFromSavedTemplate({
-    template,
-    description: "Weekly show look.",
-    styleTags: ["spotlight"],
-  });
-  const store = gallery.publishListing(gallery.createGallery(), created.listing).gallery;
-  const restored = gallery.deserializeGallery(gallery.serializeGallery(store));
-  assert.strictEqual(gallery.listListings(restored).length, 1);
-  assert.strictEqual(gallery.getListing(restored, created.listing.id).description, "Weekly show look.");
-});
 
-test("ACCEPTANCE: publish saved layout to gallery, browse, preview, and apply on a new episode", () => {
-  gallery._resetListingCounter();
-  templates._resetTemplateCounter();
   const draftA = completeUploadDraft();
-  const episodeA = setup.summarize(draftA);
-  const selection = style.createSelection();
-  selection.presetId = "studio-spotlight";
-  const applied = style.summarizeStyle(selection, episodeA.speakerCount);
-  let doc = editor.createFromStyle(applied, episodeA, selection);
-  doc = editor.updateElement(doc, "titleText", "Founders Gallery Layout");
-  const kit = brandKit.createBrandKit("show-founders", { logoLabel: "FU", captionStyle: "clean-bar" });
-  doc = brandKit.applyToCanvas(doc, kit);
+  assert.strictEqual(setup.validateDraft(draftA).ok, true);
+  const template = agencySplitTemplate();
 
   let templateStore = templates.createStore();
-  const template = templates.createTemplate("Founders Spotlight", doc, "tpl-founders");
   templateStore = templates.saveTemplate(templateStore, template);
-
-  const created = gallery.createListingFromSavedTemplate({
-    template: templates.getTemplate(templateStore, "tpl-founders"),
-    name: "Founders Spotlight Gallery",
-    description: "Spotlight interview layout with clean captions and show branding.",
-    styleTags: ["spotlight", "interview", "brand-forward"],
-    brandKit: kit,
-  });
-  assert.strictEqual(created.ok, true);
+  assert.strictEqual(templates.listTemplates(templateStore).length, 1);
 
   let galleryStore = gallery.createGallery();
-  const published = gallery.publishListing(galleryStore, created.listing);
-  assert.strictEqual(published.ok, true);
-  galleryStore = published.gallery;
-  assert.strictEqual(gallery.listListings(galleryStore).length, 1);
+  const nameCheck = gallery.validateListingName(galleryStore, "Creator Split Stage");
+  assert.strictEqual(nameCheck.ok, true);
+  galleryStore = gallery.publishListing(galleryStore, template, {
+    name: nameCheck.name,
+    description: "Shareable split-stage layout with captions and brand styling.",
+    styleTags: gallery.deriveStyleTags(template.canvas).concat(["creator-share"]),
+    creatorName: "Founders Unfiltered",
+  });
 
-  const episodeB = setup.summarize(twoSpeakerDraft());
-  const listing = gallery.getListing(galleryStore, created.listing.id);
-  const previewDoc = gallery.buildPreviewCanvas(listing, episodeB, style.createSelection());
-  assert.strictEqual(previewDoc.speakerFrames.length, 2);
+  const browse = gallery.listListings(galleryStore);
+  assert.strictEqual(browse.length, 1);
+  assert.ok(browse[0].previewImage.background, "preview image descriptor is available for UI rendering");
+  assert.ok(browse[0].styleTags.includes("creator-share"));
 
-  const appliedListing = gallery.applyListing(listing, episodeB, style.createSelection());
-  assert.strictEqual(appliedListing.ok, true);
-  assert.strictEqual(appliedListing.canvasDoc.titleText, "Founders Gallery Layout");
-  assert.strictEqual(appliedListing.brandKit.logoLabel, "FU");
-  assert.strictEqual(appliedListing.appliedStyle.brandApplied, true);
-  assert.ok(gallery.summarizeListing(listing).includes("Founders Spotlight Gallery"));
+  const picked = gallery.getListing(galleryStore, browse[0].id);
+  const draftB = twoSpeakerDraft();
+  const episodeB = setup.summarize(draftB);
+  const previewStyle = gallery.styleSelectionFromListing(picked);
+  const previewCanvas = gallery.applyListingForEpisode(picked, episodeB, previewStyle);
+  assert.strictEqual(previewCanvas.speakerFrames[0].name, "Alex Chen");
+  assert.strictEqual(previewCanvas.presetName, "Split Stage");
+
+  const appliedCanvas = gallery.applyListingForEpisode(picked, episodeB, previewStyle);
+  assert.strictEqual(appliedCanvas.titleText, "Agency Split Layout");
+  assert.strictEqual(appliedCanvas.background, template.canvas.background);
+  assert.ok(
+    appliedCanvas.layers.some((layer) => layer.type === "captions"),
+    "captions layer carries over from gallery template",
+  );
 });
 
 console.log(`\ncreator template gallery: ${passed} assertions passed`);
