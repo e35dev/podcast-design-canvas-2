@@ -622,14 +622,49 @@
 
     let selectedTemplateId = "";
     let selectedPresetName = "";
-    const tplOptions = [el("option", { value: "" }, "No template")].concat(
-      saved.map((t) => el("option", { value: t.id }, t.name)),
+    const templatePicker = el("div", { class: "create-show-template-picker" });
+    const templateChoices = [
+      { id: "", name: "Blank show", presetName: "Choose a style during import", layoutId: "auto" },
+    ].concat(
+      saved.map((template) => ({
+        id: template.id,
+        name: template.name,
+        presetName: template.presetName || "Saved template",
+        layoutId: "grid",
+      })),
     );
-    const tplSelect = el("select", { id: "f-show-template" }, ...tplOptions);
-    tplSelect.addEventListener("change", () => {
-      selectedTemplateId = tplSelect.value;
-      const tpl = saved.find((t) => t.id === selectedTemplateId);
-      selectedPresetName = tpl && tpl.presetName ? tpl.presetName : "";
+    templateChoices.forEach((template) => {
+      const selected = selectedTemplateId === template.id;
+      const preset = template.id && STY
+        ? STY.STYLE_PRESETS.find((item) => item.name === template.presetName) || STY.defaultPreset()
+        : null;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          class: `create-show-template-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        renderLayoutThumb(
+          preset ? preset.defaultLayout : "auto",
+          preset ? { background: preset.background, accent: preset.accent } : {},
+        ),
+        el("span", { class: "create-show-template-name" }, template.name),
+        el("span", { class: "create-show-template-meta" }, template.presetName),
+      );
+      card.addEventListener("click", () => {
+        selectedTemplateId = template.id;
+        selectedPresetName = template.presetName === "Choose a style during import" ? "" : template.presetName;
+        templatePicker.querySelectorAll(".create-show-template-card").forEach((node) => {
+          const isActive = node === card;
+          node.classList.toggle("selected", isActive);
+          node.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+      });
+      if (selected) {
+        card.classList.add("selected");
+      }
+      templatePicker.appendChild(card);
     });
 
     if (errorMsg) {
@@ -648,9 +683,9 @@
       ),
       el(
         "div",
-        { class: "field" },
-        el("label", { for: "f-show-template" }, "Start from template (optional)"),
-        tplSelect,
+        { class: "field create-show-template-field" },
+        el("span", { class: "field-label" }, "Start from template (optional)"),
+        templatePicker,
       ),
       el(
         "p",
@@ -3307,7 +3342,66 @@
     view.scrollIntoView({ block: "start" });
   }
 
-  // ---- Preset style selection + preview (#4) ----------------------------------
+  // ---- Preset style selection + preview (#4, #94) ----------------------------------
+
+  function renderLayoutThumb(layoutId, colors) {
+    const palette = colors || {};
+    const thumb = el("div", {
+      class: `style-layout-thumb style-layout-thumb-${layoutId || "spotlight"}`,
+      style: palette.background ? `background:${palette.background};` : null,
+    });
+    if (layoutId === "split") {
+      thumb.appendChild(el("span", { class: "style-layout-thumb-frame", style: `border-color:${palette.accent || "currentColor"};` }));
+      thumb.appendChild(el("span", { class: "style-layout-thumb-frame", style: `border-color:${palette.accent || "currentColor"};` }));
+    } else if (layoutId === "grid") {
+      for (let i = 0; i < 4; i += 1) {
+        thumb.appendChild(el("span", { class: "style-layout-thumb-cell", style: `border-color:${palette.accent || "currentColor"};` }));
+      }
+    } else if (layoutId === "auto") {
+      thumb.appendChild(el("span", { class: "style-layout-thumb-auto-badge", style: `background:${palette.accent || "currentColor"};` }, "Auto"));
+    } else {
+      thumb.appendChild(el("span", { class: "style-layout-thumb-main", style: `border-color:${palette.accent || "currentColor"};` }));
+      thumb.appendChild(el("span", { class: "style-layout-thumb-rail", style: `border-color:${palette.accent || "currentColor"};` }));
+    }
+    return thumb;
+  }
+
+  function renderStylePresetCard(preset, selected, summary) {
+    const cues = STY.presetCardSummary(preset);
+    const card = el(
+      "button",
+      {
+        type: "button",
+        class: `preset-card style-preset-card${selected ? " selected" : ""}`,
+        "aria-pressed": selected ? "true" : "false",
+      },
+      renderLayoutThumb(preset.defaultLayout, {
+        background: preset.background,
+        accent: preset.accent,
+      }),
+      el("span", { class: "preset-name" }, preset.name),
+      el("span", { class: "preset-tagline" }, preset.tagline),
+      el("span", { class: "preset-format-cue" }, cues.formatCue),
+    );
+    card.addEventListener("click", () => {
+      styleSelection = STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized);
+      activeTemplateId = null;
+      canvasDoc = null;
+      renderStyle(summary);
+    });
+    return card;
+  }
+
+  function renderStyleChoiceCards(items, selectedId, gridClass, renderCard, onSelect) {
+    const grid = el("div", { class: gridClass });
+    items.forEach((item) => {
+      const selected = item.id === selectedId;
+      const card = renderCard(item, selected);
+      card.addEventListener("click", () => onSelect(item.id));
+      grid.appendChild(card);
+    });
+    return grid;
+  }
 
   // A live preview built from the real assigned speakers. `compact` renders the smaller
   // version shown on the workspace once a style is applied.
@@ -3401,69 +3495,71 @@
     const layoutGrid = el("div", { class: "style-layout" });
 
     // Controls column
-    const controls = el("section", { class: "card" }, el("h3", {}, "Style presets"));
-    const presetGrid = el("div", { class: "preset-grid" });
+    const controls = el("section", { class: "card style-preset-panel" }, el("h3", {}, "Style presets"));
+    const presetGrid = el("div", { class: "preset-grid style-preset-grid" });
     STY.STYLE_PRESETS.forEach((preset) => {
-      const selected = styleSelection.presetId === preset.id;
-      const card = el(
-        "button",
-        {
-          type: "button",
-          class: `preset-card${selected ? " selected" : ""}`,
-          "aria-pressed": selected ? "true" : "false",
-        },
-        (function () {
-          const swatch = el("span", { class: "preset-swatch" });
-          swatch.style.background = preset.background;
-          swatch.style.borderColor = preset.accent;
-          const dot = el("span", { class: "preset-swatch-dot" });
-          dot.style.background = preset.accent;
-          swatch.appendChild(dot);
-          return swatch;
-        })(),
-        el("span", { class: "preset-name" }, preset.name),
-        el("span", { class: "preset-tagline" }, preset.tagline),
-      );
-      card.addEventListener("click", () => {
-        styleSelection = STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized);
-        activeTemplateId = null;
-        canvasDoc = null;
-        renderStyle(summary);
-      });
-      presetGrid.appendChild(card);
+      presetGrid.appendChild(renderStylePresetCard(preset, styleSelection.presetId === preset.id, summary));
     });
     controls.appendChild(presetGrid);
 
-    // Layout control
-    const layoutSelect = el("select", { id: "style-layout" });
-    STY.LAYOUTS.forEach((layout) => {
-      layoutSelect.appendChild(
-        el("option", { value: layout.id, selected: styleSelection.layout === layout.id ? true : null }, layout.label),
-      );
-    });
-    layoutSelect.addEventListener("change", (e) => {
-      styleSelection.layout = e.target.value;
-      layoutCustomized = styleSelection.layout !== "auto";
-      activeTemplateId = null;
-      canvasDoc = null;
-      renderStyle(summary);
-    });
-    controls.appendChild(field("Layout", layoutSelect, null, "Auto matches the number of speakers you set up."));
+    controls.appendChild(el("h4", { class: "style-subsection-title" }, "Layout"));
+    controls.appendChild(
+      renderStyleChoiceCards(
+        STY.LAYOUTS.map((layout) => STY.layoutCardSummary(layout)),
+        styleSelection.layout,
+        "style-choice-grid style-layout-grid",
+        function (layout, selected) {
+          return el(
+            "button",
+            {
+              type: "button",
+              class: `style-choice-card style-layout-card${selected ? " selected" : ""}`,
+              "aria-pressed": selected ? "true" : "false",
+            },
+            renderLayoutThumb(layout.id, {
+              background: STY.getPreset(styleSelection.presetId).background,
+              accent: STY.getPreset(styleSelection.presetId).accent,
+            }),
+            el("span", { class: "style-choice-name" }, layout.label),
+            el("span", { class: "style-choice-note" }, layout.note),
+          );
+        },
+        function (layoutId) {
+          styleSelection.layout = layoutId;
+          layoutCustomized = styleSelection.layout !== "auto";
+          activeTemplateId = null;
+          canvasDoc = null;
+          renderStyle(summary);
+        },
+      ),
+    );
 
-    // Pacing control
-    const pacingSelect = el("select", { id: "style-pacing" });
-    STY.PACING.forEach((pacing) => {
-      pacingSelect.appendChild(
-        el("option", { value: pacing.id, selected: styleSelection.pacing === pacing.id ? true : null }, pacing.label),
-      );
-    });
-    pacingSelect.addEventListener("change", (e) => {
-      styleSelection.pacing = e.target.value;
-      activeTemplateId = null;
-      canvasDoc = null;
-      renderStyle(summary);
-    });
-    controls.appendChild(field("Pacing", pacingSelect, null, STY.getPacing(styleSelection.pacing).note));
+    controls.appendChild(el("h4", { class: "style-subsection-title" }, "Pacing"));
+    controls.appendChild(
+      renderStyleChoiceCards(
+        STY.PACING,
+        styleSelection.pacing,
+        "style-choice-grid style-pacing-grid",
+        function (pacing, selected) {
+          return el(
+            "button",
+            {
+              type: "button",
+              class: `style-choice-card style-pacing-card${selected ? " selected" : ""}`,
+              "aria-pressed": selected ? "true" : "false",
+            },
+            el("span", { class: "style-choice-name" }, pacing.label),
+            el("span", { class: "style-choice-note" }, pacing.note),
+          );
+        },
+        function (pacingId) {
+          styleSelection.pacing = pacingId;
+          activeTemplateId = null;
+          canvasDoc = null;
+          renderStyle(summary);
+        },
+      ),
+    );
 
     layoutGrid.appendChild(controls);
 

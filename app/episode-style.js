@@ -159,6 +159,32 @@
     };
   }
 
+  function presetCardSummary(preset) {
+    const item = preset && preset.id ? preset : defaultPreset();
+    const layout = getLayout(item.defaultLayout);
+    return {
+      layoutId: layout.id,
+      layoutLabel: layout.label,
+      captionStyle: item.captionStyle,
+      formatCue: `${layout.label} · ${item.captionStyle}`,
+    };
+  }
+
+  function layoutCardSummary(layout) {
+    const item = getLayout(layout && layout.id);
+    const notes = {
+      auto: "Matches your speaker count automatically.",
+      spotlight: "One featured speaker with supporting frames.",
+      split: "Equal side-by-side conversation frames.",
+      grid: "Balanced grid for three or more speakers.",
+    };
+    return {
+      id: item.id,
+      label: item.label,
+      note: notes[item.id] || "",
+    };
+  }
+
   const api = {
     STYLE_PRESETS,
     LAYOUTS,
@@ -172,6 +198,8 @@
     resolveLayout,
     buildPreviewFrames,
     summarizeStyle,
+    presetCardSummary,
+    layoutCardSummary,
   };
 
   if (typeof module !== "undefined" && module.exports) {
