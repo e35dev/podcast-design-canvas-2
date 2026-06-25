@@ -1,7 +1,7 @@
 "use strict";
 
 // Browser wiring for episode setup (#1), audio polish (#15), preset style (#4),
-// and canvas editor (#11).
+// canvas editor (#11), and visual moments (#19).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -9,6 +9,7 @@
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
+  const VM = window.PdcVisualMoments;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -30,6 +31,45 @@
   let canvasDoc = null;
   let canvasLayerCounter = 20;
   let workspaceSummaryCache = null;
+  let visualTimeline = null;
+
+  function momentsStorageKey(episodeName) {
+    return `pdc-visual-moments-${episodeName || "episode"}`;
+  }
+
+  function loadVisualTimeline(summary) {
+    if (!VM || typeof localStorage === "undefined") {
+      return null;
+    }
+    try {
+      return VM.deserializeTimeline(localStorage.getItem(momentsStorageKey(summary.episodeName)));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistVisualTimeline(summary) {
+    if (!VM || !visualTimeline || typeof localStorage === "undefined") {
+      return;
+    }
+    try {
+      localStorage.setItem(momentsStorageKey(summary.episodeName), VM.serializeTimeline(visualTimeline));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  function ensureVisualTimeline(summary) {
+    if (!VM) {
+      return null;
+    }
+    if (!visualTimeline || visualTimeline.episodeName !== summary.episodeName) {
+      const loaded = loadVisualTimeline(summary);
+      visualTimeline = loaded || VM.createTimeline(summary);
+      visualTimeline.episodeName = summary.episodeName;
+    }
+    return visualTimeline;
+  }
 
   function safeLoadTemplates() {
     try {
@@ -556,11 +596,28 @@
       }
     }
 
+    // Visual moments summary
+    if (VM && visualTimeline && visualTimeline.episodeName === summary.episodeName) {
+      const momentSummary = VM.summarizeTimeline(visualTimeline);
+      if (momentSummary.momentCount > 0) {
+        view.appendChild(
+          el("section", { class: "card moments-summary" },
+            el("h3", {}, "Visual moments"),
+            el("p", { class: "moments-summary-count" }, `${momentSummary.visibleCount} moment${momentSummary.visibleCount === 1 ? "" : "s"} across the episode`),
+            el("p", { class: "hint" }, momentSummary.summaryLine || "Moments placed along the conversation."),
+          ),
+        );
+      }
+    }
+
     // Episode review / export path
     if (AP && appliedAudioPolish) {
       const templateName = activeTemplateId && TM
         ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
         : "";
+      const momentSummary = VM && visualTimeline && visualTimeline.episodeName === summary.episodeName
+        ? VM.summarizeTimeline(visualTimeline)
+        : null;
       const review = AP.buildReviewSummary(summary, appliedAudioPolish, {
         styleName: appliedStyle ? appliedStyle.presetName : "",
         templateName: templateName || "",
@@ -569,6 +626,11 @@
       review.summaryLines.forEach((line) => {
         reviewCard.appendChild(el("p", { class: "review-line" }, line));
       });
+      if (momentSummary && momentSummary.visibleCount > 0) {
+        reviewCard.appendChild(
+          el("p", { class: "review-line" }, `Visual moments: ${momentSummary.visibleCount} placed (${momentSummary.summaryLine})`),
+        );
+      }
       if (review.readyForExport) {
         reviewCard.appendChild(
           el("p", { class: "review-ready" }, "Audio treatment saved — ready for export when visual editing is complete."),
@@ -578,6 +640,7 @@
     }
 
     // Next step — audio, style, canvas, or template
+    const momentsAvailable = Boolean(VM && appliedAudioPolish && appliedStyle);
     const audioAvailable = Boolean(AP);
     const styleAvailable = Boolean(STY);
     const canvasAvailable = Boolean(CL && CE && appliedStyle);
@@ -610,6 +673,14 @@
     if (canvasAvailable) {
       canvasButton.addEventListener("click", () => openCanvasEditor(summary));
     }
+    const momentsButton = el(
+      "button",
+      { type: "button", class: momentsAvailable ? "primary" : "ghost", disabled: momentsAvailable ? null : true },
+      visualTimeline && visualTimeline.episodeName === summary.episodeName ? "Edit visual moments →" : "Add visual moments →",
+    );
+    if (momentsAvailable) {
+      momentsButton.addEventListener("click", () => openVisualMoments(summary));
+    }
     const nextTitle = activeTemplateId
       ? "Template saved"
       : appliedStyle
@@ -620,11 +691,14 @@
     const nextCopy = activeTemplateId
       ? "Your show template is saved and ready for the next episode."
       : appliedStyle
-        ? "Your style is set. Open the canvas editor to personalize the layout and save a reusable show template."
+        ? "Your style is set. Add visual moments or open the canvas editor to personalize the layout."
         : appliedAudioPolish
           ? "Your audio treatment is set. Pick a visual style next."
           : "Your sources, speaker roles, and context are saved. Polish audio next.";
     const actions = el("div", { class: "actions" });
+    if (momentsAvailable) {
+      actions.appendChild(momentsButton);
+    }
     if (appliedStyle && canvasAvailable) {
       actions.appendChild(canvasButton);
       actions.appendChild(styleButton);
@@ -1261,6 +1335,168 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  function openVisualMoments(summary) {
+    workspaceSummaryCache = summary;
+    ensureVisualTimeline(summary);
+    renderVisualMoments(summary);
+  }
+
+  function renderMomentPreview(moment) {
+    const styleCtx = appliedStyle || {};
+    const preview = VM.buildMomentPreview(moment, styleCtx);
+    const stage = el("div", { class: "moment-preview-stage" });
+    stage.style.background = preview.background;
+    const overlay = el(
+      "div",
+      { class: `moment-preview-overlay ${preview.previewClass}${preview.visible ? "" : " is-hidden"}` },
+      el("span", { class: "moment-preview-type" }, preview.typeLabel),
+      el("span", { class: "moment-preview-text" }, preview.text),
+      el("span", { class: "moment-preview-speaker" }, `${preview.speakerRole} · ${preview.speakerName}`),
+    );
+    overlay.style.borderColor = styleCtx.accent || preview.accent;
+    if (preview.typeId === "callout" || preview.typeId === "title") {
+      overlay.style.background = styleCtx.accent || preview.accent;
+    }
+    stage.appendChild(overlay);
+    const foot = el("p", { class: "moment-preview-foot" }, preview.timeLabel);
+    return el("div", {}, stage, foot);
+  }
+
+  function renderVisualMoments(summary) {
+    workspaceSummaryCache = summary;
+    ensureVisualTimeline(summary);
+    root.innerHTML = "";
+    setStep("Step 5 of 6 · Visual moments");
+
+    const view = el("div", { class: "moments-step" });
+    view.appendChild(
+      el("div", { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Visual moments"),
+        el("h2", {}, `Shape key moments for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Place captions, titles, b-roll, and callouts along the conversation — no frame-by-frame editing."),
+      ),
+    );
+
+    const grid = el("div", { class: "moments-layout" });
+
+    const timelineCard = el("section", { class: "card" }, el("h3", {}, "Episode timeline"));
+    const list = el("div", { class: "moments-timeline" });
+    VM.sortedMoments(visualTimeline).forEach((moment) => {
+      const type = VM.getMomentType(moment.type);
+      const selected = visualTimeline.selectedId === moment.id;
+      const row = el(
+        "button",
+        {
+          type: "button",
+          class: `moment-row${selected ? " selected" : ""}${moment.visible ? "" : " is-hidden"}`,
+        },
+        el("span", { class: "moment-time" }, VM.formatTime(moment.startSec)),
+        el("span", { class: `moment-type moment-type-${moment.type}` }, type.label),
+        el("span", { class: "moment-speaker" }, moment.speakerRole),
+        el("span", { class: "moment-snippet" }, moment.text),
+      );
+      row.addEventListener("click", () => {
+        visualTimeline = VM.selectMoment(visualTimeline, moment.id);
+        persistVisualTimeline(summary);
+        renderVisualMoments(summary);
+      });
+      list.appendChild(row);
+    });
+    timelineCard.appendChild(list);
+
+    const addRow = el("div", { class: "moments-add-row" });
+    const addType = el("select", { id: "moment-add-type", "aria-label": "Moment type to add" });
+    VM.MOMENT_TYPES.forEach((type) => {
+      addType.appendChild(el("option", { value: type.id }, type.label));
+    });
+    const addButton = el("button", { type: "button", class: "ghost" }, "Add moment");
+    addButton.addEventListener("click", () => {
+      const speaker = summary.speakers && summary.speakers[0]
+        ? summary.speakers[0]
+        : { role: "Host", name: "Speaker" };
+      visualTimeline = VM.addMoment(visualTimeline, addType.value, speaker);
+      persistVisualTimeline(summary);
+      renderVisualMoments(summary);
+    });
+    addRow.appendChild(addType);
+    addRow.appendChild(addButton);
+    timelineCard.appendChild(addRow);
+    grid.appendChild(timelineCard);
+
+    const editorCard = el("section", { class: "card" }, el("h3", {}, "Edit moment"));
+    const selected = VM.findMoment(visualTimeline, visualTimeline.selectedId);
+    if (!selected) {
+      editorCard.appendChild(el("p", { class: "hint" }, "Select a moment from the timeline or add a new one."));
+    } else {
+      const type = VM.getMomentType(selected.type);
+
+      const textInput = el("input", { id: "moment-text", type: "text", value: selected.text });
+      textInput.addEventListener("input", (e) => {
+        visualTimeline = VM.updateMoment(visualTimeline, selected.id, { text: e.target.value });
+        persistVisualTimeline(summary);
+        renderVisualMoments(summary);
+      });
+      editorCard.appendChild(field("On-screen text", textInput, null, type.hint));
+
+      const startInput = el("input", { id: "moment-start", type: "text", value: VM.formatTime(selected.startSec) });
+      startInput.addEventListener("change", (e) => {
+        visualTimeline = VM.updateMoment(visualTimeline, selected.id, {
+          startSec: VM.parseTime(e.target.value),
+        });
+        persistVisualTimeline(summary);
+        renderVisualMoments(summary);
+      });
+      editorCard.appendChild(field("Starts at", startInput, null, "Minutes:seconds, e.g. 2:30"));
+
+      const endInput = el("input", { id: "moment-end", type: "text", value: VM.formatTime(selected.endSec) });
+      endInput.addEventListener("change", (e) => {
+        visualTimeline = VM.updateMoment(visualTimeline, selected.id, {
+          endSec: VM.parseTime(e.target.value),
+        });
+        persistVisualTimeline(summary);
+        renderVisualMoments(summary);
+      });
+      editorCard.appendChild(field("Ends at", endInput, null, "How long this moment stays on screen."));
+
+      const visButton = el("button", { type: "button", class: "ghost" }, selected.visible ? "Hide moment" : "Show moment");
+      visButton.addEventListener("click", () => {
+        visualTimeline = VM.toggleMomentVisibility(visualTimeline, selected.id);
+        persistVisualTimeline(summary);
+        renderVisualMoments(summary);
+      });
+      const removeButton = el("button", { type: "button", class: "ghost" }, "Remove moment");
+      removeButton.addEventListener("click", () => {
+        visualTimeline = VM.removeMoment(visualTimeline, selected.id);
+        persistVisualTimeline(summary);
+        renderVisualMoments(summary);
+      });
+      editorCard.appendChild(el("div", { class: "actions" }, visButton, removeButton));
+
+      const previewCard = el("section", { class: "card moment-preview-card" },
+        el("h3", {}, "Preview"),
+        renderMomentPreview(VM.findMoment(visualTimeline, selected.id)),
+      );
+      editorCard.appendChild(previewCard);
+    }
+    grid.appendChild(editorCard);
+    view.appendChild(grid);
+
+    const doneButton = el("button", { type: "button", class: "primary" }, "Save moments & continue →");
+    doneButton.addEventListener("click", () => {
+      persistVisualTimeline(summary);
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => {
+      persistVisualTimeline(summary);
+      renderWorkspace(summary);
+    });
+    view.appendChild(el("div", { class: "actions" }, doneButton, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
