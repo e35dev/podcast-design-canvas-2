@@ -2,7 +2,7 @@
 
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
-// publish review (#37), and export (#30).
+// publish review (#37), guided workspace (#40), and export (#30).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -14,6 +14,7 @@
   const SC = window.PdcSocialContext;
   const EXP = window.PdcEpisodeExport;
   const PR = window.PdcPublishReview;
+  const WS = window.PdcEpisodeWorkspace;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -505,6 +506,65 @@
     return publishReview;
   }
 
+  function buildWorkspaceContext(summary) {
+    const exportCtx = buildExportContext(summary);
+    refreshPublishReview(summary);
+    const exportReady = EXP ? EXP.validateReadiness(exportCtx).ok : false;
+    return {
+      appliedStyle: exportCtx.appliedStyle,
+      audioPolish: exportCtx.audioPolish,
+      templateName: exportCtx.templateName,
+      momentsSummary: exportCtx.momentsSummary,
+      contextApproved: contextApproved,
+      exportReady: exportReady,
+      publishReviewApproved: publishReviewApproved,
+      exportStatus: exportJob ? exportJob.status : "draft",
+      exportDownloadName: exportJob && exportJob.downloadName ? exportJob.downloadName : "",
+    };
+  }
+
+  function navigateWorkspaceStage(target, summary) {
+    if (target === "setup") {
+      renderSetup();
+      return;
+    }
+    if (target === "context") {
+      if (!contextReview) {
+        contextReview = SC.createReview(summary);
+      }
+      renderContextReview(summary);
+      return;
+    }
+    if (target === "audio") {
+      if (!audioPolish) {
+        audioPolish = AP.createPolish(summary);
+      }
+      renderAudioPolish(summary);
+      return;
+    }
+    if (target === "style") {
+      renderStyle(summary);
+      return;
+    }
+    if (target === "canvas") {
+      openCanvasEditor(summary);
+      return;
+    }
+    if (target === "moments") {
+      renderVisualMoments(summary);
+      return;
+    }
+    if (target === "review") {
+      renderPublishReview(summary);
+      return;
+    }
+    if (target === "export") {
+      renderExport(summary);
+      return;
+    }
+    renderWorkspace(summary);
+  }
+
   function navigateReviewFix(target, summary) {
     if (target === "setup") {
       renderSetup();
@@ -572,334 +632,78 @@
   }
 
   function renderWorkspace(summary) {
+    workspaceSummaryCache = summary;
     root.innerHTML = "";
-    setStep("Step 1 of 8 · Episode workspace");
+    setStep("Episode workspace · Import to publish");
 
-    const view = el("div", { class: "workspace" });
+    const view = el("div", { class: "workspace guided-workspace" });
     view.appendChild(
       el(
         "div",
         { class: "workspace-head" },
-        el("p", { class: "eyebrow" }, "Episode workspace"),
+        el("p", { class: "eyebrow" }, "Production workspace"),
         el("h2", {}, summary.episodeName),
+        el("p", { class: "hint" }, "One self-serve flow from import to publish. Each stage shows what is ready and what still needs attention."),
       ),
     );
 
-    // Captured context
-    const context = el(
-      "section",
-      { class: "card" },
-      el("h3", {}, "Captured context"),
-      el(
-        "div",
-        { class: "stats" },
-        stat(summary.sourceModeLabel, "Source"),
-        stat(String(summary.speakerCount), `Speaker${summary.speakerCount === 1 ? "" : "s"}`),
-        stat(String(summary.socialLinkCount), `Social link${summary.socialLinkCount === 1 ? "" : "s"}`),
-      ),
-    );
-    if (summary.riversideLink) {
-      context.appendChild(
-        el(
-          "p",
-          { class: "context-link" },
-          "Recording: ",
-          el("a", { href: summary.riversideLink, target: "_blank", rel: "noopener noreferrer" }, summary.riversideLink),
-        ),
-      );
-    }
-    view.appendChild(context);
+    if (WS) {
+      ensureMomentsBoard(summary);
+      const ws = WS.buildWorkspace(summary, buildWorkspaceContext(summary));
+      const wsSummary = WS.summarizeWorkspace(ws);
 
-    // Sources & speakers
-    const sources = el("section", { class: "card" }, el("h3", {}, "Sources & speakers"));
-    summary.speakers.forEach((speaker) => {
-      const row = el(
-        "div",
-        { class: "summary-speaker" },
-        el(
-          "div",
-          { class: "summary-speaker-main" },
-          el("span", { class: "role-pill" }, speaker.role || "Unassigned"),
-          el("span", { class: "summary-name" }, speaker.name || "Unnamed speaker"),
-        ),
-        el("p", { class: "summary-source" }, speaker.sourceLabel),
-      );
-      if (speaker.social.length) {
-        const chips = el("div", { class: "chips" });
-        speaker.social.forEach((link) => {
-          chips.appendChild(
-            el("a", { class: "chip", href: link.url, target: "_blank", rel: "noopener noreferrer" }, link.label),
-          );
-        });
-        row.appendChild(chips);
-      }
-      sources.appendChild(row);
-    });
-    view.appendChild(sources);
-
-    if (SC && contextReview && contextReview.approved) {
-      const ctxSummary = SC.summarizeReview(contextReview);
       view.appendChild(
         el(
           "section",
-          { class: "card context-summary" },
-          el("h3", {}, "Approved context"),
-          el("p", { class: "context-summary-line" }, ctxSummary.reviewLine.replace(/^Context: /, "")),
-          el(
-            "p",
-            { class: "hint" },
-            "Names, brands, and spelling hints from your social links are applied to captions, titles, and callouts.",
-          ),
+          { class: "card workspace-progress" },
+          el("h3", {}, "Episode progress"),
+          el("p", { class: "workspace-progress-line" }, wsSummary.progressLine),
+          el("p", { class: "hint workspace-next-hint" }, wsSummary.workspaceLine),
         ),
       );
-    }
 
-    // Audio polish summary
-    if (AP && appliedAudioPolish) {
-      view.appendChild(
-        el(
-          "section",
-          { class: "card audio-summary" },
-          el("h3", {}, "Audio polish"),
-          el("p", { class: "audio-summary-preset" }, appliedAudioPolish.presetName),
-          el("p", { class: "hint" }, appliedAudioPolish.tagline),
-          el("p", { class: "audio-summary-facts" }, appliedAudioPolish.treatmentLine),
-        ),
-      );
-    }
-
-    // Selected style (shown once a preset has been applied to the episode)
-    if (STY && appliedStyle) {
-      const styleCard = el(
-        "section",
-        { class: "card selected-style" },
-        el("h3", {}, "Selected style"),
-        el(
+      const pipeline = el("section", { class: "card workspace-pipeline" }, el("h3", {}, "Production stages"));
+      const stageList = el("div", { class: "workspace-stages" });
+      ws.stages.forEach(function (item) {
+        const statusLabel = item.status === "complete"
+          ? "Complete"
+          : item.status === "active"
+            ? "Ready now"
+            : item.status === "attention"
+              ? "Recommended"
+              : "Not started";
+        const row = el(
           "div",
-          { class: "selected-style-body" },
-          renderPreview(summary, styleSelection, true),
+          { class: `workspace-stage workspace-stage-${item.status}${item.id === ws.currentStageId ? " workspace-stage-current" : ""}` },
           el(
             "div",
-            { class: "selected-style-meta" },
-            el("p", { class: "selected-style-name" }, appliedStyle.presetName),
-            el("p", { class: "hint" }, appliedStyle.tagline),
-            el(
-              "p",
-              { class: "selected-style-facts" },
-              `Layout: ${appliedStyle.layoutLabel} · Pacing: ${appliedStyle.pacingLabel} · Captions: ${appliedStyle.captionStyle}`,
-            ),
-          ),
-        ),
-      );
-      view.appendChild(styleCard);
-    }
-
-    // Saved show template (after canvas save)
-    if (activeTemplateId && TM) {
-      const active = TM.getTemplate(templateStore, activeTemplateId);
-      if (active) {
-        view.appendChild(
-          el(
-            "section",
-            { class: "card saved-template" },
-            el("h3", {}, "Show template"),
-            el("p", { class: "saved-template-name" }, active.name),
-            el(
-              "p",
-              { class: "hint" },
-              `Reusable layout based on ${active.canvas.presetName || "your preset"}. Available for future episodes.`,
-            ),
+            { class: "workspace-stage-main" },
+            el("span", { class: "workspace-stage-status" }, statusLabel),
+            el("span", { class: "workspace-stage-label" }, item.label),
+            el("p", { class: "workspace-stage-summary" }, item.summary),
           ),
         );
-      }
-    }
-
-    // Visual moments summary (shown once the creator has placed moments)
-    let momentsSummary = null;
-    if (VM && momentsBoard) {
-      momentsSummary = VM.summarizeBoard(momentsBoard);
-    }
-    if (momentsSummary && momentsSummary.total) {
-      view.appendChild(
-        el(
-          "section",
-          { class: "card moments-summary" },
-          el("h3", {}, "Visual moments"),
-          el(
-            "p",
-            { class: "moments-summary-count" },
-            `${momentsSummary.visibleCount} of ${momentsSummary.total} moment${momentsSummary.total === 1 ? "" : "s"} live across the episode`,
-          ),
-          momentsSummary.lines.length
-            ? el("p", { class: "hint" }, momentsSummary.lines.join(" · "))
-            : null,
-        ),
-      );
-    }
-
-    // Episode review / export path
-    if (AP && appliedAudioPolish) {
-      const templateName = activeTemplateId && TM
-        ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
-        : "";
-      const review = AP.buildReviewSummary(summary, appliedAudioPolish, {
-        styleName: appliedStyle ? appliedStyle.presetName : "",
-        templateName: templateName || "",
-      });
-      const reviewCard = el("section", { class: "card episode-review" }, el("h3", {}, "Episode review"));
-      review.summaryLines.forEach((line) => {
-        reviewCard.appendChild(el("p", { class: "review-line" }, line));
-      });
-      if (momentsSummary && momentsSummary.reviewLine) {
-        reviewCard.appendChild(el("p", { class: "review-line" }, momentsSummary.reviewLine));
-      }
-      if (review.readyForExport && appliedStyle) {
-        reviewCard.appendChild(
-          el("p", { class: "review-ready" }, "Episode choices saved — ready to export."),
-        );
-      } else if (review.readyForExport) {
-        reviewCard.appendChild(
-          el("p", { class: "review-ready" }, "Audio treatment saved — choose a visual style to export."),
-        );
-      }
-      view.appendChild(reviewCard);
-    }
-
-    // Next step — audio, style, canvas, or template
-    const audioAvailable = Boolean(AP);
-    const styleAvailable = Boolean(STY);
-    const canvasAvailable = Boolean(CL && CE && appliedStyle);
-    const audioButton = el(
-      "button",
-      { type: "button", class: "ghost", disabled: audioAvailable ? null : true },
-      appliedAudioPolish ? "Change audio polish →" : "Polish audio →",
-    );
-    if (audioAvailable) {
-      audioButton.addEventListener("click", () => {
-        if (!audioPolish) {
-          audioPolish = AP.createPolish(summary);
-        }
-        renderAudioPolish(summary);
-      });
-    }
-    const styleButton = el(
-      "button",
-      { type: "button", class: canvasAvailable || !appliedStyle ? (appliedAudioPolish ? "primary" : "ghost") : "ghost", disabled: styleAvailable ? null : true },
-      appliedStyle ? "Change style →" : "Choose a style →",
-    );
-    if (styleAvailable) {
-      styleButton.addEventListener("click", () => renderStyle(summary));
-    }
-    const canvasButton = el(
-      "button",
-      { type: "button", class: "primary", disabled: canvasAvailable ? null : true },
-      activeTemplateId ? "Edit canvas →" : "Open canvas editor →",
-    );
-    if (canvasAvailable) {
-      canvasButton.addEventListener("click", () => openCanvasEditor(summary));
-    }
-    const visualAvailable = Boolean(VM);
-    const hasMoments = Boolean(momentsSummary && momentsSummary.total);
-    const visualButton = el(
-      "button",
-      { type: "button", class: hasMoments ? "ghost" : "primary", disabled: visualAvailable ? null : true },
-      hasMoments ? "Edit visual moments →" : "Add visual moments →",
-    );
-    if (visualAvailable) {
-      visualButton.addEventListener("click", () => renderVisualMoments(summary));
-    }
-    const exportAvailable = Boolean(EXP);
-    const exportReady = exportAvailable && EXP.validateReadiness(buildExportContext(summary)).ok;
-    const reviewAvailable = Boolean(PR && exportReady);
-    refreshPublishReview(summary);
-    const reviewButton = el(
-      "button",
-      { type: "button", class: publishReviewApproved ? "ghost" : "primary", disabled: reviewAvailable ? null : true },
-      publishReviewApproved ? "View publish review →" : "Review episode →",
-    );
-    if (reviewAvailable) {
-      reviewButton.addEventListener("click", () => renderPublishReview(summary));
-    }
-    const exportButton = el(
-      "button",
-      { type: "button", class: publishReviewApproved && exportReady ? "primary" : "ghost", disabled: exportAvailable && publishReviewApproved && exportReady ? null : true },
-      exportJob && exportJob.status === "ready" ? "View export →" : "Export episode →",
-    );
-    if (exportAvailable) {
-      exportButton.addEventListener("click", () => renderExport(summary));
-    }
-    const nextTitle = publishReviewApproved
-      ? exportJob && exportJob.status === "ready"
-        ? "Export complete"
-        : "Review approved"
-      : exportJob && exportJob.status === "ready"
-      ? "Export complete"
-      : activeTemplateId
-      ? "Template saved"
-      : appliedStyle
-        ? "Style applied"
-        : appliedAudioPolish
-          ? "Audio polished"
-          : "Ready for the next step";
-    const nextCopy = publishReviewApproved
-      ? "Your episode passed the publish review. Export when you are ready."
-      : exportReady
-        ? "Run the full-episode publish review before exporting."
-        : exportJob && exportJob.status === "ready"
-      ? `Your episode is ready to download as ${exportJob.downloadName}.`
-      : activeTemplateId
-      ? "Your show template is saved and ready for the next episode."
-      : appliedStyle
-        ? "Your style is set. Open the canvas editor to personalize the layout and save a reusable show template."
-        : appliedAudioPolish
-          ? "Your audio treatment is set. Pick a visual style next."
-          : "Your sources, speaker roles, and context are saved. Polish audio next.";
-    const actions = el("div", { class: "actions" });
-    if (appliedStyle && canvasAvailable) {
-      actions.appendChild(canvasButton);
-      actions.appendChild(styleButton);
-      actions.appendChild(audioButton);
-    } else if (appliedAudioPolish && !appliedStyle) {
-      actions.appendChild(styleButton);
-      actions.appendChild(audioButton);
-    } else {
-      actions.appendChild(appliedAudioPolish ? styleButton : audioButton);
-      if (appliedAudioPolish) {
-        actions.appendChild(audioButton);
-      }
-    }
-    if (visualAvailable) {
-      actions.appendChild(visualButton);
-    }
-    if (reviewAvailable) {
-      actions.appendChild(reviewButton);
-    }
-    if (exportAvailable && publishReviewApproved && exportReady) {
-      actions.appendChild(exportButton);
-    }
-    actions.appendChild(
-      (function () {
-        const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
-        back.addEventListener("click", () => {
-          showErrors = false;
-          contextApproved = false;
-          contextReview = null;
-          publishReviewApproved = false;
-          publishReview = null;
-          renderSetup();
+        const openButton = el("button", { type: "button", class: item.status === "active" ? "primary" : "ghost" }, `${item.actionLabel} →`);
+        openButton.addEventListener("click", function () {
+          navigateWorkspaceStage(item.actionTarget, summary);
         });
-        return back;
-      })(),
-    );
-    view.appendChild(
-      el(
-        "section",
-        { class: "card next-step" },
-        el("h3", {}, nextTitle),
-        el("p", {}, nextCopy),
-        actions,
-      ),
-    );
+        row.appendChild(el("div", { class: "workspace-stage-actions" }, openButton));
+        stageList.appendChild(row);
+      });
+      pipeline.appendChild(stageList);
+      view.appendChild(pipeline);
+    }
+
+    const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
+    editSetup.addEventListener("click", function () {
+      showErrors = false;
+      contextApproved = false;
+      contextReview = null;
+      publishReviewApproved = false;
+      publishReview = null;
+      renderSetup();
+    });
+    view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
 
     if (TM) {
       const saved = TM.listTemplates(templateStore);

@@ -1284,6 +1284,83 @@ button:disabled {
   margin: 0 0 4px;
 }
 
+/* ---- Guided episode workspace (#40) ---- */
+.guided-workspace .workspace-head .hint {
+  max-width: 58ch;
+}
+
+.workspace-progress-line {
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.workspace-next-hint {
+  margin: 0;
+}
+
+.workspace-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.workspace-stage {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-stage:last-child {
+  border-bottom: none;
+}
+
+.workspace-stage-current {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  margin: 0 -14px;
+  padding-left: 14px;
+  padding-right: 14px;
+  border-radius: 10px;
+}
+
+.workspace-stage-status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.workspace-stage-complete .workspace-stage-status { color: var(--ok); }
+.workspace-stage-active .workspace-stage-status { color: var(--accent); }
+.workspace-stage-attention .workspace-stage-status { color: var(--warn); }
+.workspace-stage-pending .workspace-stage-status { color: var(--ink-soft); }
+
+.workspace-stage-label {
+  display: block;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.workspace-stage-summary {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.workspace-stage-actions {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .workspace-stage {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- Publish review (#37) ---- */
 .publish-review-step .workspace-head .hint {
   max-width: 62ch;
