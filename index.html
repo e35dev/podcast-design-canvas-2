@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Podcast Design Canvas — New Episode</title>
+    <title>Podcast Design Canvas — Episode Import</title>
     <link rel="stylesheet" href="app/styles.css" />
   </head>
   <body>
@@ -12,16 +12,23 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span>Podcast Design Canvas</span>
       </div>
-      <span class="step-pill">Step 1 of 8 · Set up episode</span>
+      <div class="workflow-step-indicator" aria-live="polite">
+        <div class="workflow-step-meta">
+          <span class="workflow-step-count">Step 1 of 8</span>
+          <span class="workflow-step-label step-pill">Set up episode</span>
+        </div>
+        <div class="workflow-step-track" aria-hidden="true">
+          <div class="workflow-step-fill" style="width: 12.5%"></div>
+        </div>
+      </div>
     </header>
 
     <main>
-      <div class="intro">
-        <h1>Start a new episode</h1>
+      <div class="intro" id="page-intro">
+        <h1>Organize episodes by show</h1>
         <p>
-          Bring in your synced recording, tell us who is speaking, and add a few
-          social links so the edit can get names and context right. Next you will
-          polish audio, pick a visual style, and preview how your speakers will appear.
+          Create a show, then import your recording first — Riverside link or synced speaker files,
+          speaker roles, and social links — before style or brand work.
         </p>
       </div>
 

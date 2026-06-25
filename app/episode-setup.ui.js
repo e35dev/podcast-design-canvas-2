@@ -4,7 +4,8 @@
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
-// and transcript correction (#63).
+// transcript correction (#63), episode import before brand setup (#73),
+// and episode import polish (#77, #86, #89).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -20,11 +21,17 @@
   const LIB = window.PdcShowLibrary;
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
+  const ONB = window.PdcShowOnboarding;
+  const FLOW = window.PdcEpisodeFlow;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
   const BR = window.PdcBrollSuggestions;
   const root = document.getElementById("app");
-  const stepPill = document.querySelector(".step-pill");
+  const stepIndicator = document.querySelector(".workflow-step-indicator");
+  const stepCountEl = document.querySelector(".workflow-step-count");
+  const stepLabelEl = document.querySelector(".workflow-step-label");
+  const stepFillEl = document.querySelector(".workflow-step-fill");
+  const stepPill = stepLabelEl || document.querySelector(".step-pill");
   if (!ES || !root) {
     return;
   }
@@ -61,11 +68,14 @@
   let publishReview = null;
   let publishReviewApproved = false;
   const LIB_STORAGE_KEY = "pdc-show-library";
+  const EPISODE_SESSIONS_KEY = "pdc-episode-sessions";
   let showLibrary = { shows: [] };
   let activeShowId = null;
+  let activeEpisodeId = null;
   let activeBrandKit = null;
   let startingFromShowIdentity = false;
   let showIdentitySummary = null;
+  let lastView = "setup";
 
   function getActiveBrandKit() {
     if (activeBrandKit) {
@@ -252,6 +262,137 @@
     if (stepPill) {
       stepPill.textContent = label;
     }
+    if (/^Show Library/i.test(label)) {
+      if (stepCountEl) {
+        stepCountEl.textContent = "Show home";
+      }
+      if (stepLabelEl) {
+        stepLabelEl.textContent = label.replace(/^Show Library ·\s*/, "") || "Show Library";
+      }
+      if (stepFillEl) {
+        stepFillEl.style.width = "0%";
+      }
+      if (stepIndicator) {
+        stepIndicator.classList.remove("workflow-step-indicator-active");
+      }
+      return;
+    }
+    if (!FLOW) {
+      return;
+    }
+    const indicator = FLOW.stepIndicatorForLabel(label);
+    if (stepCountEl) {
+      stepCountEl.textContent = indicator.countText;
+    }
+    if (stepLabelEl) {
+      stepLabelEl.textContent = indicator.labelText;
+    }
+    if (stepFillEl) {
+      stepFillEl.style.width = `${Math.round(indicator.progress * 100)}%`;
+    }
+    if (stepIndicator) {
+      stepIndicator.classList.toggle("workflow-step-indicator-active", Boolean(indicator.step));
+    }
+  }
+
+  function setWorkspaceStep(stageId) {
+    if (!FLOW) {
+      setStep("Episode workspace · Import to publish");
+      return;
+    }
+    const indicator = FLOW.stepIndicatorForWorkspaceStage(stageId);
+    if (stepCountEl) {
+      stepCountEl.textContent = indicator.countText;
+    }
+    if (stepLabelEl) {
+      stepLabelEl.textContent = indicator.labelText;
+    }
+    if (stepFillEl) {
+      stepFillEl.style.width = `${Math.round(indicator.progress * 100)}%`;
+    }
+    if (stepIndicator) {
+      stepIndicator.classList.add("workflow-step-indicator-active");
+    }
+  }
+
+  function loadEpisodeSessions() {
+    try {
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem(EPISODE_SESSIONS_KEY) : null;
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  function saveEpisodeSessions(sessions) {
+    if (typeof localStorage === "undefined") {
+      return;
+    }
+    try {
+      localStorage.setItem(EPISODE_SESSIONS_KEY, JSON.stringify(sessions || {}));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  function episodeSessionKey(showId, episodeId) {
+    return `${showId || "show"}:${episodeId || "episode"}`;
+  }
+
+  function buildEpisodeSessionSnapshot() {
+    return {
+      showId: activeShowId,
+      episodeId: activeEpisodeId,
+      setupDraft: state,
+      styleSelection: styleSelection,
+      appliedStyle: appliedStyle,
+      appliedAudioPolish: appliedAudioPolish,
+      contextApproved: contextApproved,
+      publishReviewApproved: publishReviewApproved,
+      activeTemplateId: activeTemplateId,
+      lastView: lastView,
+      setupComplete: ES.validateDraft(state).ok,
+      workspaceReached: lastView === "workspace" || Boolean(appliedStyle || appliedAudioPolish),
+      updatedAt: Date.now(),
+    };
+  }
+
+  function persistEpisodeSession() {
+    if (!activeShowId || !activeEpisodeId) {
+      return;
+    }
+    const sessions = loadEpisodeSessions();
+    sessions[episodeSessionKey(activeShowId, activeEpisodeId)] = buildEpisodeSessionSnapshot();
+    saveEpisodeSessions(sessions);
+    if (LIB) {
+      const status = buildEpisodeSessionSnapshot().workspaceReached
+        ? LIB.EPISODE_STATUS.IN_PROGRESS
+        : LIB.EPISODE_STATUS.DRAFT;
+      showLibrary = LIB.updateEpisode(showLibrary, activeShowId, activeEpisodeId, {
+        status: status,
+        updatedAt: Date.now(),
+      });
+      persistShowLibrary();
+    }
+  }
+
+  function applyEpisodeSessionSnapshot(snapshot) {
+    const data = snapshot || {};
+    state = data.setupDraft || ES.createDraft();
+    styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
+    appliedStyle = data.appliedStyle || null;
+    appliedAudioPolish = data.appliedAudioPolish || null;
+    contextApproved = Boolean(data.contextApproved);
+    publishReviewApproved = Boolean(data.publishReviewApproved);
+    activeTemplateId = data.activeTemplateId || null;
+    lastView = data.lastView || "setup";
+    if (SI && activeShowId && LIB) {
+      state = SI.sanitizeSetupDraft(state, LIB.getShow(showLibrary, activeShowId));
+    }
   }
 
   // Tiny DOM helper: el("div", {class:"x", onclick:fn}, child, child...).
@@ -327,6 +468,66 @@
     );
   }
 
+  function setupSectionHeader(stepNum, title, lead) {
+    return el(
+      "div",
+      { class: "setup-section-head" },
+      el("span", { class: "setup-section-number", "aria-hidden": "true" }, String(stepNum)),
+      el(
+        "div",
+        { class: "setup-section-title-block" },
+        el("h2", {}, title),
+        lead ? el("p", { class: "hint setup-section-lead" }, lead) : null,
+      ),
+    );
+  }
+
+  function renderImportFlowOutline() {
+    return el(
+      "nav",
+      { class: "setup-import-flow", "aria-label": "Import setup sections" },
+      el("span", { class: "setup-flow-step is-current" }, "1 · Episode details"),
+      el("span", { class: "setup-flow-step" }, "2 · Recording source"),
+      el("span", { class: "setup-flow-step" }, "3 · Speaker sources"),
+    );
+  }
+
+  function renderSpeakerRoleOverview() {
+    const overview = el("div", { class: "setup-role-overview", "aria-label": "Current speaker role assignments" });
+    state.speakers.forEach((speaker, index) => {
+      overview.appendChild(
+        el(
+          "span",
+          {
+            class: `setup-role-chip ${ES.speakerBucketCueClass(speaker.role)}`,
+            "data-role-chip": String(index),
+          },
+          speaker.role || `Source ${index + 1}`,
+        ),
+      );
+    });
+    return overview;
+  }
+
+  function applySpeakerBucketCue(node, role) {
+    if (!node) {
+      return;
+    }
+    const nextClass = ES.speakerBucketCueClass(role);
+    node.classList.forEach((className) => {
+      if (className.indexOf("speaker-bucket-") === 0) {
+        node.classList.remove(className);
+      }
+    });
+    node.classList.add(nextClass);
+  }
+
+  function syncSpeakerBucketCues(role, card, roleBadge, chip) {
+    applySpeakerBucketCue(card, role);
+    applySpeakerBucketCue(roleBadge, role);
+    applySpeakerBucketCue(chip, role);
+  }
+
   function nextRole() {
     const used = {};
     state.speakers.forEach((s) => {
@@ -336,13 +537,85 @@
     return free || `Guest ${state.speakers.length}`;
   }
 
+  function setPageIntro(mode) {
+    const intro = document.querySelector(".intro");
+    if (!intro) {
+      return;
+    }
+    const heading = intro.querySelector("h1");
+    const copy = intro.querySelector("p");
+    if (mode === "library") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Organize episodes by show";
+      }
+      if (copy) {
+        copy.textContent = "Create a show, then import your recording first — Riverside link or synced speaker files, speaker roles, and social links — before style or brand work.";
+      }
+      return;
+    }
+    if (mode === "new-show") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Create a show";
+      }
+      if (copy) {
+        copy.textContent = "Name your show and optionally pick a saved template. Next you will import your first episode recording and assign speakers.";
+      }
+      return;
+    }
+    if (mode === "show-detail") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Show home";
+      }
+      if (copy) {
+        copy.textContent = "Start or continue episode import here. Brand kit is optional and can wait until after your recording and speakers are set up.";
+      }
+      return;
+    }
+    if (mode === "episode-setup") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Import your episode";
+      }
+      if (copy) {
+        copy.textContent = "Bring in a Riverside link or separate synced speaker files, assign each source to Host, Guest 1, or Guest 2, and add social links so the edit gets names and context right.";
+      }
+      return;
+    }
+    intro.hidden = true;
+  }
+
+  function getShowDetailSections(show) {
+    if (ONB) {
+      return ONB.showDetailSections(show);
+    }
+    return {
+      primary: {
+        id: "episode-setup",
+        title: "Import your recording first",
+        hint: "Add a Riverside link or synced speaker files and assign speakers before style or brand work.",
+        actionLabel: "Set up episode →",
+      },
+      secondary: {
+        id: "brand-kit",
+        title: "Brand kit (optional)",
+        hint: "Set up later — episode import comes first.",
+        actionLabel: "Set up brand kit later",
+      },
+    };
+  }
+
   // ---- Show library view -----------------------------------------------------
 
   function renderShowLibrary() {
     if (!LIB) {
+      setPageIntro("episode-setup");
       renderSetup();
       return;
     }
+    setPageIntro("library");
     root.innerHTML = "";
     setStep("Show Library");
 
@@ -371,7 +644,7 @@
         el(
           "div",
           { class: "show-library-empty" },
-          el("p", {}, "No shows yet. Create a show to organize your episodes and reuse templates."),
+          el("p", {}, "No shows yet. Create a show — you will import your first recording and assign speakers right away."),
         ),
       );
     } else {
@@ -425,6 +698,7 @@
   }
 
   function renderNewShowForm(prefillName, errorMsg) {
+    setPageIntro("new-show");
     root.innerHTML = "";
     setStep("Show Library · New Show");
 
@@ -450,7 +724,7 @@
 
     const form = el(
       "div",
-      { class: "card" },
+      { class: "card create-show-form" },
       el("h2", {}, "Create new show"),
       el(
         "div",
@@ -464,12 +738,17 @@
         el("label", { for: "f-show-template" }, "Start from template (optional)"),
         tplSelect,
       ),
+      el(
+        "p",
+        { class: "hint" },
+        "After you create the show, you will go straight to episode import — Riverside link or synced speaker files, speaker roles, and social links.",
+      ),
     );
 
     const cancelBtn = el("button", { class: "btn-secondary", type: "button" }, "Cancel");
     cancelBtn.addEventListener("click", () => renderShowLibrary());
 
-    const saveBtn = el("button", { class: "btn-primary", type: "button" }, "Create show");
+    const saveBtn = el("button", { class: "btn-primary create-show-continue-btn", type: "button" }, "Create show & import episode →");
     saveBtn.addEventListener("click", () => {
       const name = nameInput.value;
       const check = LIB.validateShowName(showLibrary, name);
@@ -486,10 +765,10 @@
       showLibrary = LIB.addShow(showLibrary, show);
       persistShowLibrary();
       activeShowId = show.id;
-      renderShowDetail(show.id);
+      startEpisodeFromShow(show.id);
     });
 
-    const footer = el("div", { class: "workspace-actions" }, cancelBtn, saveBtn);
+    const footer = el("div", { class: "workspace-actions setup-cta-bar" }, cancelBtn, saveBtn);
     root.appendChild(el("div", { class: "workspace-root" }, form, footer));
   }
 
@@ -499,10 +778,12 @@
       renderShowLibrary();
       return;
     }
+    setPageIntro("show-detail");
     root.innerHTML = "";
     setStep(`Show Library · ${show.name}`);
 
     const episodes = LIB.listEpisodes(showLibrary, showId);
+    const sections = getShowDetailSections(show);
     const metaParts = [];
     if (show.templateName) metaParts.push(`Template: ${show.templateName}`);
     if (show.presetName) metaParts.push(`Style: ${show.presetName}`);
@@ -510,40 +791,65 @@
     const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Library");
     backBtn.addEventListener("click", () => renderShowLibrary());
 
-    const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
-    newEpBtn.addEventListener("click", () => startEpisodeFromShow(showId));
-
     const header = el(
       "div",
       { class: "workspace-header" },
-      el("div", { class: "workspace-header-row" }, backBtn, newEpBtn),
+      el("div", { class: "workspace-header-row" }, backBtn),
       el("h1", {}, show.name),
       metaParts.length ? el("p", { class: "hint" }, metaParts.join(" · ")) : null,
     );
 
+    const primaryCard = el("section", { class: "card show-primary-step-card" }, el("h2", {}, sections.primary.title));
+    primaryCard.appendChild(el("p", { class: "hint" }, sections.primary.hint));
+    const primaryActions = el("div", { class: "show-primary-step-actions" });
+    const primaryBtn = el("button", { class: "btn-primary", type: "button" }, sections.primary.actionLabel);
+    primaryBtn.addEventListener("click", () => {
+      if (sections.primary.mode === "resume" && sections.primary.episodeId) {
+        resumeEpisodeFromShow(showId, sections.primary.episodeId);
+        return;
+      }
+      startEpisodeFromShow(showId);
+    });
+    primaryActions.appendChild(primaryBtn);
+    if (sections.primary.mode === "resume" && sections.canStartNewEpisode) {
+      const newEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start new episode →");
+      newEpisodeBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+      primaryActions.appendChild(newEpisodeBtn);
+    }
+    primaryCard.appendChild(primaryActions);
+
     const epListEl = el("div", { class: "show-episode-list" });
     if (!episodes.length) {
-      epListEl.appendChild(el("p", { class: "hint" }, "No episodes yet. Start a new episode from this show."));
+      epListEl.appendChild(
+        el("p", { class: "hint" }, "No episodes yet — use the button above to import your first recording and assign speakers."),
+      );
     } else {
       episodes.forEach((ep) => {
         const statusLabel = LIB.episodeStatusLabel(ep.status);
         const statusClass = `ep-status ep-status--${ep.status}`;
+        const resumable = FLOW && FLOW.RESUMABLE_STATUSES.has(ep.status);
         const epCard = el(
           "div",
-          { class: "show-episode-card" },
+          { class: `show-episode-card${resumable ? " show-episode-card-resumable" : ""}` },
           el("span", { class: "show-episode-name" }, ep.name),
           el("span", { class: statusClass }, statusLabel),
           ep.downloadName ? el("span", { class: "show-episode-download" }, ep.downloadName) : null,
         );
+        if (resumable) {
+          const resumeBtn = el("button", { type: "button", class: "btn-primary btn-sm show-episode-resume-btn" }, "Resume →");
+          resumeBtn.addEventListener("click", () => resumeEpisodeFromShow(showId, ep.id));
+          epCard.appendChild(resumeBtn);
+        }
         epListEl.appendChild(epCard);
       });
     }
 
-    const view = el("div", { class: "workspace-root" }, header, el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
+    const episodesCard = el("section", { class: "card show-episodes-card" }, el("h2", {}, "Episodes"), epListEl);
 
     const kit = show.brandKit;
     const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
-    const brandCard = el("section", { class: "card brand-kit-card" }, el("h2", {}, "Brand kit"));
+    const brandCard = el("section", { class: "card brand-kit-card show-secondary-step-card" }, el("h2", {}, sections.secondary.title));
+    brandCard.appendChild(el("p", { class: "hint" }, sections.secondary.hint));
     if (kitSummary && kitSummary.identityLine !== "No brand kit configured") {
       brandCard.appendChild(el("p", { class: "brand-kit-line" }, kitSummary.identityLine));
       if (kitSummary.colorSummary) {
@@ -552,14 +858,12 @@
       if (kitSummary.overlayCount) {
         brandCard.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
       }
-    } else {
-      brandCard.appendChild(el("p", { class: "hint" }, "Define logo, colors, type, captions, and overlay assets so every episode feels on-brand."));
     }
-    const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, kit ? "Edit brand kit" : "Create brand kit");
+    const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, sections.secondary.actionLabel);
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
     brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
-    view.insertBefore(brandCard, view.lastChild);
 
+    const view = el("div", { class: "workspace-root" }, header, primaryCard, episodesCard, brandCard);
     root.appendChild(view);
   }
 
@@ -574,6 +878,7 @@
       return;
     }
     activeShowId = showId;
+    setPageIntro("show-detail");
     let kit = show.brandKit || BK.createBrandKit(showId);
     root.innerHTML = "";
     setStep(`Show Library · ${show.name} · Brand kit`);
@@ -712,7 +1017,7 @@
       { class: "card show-identity-banner" },
       el("h3", {}, showIdentitySummary.headline),
       el("p", { class: "hint" }, showIdentitySummary.identityLine),
-      el("p", { class: "hint show-identity-note" }, "Everything below is prefilled from this show — edit any step as needed."),
+      el("p", { class: "hint show-identity-note" }, "Show context is above — enter each speaker's name and recording source below."),
     );
   }
 
@@ -749,6 +1054,8 @@
     publishReviewApproved = false;
     startingFromShowIdentity = false;
     showIdentitySummary = null;
+    activeEpisodeId = null;
+    lastView = "setup";
   }
 
   function applyEpisodeStart(start) {
@@ -761,6 +1068,12 @@
     startingFromShowIdentity = Boolean(start.fromShowIdentity);
     showIdentitySummary = start.identity || null;
     state = start.setupDraft || ES.createDraft();
+    if (SI) {
+      const showForSanitize = activeShowId && LIB
+        ? LIB.getShow(showLibrary, activeShowId)
+        : (start.showName ? { name: start.showName, episodes: [] } : null);
+      state = SI.sanitizeSetupDraft(state, showForSanitize);
+    }
     styleSelection = start.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = start.appliedStyle || null;
     activeTemplateId = start.templateId || null;
@@ -771,6 +1084,7 @@
   function startBlankEpisode() {
     activeShowId = null;
     applyEpisodeStart(SI ? SI.buildBlankEpisodeStart() : null);
+    setPageIntro("episode-setup");
     renderSetup();
   }
 
@@ -796,22 +1110,164 @@
     });
     showLibrary = LIB.addEpisode(showLibrary, showId, episode);
     persistShowLibrary();
+    activeEpisodeId = episode.id;
+    lastView = "setup";
+    persistEpisodeSession();
 
+    setPageIntro("episode-setup");
     renderSetup();
+  }
+
+  function resumeEpisodeFromShow(showId, episodeId) {
+    if (!LIB || !SI) {
+      startBlankEpisode();
+      return;
+    }
+    const show = LIB.getShow(showLibrary, showId);
+    const episodes = LIB.listEpisodes(showLibrary, showId);
+    const episode = episodes.find((entry) => entry.id === episodeId);
+    if (!show || !episode) {
+      renderShowDetail(showId);
+      return;
+    }
+
+    activeShowId = showId;
+    activeEpisodeId = episodeId;
+    const sessions = loadEpisodeSessions();
+    const snapshot = sessions[episodeSessionKey(showId, episodeId)];
+    const start = SI.buildEpisodeStart(show, templateStore);
+
+    resetEpisodeSession();
+    activeShowId = showId;
+    activeEpisodeId = episodeId;
+    startingFromShowIdentity = true;
+    showIdentitySummary = start.identity;
+    activeBrandKit = start.brandKit;
+    activeTemplateId = start.templateId;
+    canvasDoc = start.canvasDoc;
+    styleSelection = start.styleSelection;
+
+    if (snapshot) {
+      applyEpisodeSessionSnapshot(snapshot);
+    } else {
+      state = start.setupDraft || ES.createDraft();
+      state = SI.sanitizeSetupDraft(state, show);
+    }
+    state.episodeName = episode.name;
+
+    const destination = FLOW ? FLOW.resumeDestination(snapshot || buildEpisodeSessionSnapshot()) : "setup";
+    setPageIntro("episode-setup");
+    if (destination === "workspace") {
+      lastView = "workspace";
+      renderWorkspace(ES.summarize(state));
+    } else {
+      lastView = "setup";
+      renderSetup();
+    }
+    persistEpisodeSession();
   }
 
   // ---- Setup view -------------------------------------------------------------
 
+  function showContextForSanitize() {
+    if (activeShowId && LIB) {
+      return LIB.getShow(showLibrary, activeShowId);
+    }
+    if (startingFromShowIdentity && showIdentitySummary && showIdentitySummary.headline) {
+      const match = showIdentitySummary.headline.match(/^Starting from (.+) identity$/);
+      if (match) {
+        return { name: match[1], episodes: [] };
+      }
+    }
+    return null;
+  }
+
+  function sanitizeSetupState() {
+    if (!SI) {
+      return;
+    }
+    state = SI.sanitizeSetupDraft(state, showContextForSanitize());
+  }
+
+  function readSetupFormState() {
+    const episodeInput = document.getElementById("f-episodeName");
+    if (episodeInput) {
+      state.episodeName = episodeInput.value;
+    }
+    const linkInput = document.getElementById("f-riversideLink");
+    if (linkInput) {
+      state.riversideLink = linkInput.value;
+    }
+    state.speakers.forEach((speaker, index) => {
+      const nameInput = document.getElementById(`f-sp-${index}-name`);
+      if (nameInput) {
+        speaker.name = nameInput.value;
+      }
+      const trackInput = document.getElementById(`f-sp-${index}-source`);
+      if (trackInput && trackInput.type === "text") {
+        speaker.trackLabel = trackInput.value;
+      }
+      ES.SOCIAL_NETWORKS.forEach((net) => {
+        const socialInput = document.getElementById(`f-sp-${index}-social-${net.key}`);
+        if (socialInput) {
+          speaker.social[net.key] = socialInput.value;
+        }
+      });
+    });
+    sanitizeSetupState();
+  }
+
+  function clearSpeakerAutofillLeak() {
+    if (!SI) {
+      return;
+    }
+    const show = showContextForSanitize();
+    state.speakers.forEach((speaker, index) => {
+      const nameInput = document.getElementById(`f-sp-${index}-name`);
+      if (nameInput && !trim(speaker.name) && SI.isShowContextLabel(nameInput.value, show, state)) {
+        nameInput.value = "";
+      }
+      const trackInput = document.getElementById(`f-sp-${index}-source`);
+      if (trackInput && trackInput.type === "text" && !trim(speaker.trackLabel)
+        && SI.isShowContextLabel(trackInput.value, show, state)) {
+        trackInput.value = "";
+      }
+    });
+  }
+
+  function trim(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
   function renderSetup() {
+    lastView = "setup";
+    sanitizeSetupState();
+    setPageIntro("episode-setup");
     root.innerHTML = "";
     setStep("Step 1 of 8 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
-    const form = el("form", { class: "setup", novalidate: true });
+    const form = el("form", { class: "setup setup-import", novalidate: true });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       onContinue();
     });
+
+    form.appendChild(
+      el(
+        "div",
+        { class: "setup-import-head" },
+        el("p", { class: "eyebrow" }, "Episode import"),
+        el("h2", {}, "Set up your recording and speakers"),
+        el(
+          "p",
+          { class: "hint" },
+          "Import your synced sources, assign each speaker, and add social links — then continue to audio polish and style.",
+        ),
+      ),
+    );
+
+    form.appendChild(renderImportFlowOutline());
 
     const identityBanner = renderShowIdentityBanner();
     if (identityBanner) {
@@ -855,12 +1311,13 @@
     });
     nameInput.addEventListener("input", (e) => {
       state.episodeName = e.target.value;
+      sanitizeSetupState();
     });
 
     const detailsCard = el(
       "section",
-      { class: "card" },
-      el("h2", {}, "Episode details"),
+      { class: "card setup-section setup-section-episode" },
+      setupSectionHeader(1, "Episode details", "Name this episode so it is easy to find in your show library."),
       field("Episode name", nameInput, "episodeName"),
     );
     form.appendChild(detailsCard);
@@ -884,9 +1341,8 @@
 
     const sourceCard = el(
       "section",
-      { class: "card" },
-      el("h2", {}, "Recording source"),
-      el("p", { class: "hint" }, "Bring in your recording, then assign each track to a speaker below."),
+      { class: "card setup-section setup-section-source" },
+      setupSectionHeader(2, "Recording source", "Choose how you recorded — Riverside link or separate synced speaker files."),
       el("div", { class: "mode-row" }, modeButtons),
     );
 
@@ -912,14 +1368,28 @@
     form.appendChild(sourceCard);
 
     // Speakers & sources
-    const speakersCard = el("section", { class: "card" }, el("h2", {}, "Speakers & sources"));
+    const speakerStack = el("div", { class: "speaker-stack" });
     state.speakers.forEach((speaker, index) => {
-      speakersCard.appendChild(renderSpeaker(speaker, index));
+      speakerStack.appendChild(renderSpeaker(speaker, index));
     });
 
-    const addButton = el("button", { type: "button", class: "ghost" }, "+ Add speaker source");
+    const speakersCard = el(
+      "section",
+      { class: "card setup-section setup-speakers-card" },
+      setupSectionHeader(
+        3,
+        "Speakers & sources",
+        "One card per speaker — assign Host, Guest 1, or Guest 2 and attach each synced source.",
+      ),
+      renderSpeakerRoleOverview(),
+      speakerStack,
+    );
+
+    const addButton = el("button", { type: "button", class: "btn-secondary setup-add-speaker-btn" }, "+ Add speaker source");
     addButton.addEventListener("click", () => {
+      readSetupFormState();
       state.speakers.push(ES.createSpeaker(nextRole()));
+      sanitizeSetupState();
       renderSetup();
     });
     speakersCard.appendChild(addButton);
@@ -932,27 +1402,61 @@
       }
     }
 
+    if (activeShowId) {
+      form.appendChild(
+        el(
+          "aside",
+          { class: "setup-draft-review" },
+          el("p", { class: "setup-draft-review-text" },
+            el("strong", {}, "Draft saved to your show"),
+            " — Continue when speakers and sources are ready, or use ",
+            el("strong", {}, "Back to show"),
+            " anytime to review this draft in your episode list.",
+          ),
+        ),
+      );
+    }
+
     form.appendChild(
       el(
         "div",
-        { class: "actions" },
-        el("button", { type: "submit", class: "primary" }, "Continue to audio polish →"),
+        { class: "actions setup-actions setup-cta-bar" },
+        activeShowId
+          ? el("button", { type: "button", class: "btn-secondary", id: "setup-back-show" }, "← Back to show")
+          : null,
+        el("button", { type: "submit", class: "btn-primary setup-continue-btn" }, "Continue to audio polish →"),
       ),
     );
 
     root.appendChild(form);
+    clearSpeakerAutofillLeak();
+    const backShow = document.getElementById("setup-back-show");
+    if (backShow) {
+      backShow.addEventListener("click", () => {
+        persistEpisodeSession();
+        renderShowDetail(activeShowId);
+      });
+    }
 
     if (showErrors) {
       focusFirstError();
     }
+    persistEpisodeSession();
   }
 
   function renderSpeaker(speaker, index) {
-    const card = el("div", { class: "speaker" });
+    const bucketClass = ES.speakerBucketCueClass(speaker.role);
+    const card = el("article", { class: `speaker speaker-card ${bucketClass}` });
+    const roleBadge = el("span", { class: `speaker-role-badge ${bucketClass}` }, speaker.role || "Unassigned");
     const header = el(
       "div",
       { class: "speaker-head" },
-      el("span", { class: "speaker-tag" }, `Source ${index + 1}`),
+      el(
+        "div",
+        { class: "speaker-head-main" },
+        el("span", { class: "speaker-tag" }, `Source ${index + 1}`),
+        roleBadge,
+      ),
     );
     const removeButton = el("button", {
       type: "button",
@@ -962,25 +1466,32 @@
     }, "Remove");
     removeButton.addEventListener("click", () => {
       if (state.speakers.length > 1) {
+        readSetupFormState();
         state.speakers.splice(index, 1);
+        sanitizeSetupState();
         renderSetup();
       }
     });
     header.appendChild(removeButton);
     card.appendChild(header);
 
+    const body = el("div", { class: "speaker-body" });
+    const core = el("div", { class: "speaker-core" });
+
     // Name
     const nameInput = el("input", {
       id: `f-sp-${index}-name`,
       type: "text",
       value: speaker.name,
-      placeholder: "Speaker name",
+      placeholder: "Enter speaker name",
+      autocomplete: "off",
+      "data-lpignore": "true",
       "aria-invalid": isInvalid(`speaker:${index}:name`) ? "true" : null,
     });
     nameInput.addEventListener("input", (e) => {
       speaker.name = e.target.value;
     });
-    card.appendChild(field("Speaker name", nameInput, `speaker:${index}:name`));
+    core.appendChild(field("Speaker name", nameInput, `speaker:${index}:name`));
 
     // Role bucket
     const roleSelect = el("select", {
@@ -993,10 +1504,25 @@
     });
     roleSelect.addEventListener("change", (e) => {
       speaker.role = e.target.value;
+      roleBadge.textContent = speaker.role;
+      const chip = document.querySelector(`[data-role-chip="${index}"]`);
+      if (chip) {
+        chip.textContent = speaker.role;
+      }
+      syncSpeakerBucketCues(speaker.role, card, roleBadge, chip);
     });
-    card.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
+    core.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
+
+    const identityGroup = el(
+      "div",
+      { class: "speaker-group speaker-identity-group" },
+      el("h4", { class: "speaker-group-title" }, "Who is speaking"),
+      core,
+    );
+    body.appendChild(identityGroup);
 
     // Source: file (upload) or optional channel label (riverside)
+    const sourceBlock = el("div", { class: "speaker-source-block" });
     if (state.sourceMode === "upload") {
       const fileInput = el("input", {
         id: `f-sp-${index}-source`,
@@ -1015,23 +1541,33 @@
         speaker.fileSize = file ? file.size : 0;
         chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
       });
-      card.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
-      card.appendChild(chosen);
+      sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
+      sourceBlock.appendChild(chosen);
     } else {
       const trackInput = el("input", {
         id: `f-sp-${index}-source`,
         type: "text",
         value: speaker.trackLabel,
         placeholder: "e.g. Track 1 (optional)",
+        autocomplete: "off",
+        "data-lpignore": "true",
       });
       trackInput.addEventListener("input", (e) => {
         speaker.trackLabel = e.target.value;
       });
-      card.appendChild(field("Channel label", trackInput, null, "Optional — name this speaker's channel in the recording."));
+      sourceBlock.appendChild(field("Channel label", trackInput, null, "Optional — name this speaker's channel in the recording."));
     }
 
+    const recordingGroup = el(
+      "div",
+      { class: "speaker-group speaker-recording-group" },
+      el("h4", { class: "speaker-group-title" }, "Synced recording"),
+      sourceBlock,
+    );
+    body.appendChild(recordingGroup);
+
     // Optional social links
-    const social = el("details", { class: "social" });
+    const social = el("details", { class: "social speaker-group speaker-social-group" });
     social.appendChild(el("summary", {}, "Social links (optional)"));
     const socialHint = el(
       "p",
@@ -1052,7 +1588,8 @@
       });
       social.appendChild(field(net.label, input, `speaker:${index}:social:${net.key}`));
     });
-    card.appendChild(social);
+    body.appendChild(social);
+    card.appendChild(body);
 
     return card;
   }
@@ -1323,8 +1860,8 @@
 
   function renderWorkspace(summary) {
     workspaceSummaryCache = summary;
+    lastView = "workspace";
     root.innerHTML = "";
-    setStep("Episode workspace · Import to publish");
 
     const view = el("div", { class: "workspace guided-workspace" });
     const identityBanner = renderShowIdentityBanner();
@@ -1345,11 +1882,34 @@
       ensureMomentsBoard(summary);
       const ws = WS.buildWorkspace(summary, buildWorkspaceContext(summary));
       const wsSummary = WS.summarizeWorkspace(ws);
+      const currentStage = WS.getStage(ws, ws.currentStageId);
+      setWorkspaceStep(ws.currentStageId);
+
+      if (currentStage) {
+        const nextActionBtn = el(
+          "button",
+          { type: "button", class: "btn-primary workspace-next-action-btn" },
+          `${currentStage.actionLabel} →`,
+        );
+        nextActionBtn.addEventListener("click", function () {
+          navigateWorkspaceStage(currentStage.actionTarget, summary);
+        });
+        view.appendChild(
+          el(
+            "section",
+            { class: "card workspace-next-action" },
+            el("p", { class: "eyebrow workspace-next-action-eyebrow" }, "Your next step"),
+            el("h3", {}, currentStage.label),
+            el("p", { class: "hint workspace-next-action-summary" }, currentStage.summary),
+            el("div", { class: "workspace-next-action-cta" }, nextActionBtn),
+          ),
+        );
+      }
 
       view.appendChild(
         el(
           "section",
-          { class: "card workspace-progress" },
+          { class: "card workspace-progress workspace-progress-hero" },
           el("h3", {}, "Episode progress"),
           el("p", { class: "workspace-progress-line" }, wsSummary.progressLine),
           el("p", { class: "hint workspace-next-hint" }, wsSummary.workspaceLine),
@@ -1438,9 +1998,8 @@
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
+    persistEpisodeSession();
   }
-
-  // ---- Publish review (#37) -------------------------------------------------
 
   function renderPublishReview(summary) {
     if (!PR) {
