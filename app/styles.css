@@ -1633,6 +1633,34 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.show-primary-step-card {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 5%, #fff);
+}
+
+.show-primary-step-card h2 {
+  margin-top: 0;
+}
+
+.show-primary-step-actions {
+  margin-top: 12px;
+}
+
+.show-secondary-step-card {
+  opacity: 0.96;
+}
+
+.show-episodes-card h2 {
+  margin-top: 0;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .brand-kit-line {
   font-weight: 600;
   margin: 0 0 8px;
