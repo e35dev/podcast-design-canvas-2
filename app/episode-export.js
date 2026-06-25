@@ -133,6 +133,9 @@
     if (ctx.brandKitSummary && ctx.brandKitSummary.reviewLine) {
       lines.push(ctx.brandKitSummary.reviewLine);
     }
+    if (ctx.publishPackageSummary && ctx.publishPackageSummary.lines) {
+      ctx.publishPackageSummary.lines.forEach((line) => lines.push(line));
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);

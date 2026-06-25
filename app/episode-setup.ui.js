@@ -3,7 +3,7 @@
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
-// show brand kits (#52), and show identity episode start (#57).
+// show brand kits (#52), show identity episode start (#57), and publish package (#60).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -19,6 +19,7 @@
   const LIB = window.PdcShowLibrary;
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
+  const PP = window.PdcPublishPackage;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -45,6 +46,7 @@
   let momentsBoard = null;
   let selectedMomentId = null;
   let exportJob = null;
+  let publishPackage = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -639,6 +641,7 @@
     momentsBoard = null;
     selectedMomentId = null;
     exportJob = null;
+    publishPackage = null;
     contextReview = null;
     contextApproved = false;
     publishReview = null;
@@ -1125,6 +1128,27 @@
     }
   }
 
+  function buildPublishPackageContext(summary) {
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    return {
+      showName: show ? show.name : summary.episodeName,
+      momentsBoard: momentsBoard,
+      brandKit: getActiveBrandKit(),
+      brandKitSummary: brandKitSummary(),
+      appliedStyle: brandedAppliedStyle(summary),
+    };
+  }
+
+  function ensurePublishPackage(summary) {
+    if (!PP) {
+      return null;
+    }
+    if (!publishPackage) {
+      publishPackage = PP.createPackage(summary, buildPublishPackageContext(summary));
+    }
+    return publishPackage;
+  }
+
   function buildExportContext(summary) {
     const templateName = activeTemplateId && TM
       ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
@@ -1143,6 +1167,7 @@
       momentsSummary: momentsSummary,
       contextSummary: contextSummary,
       brandKitSummary: brandKitSummary(),
+      publishPackageSummary: publishPackage && PP ? PP.summarizePackage(publishPackage) : null,
     };
   }
 
@@ -1366,14 +1391,161 @@
     const exportButton = el(
       "button",
       { type: "button", class: "ghost", disabled: publishReviewApproved ? null : true },
-      "Continue to export →",
+      "Continue to publish package →",
     );
-    exportButton.addEventListener("click", () => renderExport(summary));
+    exportButton.addEventListener("click", () => renderPublishPackage(summary));
 
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(approveError);
     view.appendChild(el("div", { class: "actions" }, approveButton, exportButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Publish package (#60) --------------------------------------------------
+
+  function renderPublishPackageThumbnail(thumb, selected) {
+    const card = el(
+      "button",
+      {
+        type: "button",
+        class: `publish-thumb-card${selected ? " selected" : ""}`,
+        "aria-pressed": selected ? "true" : "false",
+      },
+      el("span", { class: "publish-thumb-preview" }, (function () {
+        const preview = el("span", { class: "publish-thumb-frame" });
+        preview.style.background = thumb.background;
+        preview.style.color = thumb.text;
+        preview.style.borderColor = thumb.accent;
+        if (thumb.logoLabel) {
+          preview.appendChild(el("span", { class: "publish-thumb-logo" }, thumb.logoLabel));
+        }
+        preview.appendChild(el("span", { class: "publish-thumb-headline" }, thumb.headline));
+        preview.appendChild(el("span", { class: "publish-thumb-tagline" }, thumb.tagline));
+        return preview;
+      })()),
+      el("span", { class: "publish-thumb-label" }, thumb.label),
+    );
+    return card;
+  }
+
+  function renderPublishPackage(summary) {
+    if (!PP) {
+      renderExport(summary);
+      return;
+    }
+    refreshPublishReview(summary);
+    const reviewGate = PR ? PR.validateExportGate(publishReview) : { ok: true };
+    if (!reviewGate.ok) {
+      renderExport(summary);
+      return;
+    }
+
+    ensurePublishPackage(summary);
+    root.innerHTML = "";
+    setStep("Publish package · Ready to upload");
+
+    const view = el("div", { class: "publish-package-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Publish package"),
+        el("h2", {}, "Publishing assets for upload"),
+        el("p", { class: "hint" }, "Edit the title, description, chapters, credits, and thumbnail before you publish."),
+      ),
+    );
+
+    const form = el("div", { class: "publish-package-layout" });
+
+    const detailsCard = el("section", { class: "card" }, el("h3", {}, "Episode details"));
+    const titleInput = el("input", { id: "publish-title", type: "text", value: publishPackage.title });
+    titleInput.addEventListener("input", (e) => {
+      publishPackage = PP.updatePackage(publishPackage, { title: e.target.value });
+    });
+    detailsCard.appendChild(field("Episode title", titleInput));
+
+    const descriptionInput = el("textarea", { id: "publish-description", rows: "4" }, publishPackage.description);
+    descriptionInput.addEventListener("input", (e) => {
+      publishPackage = PP.updatePackage(publishPackage, { description: e.target.value });
+    });
+    detailsCard.appendChild(field("Short description", descriptionInput, null, "Used on YouTube, Spotify, and show notes."));
+    form.appendChild(detailsCard);
+
+    const chaptersCard = el("section", { class: "card" }, el("h3", {}, "Chapter markers"));
+    const chapterList = el("div", { class: "publish-chapter-list" });
+    publishPackage.chapters.forEach((chapter) => {
+      const timeInput = el("input", {
+        type: "text",
+        value: chapter.time,
+        class: "publish-chapter-time",
+      });
+      const labelInput = el("input", {
+        type: "text",
+        value: chapter.label,
+        class: "publish-chapter-label",
+      });
+      timeInput.addEventListener("change", (e) => {
+        publishPackage = PP.updateChapter(publishPackage, chapter.id, { time: e.target.value });
+      });
+      labelInput.addEventListener("input", (e) => {
+        publishPackage = PP.updateChapter(publishPackage, chapter.id, { label: e.target.value });
+      });
+      chapterList.appendChild(
+        el("div", { class: "publish-chapter-row" }, timeInput, labelInput),
+      );
+    });
+    chaptersCard.appendChild(chapterList);
+    form.appendChild(chaptersCard);
+
+    const creditsCard = el("section", { class: "card" }, el("h3", {}, "Speaker credits"));
+    const creditList = el("div", { class: "publish-credit-list" });
+    publishPackage.speakerCredits.forEach((credit) => {
+      const nameInput = el("input", { type: "text", value: credit.name, class: "publish-credit-name" });
+      const roleInput = el("input", { type: "text", value: credit.role, class: "publish-credit-role" });
+      nameInput.addEventListener("input", (e) => {
+        publishPackage = PP.updateSpeakerCredit(publishPackage, credit.id, { name: e.target.value });
+      });
+      roleInput.addEventListener("input", (e) => {
+        publishPackage = PP.updateSpeakerCredit(publishPackage, credit.id, { role: e.target.value });
+      });
+      creditList.appendChild(
+        el("div", { class: "publish-credit-row" }, nameInput, roleInput),
+      );
+    });
+    creditsCard.appendChild(creditList);
+    form.appendChild(creditsCard);
+
+    const thumbCard = el("section", { class: "card" }, el("h3", {}, "Thumbnail options"));
+    thumbCard.appendChild(el("p", { class: "hint" }, "Branded with your show identity — pick the option that fits this episode."));
+    const thumbGrid = el("div", { class: "publish-thumb-grid" });
+    publishPackage.thumbnailOptions.forEach((thumb) => {
+      const card = renderPublishPackageThumbnail(thumb, publishPackage.selectedThumbnailId === thumb.id);
+      card.addEventListener("click", () => {
+        publishPackage = PP.selectThumbnail(publishPackage, thumb.id);
+        renderPublishPackage(summary);
+      });
+      thumbGrid.appendChild(card);
+    });
+    thumbCard.appendChild(thumbGrid);
+    form.appendChild(thumbCard);
+
+    view.appendChild(form);
+
+    const packageSummary = PP.summarizePackage(publishPackage);
+    const previewCard = el("section", { class: "card publish-package-preview" }, el("h3", {}, "Package preview"));
+    packageSummary.lines.forEach((line) => {
+      previewCard.appendChild(el("p", { class: "export-summary-line" }, line));
+    });
+    view.appendChild(previewCard);
+
+    const toExport = el("button", { type: "button", class: "primary" }, "Continue to export →");
+    toExport.addEventListener("click", () => renderExport(summary));
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to export");
+    back.addEventListener("click", () => renderExport(summary));
+    view.appendChild(el("div", { class: "actions" }, toExport, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -1390,6 +1562,7 @@
 
     refreshPublishReview(summary);
     const reviewGate = PR ? PR.validateExportGate(publishReview) : { ok: true };
+    ensurePublishPackage(summary);
     const ctx = buildExportContext(summary);
     const readiness = EXP.validateReadiness(ctx);
     if (!exportJob) {
@@ -1548,6 +1721,9 @@
     view.appendChild(grid);
 
     const actions = el("div", { class: "actions" });
+    const packageButton = el("button", { type: "button", class: "ghost" }, publishPackage ? "Edit publish package" : "Open publish package →");
+    packageButton.addEventListener("click", () => renderPublishPackage(summary));
+    actions.appendChild(packageButton);
     if (exportJob.status !== "ready") {
       const startButton = el("button", { type: "button", class: "primary" }, "Start export →");
       startButton.addEventListener("click", () => {
