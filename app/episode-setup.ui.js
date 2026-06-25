@@ -4,7 +4,7 @@
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
-// and transcript correction (#63).
+// and transcript correction (#63), smart b-roll suggestions (#67).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -22,6 +22,7 @@
   const SI = window.PdcShowIdentity;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const BR = window.PdcBrollSuggestions;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -51,6 +52,7 @@
   let publishPackage = null;
   let correctionReview = null;
   let correctionApproved = false;
+  let brollSession = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -649,6 +651,7 @@
     publishPackage = null;
     correctionReview = null;
     correctionApproved = false;
+    brollSession = null;
     contextReview = null;
     contextApproved = false;
     publishReview = null;
@@ -1087,6 +1090,10 @@
       renderTranscriptCorrection(summary);
       return;
     }
+    if (target === "broll") {
+      renderBrollSuggestions(summary);
+      return;
+    }
     if (target === "export") {
       renderExport(summary);
       return;
@@ -1125,6 +1132,10 @@
       renderVisualMoments(summary);
       return;
     }
+    if (target === "broll") {
+      renderBrollSuggestions(summary);
+      return;
+    }
     renderWorkspace(summary);
   }
 
@@ -1152,6 +1163,26 @@
       });
     }
     return correctionReview;
+  }
+
+  function ensureBrollSession(summary) {
+    if (!BR) {
+      return null;
+    }
+    if (!brollSession) {
+      brollSession = BR.createSession(summary);
+    }
+    return brollSession;
+  }
+
+  function applyBrollToBoard() {
+    if (!BR || !brollSession) {
+      return;
+    }
+    const applied = BR.applyToBoard(momentsBoard, brollSession);
+    momentsBoard = applied.board;
+    brollSession = applied.session;
+    persistMoments();
   }
 
   function applyCorrectionEffects() {
@@ -1222,6 +1253,9 @@
       publishPackageSummary: publishPackage && PP ? PP.summarizePackage(publishPackage) : null,
       correctionSummary: correctionReview && correctionReview.approved && TC
         ? TC.summarizeCorrection(correctionReview)
+        : null,
+      brollSummary: brollSession && BR
+        ? BR.summarizeSession(brollSession, momentsBoard)
         : null,
     };
   }
@@ -1321,6 +1355,30 @@
       }
     }
 
+    if (BR) {
+      ensureMomentsBoard(summary);
+      ensureCorrectionReview(summary);
+      ensureBrollSession(summary);
+      const brollSummary = BR.summarizeSession(brollSession, momentsBoard);
+      view.appendChild(
+        el(
+          "section",
+          { class: "card broll-workspace-card" },
+          el("h3", {}, "Smart b-roll"),
+          el("p", { class: "hint" }, brollSummary.workspaceLine),
+          el(
+            "div",
+            { class: "actions" },
+            el("button", {
+              type: "button",
+              class: "ghost",
+              onclick: () => renderBrollSuggestions(summary, { returnTo: "workspace" }),
+            }, brollSummary.generated ? "Review b-roll suggestions →" : "Generate smart b-roll →"),
+          ),
+        ),
+      );
+    }
+
     const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
     editSetup.addEventListener("click", function () {
       showErrors = false;
@@ -1328,6 +1386,7 @@
       contextReview = null;
       correctionApproved = false;
       correctionReview = null;
+      brollSession = null;
       publishReviewApproved = false;
       publishReview = null;
       renderSetup();
@@ -1446,6 +1505,44 @@
       correctionButton.addEventListener("click", () => renderTranscriptCorrection(summary, { returnTo: "review" }));
       correctionCard.appendChild(el("div", { class: "actions transcript-correction-actions" }, correctionButton));
       view.appendChild(correctionCard);
+    }
+
+    if (BR) {
+      ensureMomentsBoard(summary);
+      ensureCorrectionReview(summary);
+      ensureBrollSession(summary);
+      const brollSummary = BR.summarizeSession(brollSession, momentsBoard);
+      const brollCard = el("section", { class: "card broll-suggestions-banner" }, el("h3", {}, "Smart b-roll"));
+      brollCard.appendChild(
+        el(
+          "p",
+          { class: "hint" },
+          "Generate contextual image, logo, and topic-card suggestions from your transcript corrections and speaker social context.",
+        ),
+      );
+      if (brollSummary.reviewLine) {
+        brollCard.appendChild(el("p", { class: "broll-suggestions-line" }, brollSummary.reviewLine));
+      }
+      if (brollSummary.preview && brollSummary.preview.length) {
+        const previewList = el("ul", { class: "broll-preview-list" });
+        brollSummary.preview.forEach((item) => {
+          previewList.appendChild(
+            el("li", { class: "broll-preview-item" },
+              el("strong", {}, `${item.time} · ${item.assetLabel}`),
+              el("span", {}, ` ${item.momentText}`),
+            ),
+          );
+        });
+        brollCard.appendChild(previewList);
+      }
+      const brollButton = el(
+        "button",
+        { type: "button", class: brollSummary.acceptedCount ? "ghost" : "primary" },
+        brollSummary.generated ? "Review b-roll suggestions →" : "Generate smart b-roll →",
+      );
+      brollButton.addEventListener("click", () => renderBrollSuggestions(summary, { returnTo: "review" }));
+      brollCard.appendChild(el("div", { class: "actions broll-suggestions-actions" }, brollButton));
+      view.appendChild(brollCard);
     }
 
     const approveError = el("p", { class: "field-error", role: "alert", hidden: true });
@@ -1612,6 +1709,160 @@
     view.appendChild(approveError);
     view.appendChild(el("div", { class: "actions" }, approveButton, back));
 
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Smart b-roll suggestions (#67) ----------------------------------------
+
+  function renderBrollSuggestions(summary, options) {
+    if (!BR) {
+      renderPublishReview(summary);
+      return;
+    }
+    ensureMomentsBoard(summary);
+    ensureCorrectionReview(summary);
+    ensureBrollSession(summary);
+    const returnTo = options && options.returnTo;
+    root.innerHTML = "";
+    setStep("B-roll review · Smart visual suggestions");
+
+    const view = el("div", { class: "broll-suggestions-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Smart b-roll"),
+        el("h2", {}, `Suggest visuals for ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "We scan transcript lines, caption corrections, and speaker brands to propose logos, product shots, and topic cards at relevant moments. Accept what helps the edit and skip the rest.",
+        ),
+      ),
+    );
+
+    const summaryLine = el("p", { class: "broll-suggestions-line" });
+    function refreshSummaryLine() {
+      const brollSummary = BR.summarizeSession(brollSession, momentsBoard);
+      summaryLine.textContent = brollSummary.reviewLine || "Generate suggestions to see contextual b-roll opportunities.";
+    }
+    refreshSummaryLine();
+    view.appendChild(summaryLine);
+
+    const listCard = el("section", { class: "card" }, el("h3", {}, "Suggested moments"));
+    const suggestionList = el("div", { class: "broll-suggestion-list" });
+
+    function renderSuggestionList() {
+      suggestionList.innerHTML = "";
+      const items = brollSession && Array.isArray(brollSession.suggestions) ? brollSession.suggestions : [];
+      if (!items.length) {
+        suggestionList.appendChild(
+          el("p", { class: "hint" }, "No suggestions yet — generate from your transcript and social context."),
+        );
+        return;
+      }
+      items.forEach((item) => {
+        const row = el("div", { class: `broll-suggestion-row broll-suggestion-${item.status}` });
+        row.appendChild(
+          el(
+            "div",
+            { class: "broll-suggestion-meta" },
+            el("span", { class: "broll-suggestion-time" }, item.time),
+            el("span", { class: "broll-suggestion-type" }, item.assetLabel),
+            el("span", { class: "broll-suggestion-status" }, item.status),
+          ),
+        );
+        row.appendChild(el("p", { class: "broll-suggestion-reason" }, item.reason));
+        row.appendChild(el("p", { class: "hint broll-suggestion-overlay" }, `Overlay: ${item.momentText}`));
+
+        const actions = el("div", { class: "actions broll-suggestion-actions" });
+        if (item.status === BR.STATUS.PENDING) {
+          const acceptButton = el("button", { type: "button", class: "primary" }, "Accept");
+          acceptButton.addEventListener("click", () => {
+            brollSession = BR.acceptSuggestion(brollSession, item.id);
+            applyBrollToBoard();
+            renderSuggestionList();
+            refreshSummaryLine();
+          });
+          const skipButton = el("button", { type: "button", class: "ghost" }, "Skip");
+          skipButton.addEventListener("click", () => {
+            brollSession = BR.skipSuggestion(brollSession, item.id);
+            renderSuggestionList();
+            refreshSummaryLine();
+          });
+          actions.appendChild(acceptButton);
+          actions.appendChild(skipButton);
+        } else if (item.status === BR.STATUS.ACCEPTED) {
+          actions.appendChild(el("span", { class: "broll-suggestion-done" }, "Accepted · added to visual moments"));
+        } else {
+          actions.appendChild(el("span", { class: "broll-suggestion-done" }, "Skipped"));
+        }
+        row.appendChild(actions);
+        suggestionList.appendChild(row);
+      });
+    }
+
+    renderSuggestionList();
+    listCard.appendChild(suggestionList);
+    view.appendChild(listCard);
+
+    const previewCard = el("section", { class: "card" }, el("h3", {}, "Accepted b-roll preview"));
+    const previewList = el("ul", { class: "broll-preview-list" });
+    function refreshPreview() {
+      previewList.innerHTML = "";
+      const preview = BR.previewAccepted(brollSession, momentsBoard);
+      if (!preview.length) {
+        previewList.appendChild(el("li", { class: "hint" }, "Accepted suggestions appear here and in visual moments."));
+        return;
+      }
+      preview.forEach((item) => {
+        previewList.appendChild(
+          el("li", { class: "broll-preview-item" },
+            el("strong", {}, `${item.time} · ${item.assetLabel}`),
+            el("span", {}, ` ${item.momentText}`),
+            el("p", { class: "hint" }, item.reason),
+          ),
+        );
+      });
+    }
+    refreshPreview();
+    previewCard.appendChild(previewList);
+    view.appendChild(previewCard);
+
+    const generateButton = el(
+      "button",
+      { type: "button", class: brollSession.generated ? "ghost" : "primary" },
+      brollSession.generated ? "Regenerate suggestions" : "Generate suggestions",
+    );
+    generateButton.addEventListener("click", () => {
+      brollSession = BR.generate(brollSession, summary, correctionReview, momentsBoard);
+      renderSuggestionList();
+      refreshSummaryLine();
+      refreshPreview();
+    });
+
+    const doneButton = el("button", { type: "button", class: "primary" }, "Done →");
+    doneButton.addEventListener("click", () => {
+      applyBrollToBoard();
+      if (returnTo === "moments") {
+        renderVisualMoments(summary);
+      } else if (returnTo === "workspace") {
+        renderWorkspace(summary);
+      } else {
+        renderPublishReview(summary);
+      }
+    });
+
+    const backTarget = returnTo === "moments"
+      ? () => renderVisualMoments(summary)
+      : returnTo === "workspace"
+        ? () => renderWorkspace(summary)
+        : () => renderPublishReview(summary);
+    const back = el("button", { type: "button", class: "ghost" }, "← Back");
+    back.addEventListener("click", backTarget);
+
+    view.appendChild(el("div", { class: "actions broll-suggestions-actions" }, generateButton, doneButton, back));
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
   }
@@ -2648,6 +2899,17 @@
           { class: "hint" },
           "Place captions, titles, b-roll, and callouts at key points across the episode, then preview how each one changes the look.",
         ),
+        BR
+          ? el(
+            "div",
+            { class: "actions moments-broll-entry" },
+            el("button", {
+              type: "button",
+              class: "ghost",
+              onclick: () => renderBrollSuggestions(summary, { returnTo: "moments" }),
+            }, "Smart b-roll suggestions →"),
+          )
+          : null,
       ),
     );
 

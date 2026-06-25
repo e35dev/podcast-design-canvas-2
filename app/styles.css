@@ -1796,6 +1796,61 @@ button:disabled {
   margin-bottom: 8px;
 }
 
+/* ---- Smart b-roll suggestions (#67) ---- */
+.broll-suggestions-step .workspace-head .hint {
+  max-width: 52rem;
+}
+
+.broll-suggestions-line {
+  margin: 0 0 12px;
+  font-weight: 500;
+}
+
+.broll-suggestion-list {
+  display: grid;
+  gap: 12px;
+}
+
+.broll-suggestion-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.broll-suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+
+.broll-suggestion-reason {
+  margin: 0 0 6px;
+}
+
+.broll-suggestion-actions {
+  margin-top: 8px;
+}
+
+.broll-preview-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.broll-preview-item {
+  margin-bottom: 8px;
+}
+
+.broll-workspace-card .actions,
+.broll-suggestions-actions {
+  margin-top: 8px;
+}
+
+.moments-broll-entry {
+  margin-top: 10px;
+}
+
 /* ---- Publish package (#60) ---- */
 .publish-package-layout {
   display: grid;

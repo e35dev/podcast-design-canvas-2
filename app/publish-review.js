@@ -15,6 +15,7 @@
     moments: "moments",
     workspace: "workspace",
     export: "export",
+    broll: "broll",
   };
 
   function clone(value) {
@@ -215,6 +216,27 @@
           ? context.momentsSummary.reviewLine.replace(/^Visual moments: /, "")
           : `${momentTotal} moments across the timeline.`,
         null,
+      ));
+    }
+
+    const brollSummary = context.brollSummary;
+    if (brollSummary && brollSummary.acceptedCount > 0) {
+      checks.push(check(
+        "broll-ready",
+        "moments",
+        "ok",
+        "Smart b-roll accepted",
+        brollSummary.reviewLine || `${brollSummary.acceptedCount} b-roll overlay${brollSummary.acceptedCount === 1 ? "" : "s"} added from suggestions.`,
+        null,
+      ));
+    } else if (brollSummary && brollSummary.generated && brollSummary.pendingCount > 0) {
+      checks.push(check(
+        "broll-pending",
+        "moments",
+        "warning",
+        "B-roll suggestions waiting",
+        `${brollSummary.pendingCount} smart b-roll suggestion${brollSummary.pendingCount === 1 ? "" : "s"} still need a review.`,
+        { label: "Review b-roll", target: FIX_TARGETS.broll },
       ));
     }
 
