@@ -213,8 +213,15 @@
       return original;
     }
     let next = original;
+    const canonical = ctx.displayName.toLowerCase();
     ctx.spellingHints.forEach((hint) => {
-      if (!hint || hint.toLowerCase() === ctx.displayName.toLowerCase()) {
+      // Skip any hint that is itself part of the canonical name. Some hints (e.g. the
+      // "first name + last name minus its final letter" variant, "Sam River" for "Sam
+      // Rivera") are substrings of the correct name; replacing them would rewrite the
+      // already-correct name and append a duplicate letter ("Sam Riveraa"). A hint that the
+      // canonical name already contains can only ever corrupt a correct spelling, never fix
+      // a wrong one, so it is never safe to apply.
+      if (!hint || canonical.indexOf(hint.toLowerCase()) >= 0) {
         return;
       }
       next = next.replace(new RegExp(escapeRegExp(hint), "gi"), ctx.displayName);

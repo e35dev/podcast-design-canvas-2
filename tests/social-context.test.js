@@ -110,6 +110,39 @@ test("applyReviewToMoments fixes spellings and enriches captions, titles, and ca
   assert.ok(callout.text.includes("Rivera Media"));
 });
 
+test("applying hints never corrupts an already-correct speaker name (#41 regression)", () => {
+  // Auto-derived hints include a "last name minus its final letter" variant that is a prefix
+  // of the full name. Applying it must not rewrite a correctly-spelled name.
+  const draft = setup.createDraft();
+  draft.episodeName = "Demo";
+  draft.sourceMode = "upload";
+  draft.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "s.mp4" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Ann Lee", fileName: "a.mp4" }),
+  ];
+  const episode = setup.summarize(draft);
+  const review = context.approveReview(context.createReview(episode));
+
+  assert.strictEqual(context.applyHintsToText("Thanks Sam Rivera", review, "Host", "Sam Rivera"), "Thanks Sam Rivera");
+  assert.strictEqual(context.applyHintsToText("Hi Ann Lee", review, "Guest 1", "Ann Lee"), "Hi Ann Lee");
+
+  const caption = context.enrichMomentText(
+    { type: "caption", speakerRole: "Host", speakerName: "Sam Rivera", text: "Welcome Sam Rivera" },
+    review,
+  );
+  assert.ok(caption.text.indexOf("Sam Riveraa") < 0, "no duplicated trailing letter");
+  assert.ok(caption.text.indexOf("Sam Rivera") >= 0, "correct name preserved");
+
+  // A genuine misspelling still gets normalized to the approved name.
+  let edited = context.createReview(episode);
+  edited = context.updateSpeaker(edited, 0, { displayName: "Sam R. Rivera", spellingHints: "Sam Rivira" });
+  edited = context.approveReview(edited);
+  assert.strictEqual(
+    context.applyHintsToText("Sam Rivira on stage", edited, "Host", "Sam Rivera"),
+    "Sam R. Rivera on stage",
+  );
+});
+
 test("summarizeReview rolls approved context into an export-friendly line", () => {
   let review = context.approveReview(context.createReview(setup.summarize(draftWithSocial())));
   review = context.updateSpeaker(review, 0, { topics: "founders, SaaS" });
