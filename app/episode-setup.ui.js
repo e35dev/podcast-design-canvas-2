@@ -20,6 +20,7 @@
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
   const PP = window.PdcPublishPackage;
+  const TC = window.PdcTranscriptCorrection;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -52,6 +53,10 @@
   let contextApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  // Transcript & caption correction (#63): the accuracy review whose approved corrections
+  // propagate to captions, moments, publish package copy, and export metadata.
+  let transcriptReview = null;
+  const TRANSCRIPT_STORAGE_KEY = "pdc-transcript-correction";
   const LIB_STORAGE_KEY = "pdc-show-library";
   let showLibrary = { shows: [] };
   let activeShowId = null;
@@ -642,6 +647,14 @@
     selectedMomentId = null;
     exportJob = null;
     publishPackage = null;
+    transcriptReview = null;
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem(TRANSCRIPT_STORAGE_KEY);
+      }
+    } catch (err) {
+      /* ignore */
+    }
     contextReview = null;
     contextApproved = false;
     publishReview = null;
@@ -1149,6 +1162,68 @@
     return publishPackage;
   }
 
+  function safeLoadTranscript() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(TRANSCRIPT_STORAGE_KEY) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistTranscript() {
+    if (!TC || typeof localStorage === "undefined" || !transcriptReview) {
+      return;
+    }
+    try {
+      localStorage.setItem(TRANSCRIPT_STORAGE_KEY, TC.serializeReview(transcriptReview));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  // Build the transcript review from the episode, the approved social context (for spelling
+  // seeds), and the real on-screen moments (for the editable caption/title lines).
+  function ensureTranscriptReview(summary) {
+    if (!TC) {
+      return null;
+    }
+    if (!transcriptReview) {
+      ensureMomentsBoard(summary);
+      transcriptReview = TC.deserializeReview(safeLoadTranscript())
+        || TC.createReview(summary, {
+          socialReview: contextReview,
+          moments: VM && momentsBoard ? VM.listMoments(momentsBoard) : [],
+        });
+    }
+    return transcriptReview;
+  }
+
+  // Apply approved corrections everywhere: on-screen captions/title moments, then the
+  // publish package copy. Export metadata reflects them via buildExportContext.
+  function applyTranscriptCorrections(summary) {
+    if (!TC || !transcriptReview) {
+      return;
+    }
+    transcriptReview = TC.approveReview(transcriptReview);
+    if (VM && momentsBoard) {
+      const corrected = TC.applyToMoments(VM.listMoments(momentsBoard), transcriptReview);
+      corrected.forEach((moment) => {
+        momentsBoard = VM.updateMoment(momentsBoard, moment.id, { text: moment.text });
+      });
+      persistMoments();
+    }
+    if (PP) {
+      ensurePublishPackage(summary);
+      const correctedPkg = TC.applyToPublishPackage(publishPackage, transcriptReview);
+      publishPackage = PP.updatePackage(publishPackage, {
+        title: correctedPkg.title,
+        description: correctedPkg.description,
+        speakerCredits: correctedPkg.speakerCredits,
+      });
+    }
+    persistTranscript();
+  }
+
   function buildExportContext(summary) {
     const templateName = activeTemplateId && TM
       ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
@@ -1168,6 +1243,7 @@
       contextSummary: contextSummary,
       brandKitSummary: brandKitSummary(),
       publishPackageSummary: publishPackage && PP ? PP.summarizePackage(publishPackage) : null,
+      transcriptSummary: TC && transcriptReview ? TC.summarizeReview(transcriptReview) : null,
     };
   }
 
@@ -1275,7 +1351,15 @@
       publishReview = null;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
+    const workspaceActions = el("div", { class: "actions workspace-actions" }, editSetup);
+    if (TC) {
+      const transcriptButton = el("button", { type: "button", class: "ghost" }, "Review transcript & captions");
+      transcriptButton.addEventListener("click", function () {
+        renderTranscriptReview(summary);
+      });
+      workspaceActions.appendChild(transcriptButton);
+    }
+    view.appendChild(workspaceActions);
 
     if (TM) {
       const saved = TM.listTemplates(templateStore);
@@ -1724,6 +1808,15 @@
     const packageButton = el("button", { type: "button", class: "ghost" }, publishPackage ? "Edit publish package" : "Open publish package →");
     packageButton.addEventListener("click", () => renderPublishPackage(summary));
     actions.appendChild(packageButton);
+    if (TC) {
+      const transcriptButton = el(
+        "button",
+        { type: "button", class: "ghost" },
+        transcriptReview && transcriptReview.approved ? "Edit transcript & captions" : "Fix transcript & captions →",
+      );
+      transcriptButton.addEventListener("click", () => renderTranscriptReview(summary));
+      actions.appendChild(transcriptButton);
+    }
     if (exportJob.status !== "ready") {
       const startButton = el("button", { type: "button", class: "primary" }, "Start export →");
       startButton.addEventListener("click", () => {
@@ -2700,6 +2793,106 @@
       } else if (canvasDoc && BK && getActiveBrandKit()) {
         canvasDoc = BK.applyToCanvas(canvasDoc, getActiveBrandKit());
       }
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Transcript & caption correction (#63) ----------------------------------
+
+  function renderTranscriptReview(summary) {
+    root.innerHTML = "";
+    setStep("Transcript & captions · Accuracy pass");
+    if (!TC) {
+      renderWorkspace(summary);
+      return;
+    }
+    ensureTranscriptReview(summary);
+
+    const view = el("div", { class: "transcript-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Transcript & captions"),
+        el("h2", {}, `Fix names and wording for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Correct speaker names, brand spellings, and key caption lines once. Approved fixes carry through captions, visual moments, export metadata, and publish copy."),
+      ),
+    );
+
+    if (transcriptReview.approved) {
+      view.appendChild(
+        el("section", { class: "card transcript-approved" }, el("p", {}, TC.summarizeReview(transcriptReview).reviewLine || "Corrections applied.")),
+      );
+    }
+
+    // Speaker labels
+    const speakersCard = el("section", { class: "card" }, el("h3", {}, "Speaker names"));
+    transcriptReview.speakerLabels.forEach((label) => {
+      const input = el("input", { type: "text", value: label.name, placeholder: label.original });
+      input.addEventListener("input", (event) => {
+        transcriptReview = TC.updateSpeakerLabel(transcriptReview, label.role, event.target.value);
+        persistTranscript();
+      });
+      speakersCard.appendChild(field(label.role, input, null, label.original !== label.name ? `Was: ${label.original}` : null));
+    });
+    view.appendChild(speakersCard);
+
+    // Term / spelling corrections
+    const termsCard = el("section", { class: "card" }, el("h3", {}, "Spelling & term fixes"), el("p", { class: "hint" }, "Replace a misspelling or brand wording everywhere it appears."));
+    transcriptReview.terms.forEach((term, index) => {
+      const fromInput = el("input", { class: "term-from", type: "text", value: term.from, placeholder: "Heard as" });
+      fromInput.addEventListener("input", (event) => {
+        transcriptReview = TC.updateTerm(transcriptReview, index, { from: event.target.value });
+        persistTranscript();
+      });
+      const toInput = el("input", { class: "term-to", type: "text", value: term.to, placeholder: "Correct to" });
+      toInput.addEventListener("input", (event) => {
+        transcriptReview = TC.updateTerm(transcriptReview, index, { to: event.target.value });
+        persistTranscript();
+      });
+      const removeButton = el("button", { type: "button", class: "link-button" }, "Remove");
+      removeButton.addEventListener("click", () => {
+        transcriptReview = TC.removeTerm(transcriptReview, index);
+        persistTranscript();
+        renderTranscriptReview(summary);
+      });
+      termsCard.appendChild(el("div", { class: "term-row" }, fromInput, el("span", { class: "term-arrow" }, "→"), toInput, removeButton));
+    });
+    const addTermButton = el("button", { type: "button", class: "ghost" }, "+ Add a fix");
+    addTermButton.addEventListener("click", () => {
+      transcriptReview = TC.addTerm(transcriptReview, "", "");
+      persistTranscript();
+      renderTranscriptReview(summary);
+    });
+    termsCard.appendChild(addTermButton);
+    view.appendChild(termsCard);
+
+    // Key caption / title lines
+    const linesCard = el("section", { class: "card" }, el("h3", {}, "Key caption & title lines"));
+    if (!transcriptReview.lines.length) {
+      linesCard.appendChild(el("p", { class: "hint" }, "No caption or title moments yet — add visual moments to review their wording here."));
+    } else {
+      transcriptReview.lines.forEach((line) => {
+        const input = el("input", { type: "text", value: line.text, placeholder: line.original });
+        input.addEventListener("input", (event) => {
+          transcriptReview = TC.updateLine(transcriptReview, line.id, event.target.value);
+          persistTranscript();
+        });
+        const tag = line.kind === "title" ? "Title" : "Caption";
+        linesCard.appendChild(field(`${tag}${line.speakerName ? ` · ${line.speakerName}` : ""}`, input, null, null));
+      });
+    }
+    view.appendChild(linesCard);
+
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply corrections →");
+    applyButton.addEventListener("click", () => {
+      applyTranscriptCorrections(summary);
       renderWorkspace(summary);
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");

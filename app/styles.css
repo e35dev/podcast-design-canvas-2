@@ -1809,3 +1809,33 @@ button:disabled {
   }
 }
 
+
+/* ---- Transcript & caption correction (#63) ---- */
+.transcript-approved {
+  border-color: rgba(31, 157, 107, 0.4);
+  background: rgba(31, 157, 107, 0.08);
+}
+
+.transcript-approved p {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ok);
+}
+
+.term-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.term-from,
+.term-to {
+  flex: 1 1 auto;
+}
+
+.term-arrow {
+  color: var(--ink-soft);
+  font-weight: 700;
+  flex: none;
+}

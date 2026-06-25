@@ -136,6 +136,11 @@
     if (ctx.publishPackageSummary && ctx.publishPackageSummary.lines) {
       ctx.publishPackageSummary.lines.forEach((line) => lines.push(line));
     }
+    // Transcript & caption correction (#63): surface the approved accuracy pass so the
+    // export metadata reflects the corrected names and wording.
+    if (ctx.transcriptSummary && ctx.transcriptSummary.reviewLine) {
+      lines.push(ctx.transcriptSummary.reviewLine);
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);
