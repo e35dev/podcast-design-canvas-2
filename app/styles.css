@@ -1483,3 +1483,79 @@ button:disabled {
     grid-column: 2;
   }
 }
+
+/* ---- Show library (#47) ---- */
+.show-library {
+  display: grid;
+  gap: 20px;
+}
+
+.show-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.show-card h3 {
+  margin: 0 0 8px;
+}
+
+.show-identity-line {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.show-detail-head .show-identity-line {
+  font-size: 15px;
+}
+
+.episode-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.episode-row {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.episode-row-name {
+  font-weight: 600;
+}
+
+.episode-status {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.episode-status-exported { color: var(--ok); }
+.episode-status-in_progress { color: var(--accent); }
+.episode-status-in_review { color: var(--warn); }
+.episode-status-draft { color: var(--ink-soft); }
+
+.episode-row-progress {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.show-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.show-create-error {
+  color: var(--danger);
+  margin: 8px 0 0;
+}
