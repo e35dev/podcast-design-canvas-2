@@ -6,7 +6,8 @@
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
 // transcript correction (#63), episode import before brand setup (#73),
 // and episode import polish (#77, #86, #89), visual style preset cards (#94, #102),
-// and creator template gallery (#106), home screen focus (#112).
+// and creator template gallery (#106), home screen focus (#112),
+// and gallery copy polish (#117).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -586,7 +587,7 @@
           el(
             "span",
             { class: "home-gallery-thumb-meta" },
-            item.presetName || (item.previewImage && item.previewImage.presetName) || "Custom layout",
+            galleryListingStatusLine(item),
           ),
         );
         card.addEventListener("click", () => {
@@ -608,7 +609,7 @@
     });
     actions.appendChild(browseBtn);
 
-    const publishLink = el("button", { type: "button", class: "link-button home-gallery-secondary-link" }, "Try publish flow");
+    const publishLink = el("button", { type: "button", class: "link-button home-gallery-secondary-link" }, "Publish a template");
     publishLink.addEventListener("click", () => openPublishGalleryDemo());
     actions.appendChild(publishLink);
     section.appendChild(actions);
@@ -664,17 +665,12 @@
       "section",
       { class: "card home-explore-panel" },
       el("h3", { class: "home-explore-title" }, "Explore"),
-      el("p", { class: "hint" }, "Optional demos — the core workflow above is the fastest path to a polished episode."),
+      el("p", { class: "hint" }, "Preview style presets before you create a show — the recommended start above is still the fastest path to a polished episode."),
     );
     const exploreLinks = el("div", { class: "home-explore-links" });
-    const styleDemoLink = el("button", { class: "link-button", type: "button" }, "Try style preset cards");
+    const styleDemoLink = el("button", { class: "link-button", type: "button" }, "Preview style presets");
     styleDemoLink.addEventListener("click", () => openStylePickerDemo());
     exploreLinks.appendChild(styleDemoLink);
-    if (GAL) {
-      const galleryWalkthroughLink = el("button", { class: "link-button", type: "button" }, "Gallery walkthrough");
-      galleryWalkthroughLink.addEventListener("click", () => openGalleryDemo());
-      exploreLinks.appendChild(galleryWalkthroughLink);
-    }
     exploreSection.appendChild(exploreLinks);
 
     const galleryCard = renderHomeGallerySpotlight();
@@ -1331,40 +1327,12 @@
     galleryStore = GAL.publishListing(galleryStore, template, {
       name: "Founders Split Look",
       description: "Side-by-side interview layout with bold captions, lower-thirds, and brand styling.",
-      styleTags: GAL.deriveStyleTags(template.canvas).concat(["creator-share", "interview"]),
+      styleTags: ["Interview", "Split stage", "Multi-speaker"],
       previewImage: GAL.buildPreviewImage(template.canvas),
       creatorName: "Founders Unfiltered",
     });
     persistGallery();
     return true;
-  }
-
-  function openGalleryDemo() {
-    if (!GAL) {
-      return;
-    }
-    activeShowId = null;
-    activeEpisodeId = null;
-    startingFromShowIdentity = false;
-    showIdentitySummary = null;
-    seedGalleryDemoData();
-    state = ES.createDraft();
-    state.episodeName = "New Episode";
-    state.sourceMode = "upload";
-    state.speakers = [
-      Object.assign(ES.createSpeaker("Host"), { name: "Alex Chen" }),
-      Object.assign(ES.createSpeaker("Guest 1"), { name: "Jordan Lee" }),
-    ];
-    workspaceSummaryCache = ES.summarize(state);
-    const listings = GAL.listListings(galleryStore);
-    activeGalleryListingId = listings[0] ? listings[0].id : null;
-    styleSelection = STY ? STY.createSelection() : null;
-    appliedStyle = null;
-    canvasDoc = null;
-    activeTemplateId = null;
-    lastView = "gallery";
-    setPageIntro("library");
-    renderCreatorGalleryBrowse(workspaceSummaryCache, { returnTo: "library" });
   }
 
   function openPublishGalleryDemo() {
@@ -2928,6 +2896,21 @@
     view.scrollIntoView({ block: "start" });
   }
 
+  function galleryListingStatusLine(item) {
+    const preset = item.presetName || (item.previewImage && item.previewImage.presetName);
+    const tags = GAL ? GAL.displayStyleTags(item.styleTags).slice(0, 2) : [];
+    if (preset && tags.length) {
+      return `${preset} · ${tags.join(" · ")}`;
+    }
+    if (preset) {
+      return preset;
+    }
+    if (tags.length) {
+      return tags.join(" · ");
+    }
+    return "Custom episode layout";
+  }
+
   function galleryPreviewSummary(showName) {
     const base = workspaceSummaryCache || ES.summarize(state);
     if (base && base.speakerCount > 0) {
@@ -2995,15 +2978,15 @@
         el(
           "p",
           { class: "hint" },
-          "Load the demo gallery to browse a published split-stage layout, or save a show template from the canvas editor and publish it here.",
+          "Featured templates from other creators appear here. Save a layout from the canvas editor and publish it, or return to the home gallery to start from a featured template.",
         ),
       );
-      const demoBtn = el("button", { type: "button", class: "primary" }, "Load demo gallery →");
-      demoBtn.addEventListener("click", () => {
+      const featuredBtn = el("button", { type: "button", class: "primary" }, "Browse featured templates →");
+      featuredBtn.addEventListener("click", () => {
         seedGalleryDemoData();
         renderCreatorGalleryBrowse(summary, { returnTo: returnTo });
       });
-      emptyCard.appendChild(demoBtn);
+      emptyCard.appendChild(featuredBtn);
       view.appendChild(emptyCard);
       const back = el("button", { type: "button", class: "ghost" }, "← Back");
       back.addEventListener("click", () => {
@@ -3047,9 +3030,10 @@
       if (listing.description) {
         previewMeta.appendChild(el("p", { class: "hint" }, listing.description));
       }
-      if (listing.styleTags && listing.styleTags.length) {
+      const visibleTags = GAL ? GAL.displayStyleTags(listing.styleTags) : [];
+      if (visibleTags.length) {
         const tags = el("div", { class: "creator-gallery-tags" });
-        listing.styleTags.forEach((tag) => {
+        visibleTags.forEach((tag) => {
           tags.appendChild(el("span", { class: "creator-gallery-tag" }, tag));
         });
         previewMeta.appendChild(tags);
@@ -3077,14 +3061,14 @@
           },
           renderGalleryPreviewThumb(listing, previewSummary),
           el("span", { class: "creator-gallery-card-name" }, item.name),
-          el("span", { class: "creator-gallery-card-meta" }, item.presetName || item.previewImage.presetName || "Custom layout"),
+          el("span", { class: "creator-gallery-card-meta" }, galleryListingStatusLine(item)),
         );
         if (item.description) {
           card.appendChild(el("span", { class: "creator-gallery-card-desc" }, item.description));
         }
-        if (item.styleTags && item.styleTags.length) {
-          const tags = el("span", { class: "creator-gallery-card-tags" }, item.styleTags.slice(0, 3).join(" · "));
-          card.appendChild(tags);
+        const cardTags = GAL ? GAL.displayStyleTags(item.styleTags).slice(0, 3) : [];
+        if (cardTags.length) {
+          card.appendChild(el("span", { class: "creator-gallery-card-tags" }, cardTags.join(" · ")));
         }
         card.addEventListener("click", () => {
           selectedId = item.id;

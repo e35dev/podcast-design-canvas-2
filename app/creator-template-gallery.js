@@ -71,6 +71,8 @@
     };
   }
 
+  const INTERNAL_STYLE_TAGS = new Set(["creator-share"]);
+
   function deriveStyleTags(canvas) {
     const tags = [];
     if (!canvas) {
@@ -89,6 +91,40 @@
       tags.push(canvas.presetId);
     }
     return [...new Set(tags)];
+  }
+
+  function formatStyleTag(tag) {
+    const trimmed = trim(tag);
+    if (!trimmed || INTERNAL_STYLE_TAGS.has(trimmed)) {
+      return null;
+    }
+    if (/^[a-z0-9]+[-_][a-z0-9_-]+$/i.test(trimmed)) {
+      return trimmed
+        .split(/[-_]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  }
+
+  function displayStyleTags(tags) {
+    const list = Array.isArray(tags) ? tags : [];
+    const seen = new Set();
+    const formatted = [];
+    list.forEach((tag) => {
+      const label = formatStyleTag(tag);
+      if (!label) {
+        return;
+      }
+      const key = label.toLowerCase();
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      formatted.push(label);
+    });
+    return formatted;
   }
 
   function validateListingName(gallery, name, excludeId) {
@@ -214,6 +250,8 @@
     createGallery,
     buildPreviewImage,
     deriveStyleTags,
+    formatStyleTag,
+    displayStyleTags,
     validateListingName,
     createListing,
     saveListing,

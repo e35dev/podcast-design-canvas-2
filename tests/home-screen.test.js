@@ -28,11 +28,11 @@ test("home screen exposes one primary start CTA and quieter secondary paths", ()
   assert.ok(ui.includes("Create show & import episode →"));
   assert.ok(ui.includes("home-secondary-links"));
   assert.ok(ui.includes("home-explore-panel"));
-  assert.ok(ui.includes("Try style preset cards"));
-  assert.ok(ui.includes("Gallery walkthrough"));
+  assert.ok(ui.includes("Preview style presets"));
+  assert.ok(!ui.includes("Gallery walkthrough"));
   assert.ok(!ui.includes('class: "workspace-actions"'));
-  assert.ok(!ui.includes("Try style preset cards →"));
-  assert.ok(!ui.includes("Gallery walkthrough →"));
+  assert.ok(!ui.includes("Try style preset cards"));
+  assert.ok(!ui.includes("Try publish flow"));
 });
 
 test("home gallery spotlight renders preview thumbnails and browse entry", () => {

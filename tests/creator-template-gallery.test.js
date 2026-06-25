@@ -137,11 +137,12 @@ test("serializeGallery and deserializeGallery round-trip the gallery store", () 
   assert.strictEqual(listing.canvas.titleText, "Agency Split Layout");
 });
 
-test("UI exposes creator gallery browse, publish, and demo entry points", () => {
+test("UI exposes creator gallery browse, publish, and home entry points", () => {
   assert.ok(ui.includes("renderCreatorGalleryBrowse"));
   assert.ok(ui.includes("renderPublishToGallery"));
-  assert.ok(ui.includes("openGalleryDemo"));
+  assert.ok(ui.includes("renderHomeGallerySpotlight"));
   assert.ok(ui.includes("Browse creator gallery"));
+  assert.ok(ui.includes("Publish a template"));
   assert.ok(ui.includes("Publish to gallery"));
   assert.ok(ui.includes("Creator template gallery"));
   assert.ok(ui.includes("Apply gallery template"));
@@ -168,14 +169,14 @@ test("ACCEPTANCE: publish, browse, preview, and apply a creator gallery template
   galleryStore = gallery.publishListing(galleryStore, template, {
     name: nameCheck.name,
     description: "Shareable split-stage layout with captions and brand styling.",
-    styleTags: gallery.deriveStyleTags(template.canvas).concat(["creator-share"]),
+    styleTags: gallery.deriveStyleTags(template.canvas).concat(["Interview"]),
     creatorName: "Founders Unfiltered",
   });
 
   const browse = gallery.listListings(galleryStore);
   assert.strictEqual(browse.length, 1);
   assert.ok(browse[0].previewImage.background, "preview image descriptor is available for UI rendering");
-  assert.ok(browse[0].styleTags.includes("creator-share"));
+  assert.ok(browse[0].styleTags.includes("Interview"));
 
   const picked = gallery.getListing(galleryStore, browse[0].id);
   const draftB = twoSpeakerDraft();
