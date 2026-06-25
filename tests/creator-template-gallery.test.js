@@ -131,6 +131,34 @@ test("buildPreviewCanvas and applyListing adopt frames, captions, overlays, and 
   assert.ok(appliedListing.canvasDoc.layers.length >= 5, "saved layout layers carry over");
 });
 
+test("ensureStarterGallery seeds browsable sample layouts in a fresh gallery", () => {
+  gallery._resetListingCounter();
+  const seeded = gallery.ensureStarterGallery(gallery.createGallery());
+  assert.ok(seeded.listings.length >= 3, "ships starter layouts for immediate browse/preview/apply");
+  const list = gallery.listListings(seeded);
+  list.forEach((item) => {
+    assert.ok(item.previewImage.startsWith("data:image/svg+xml,"));
+    assert.ok(item.description);
+    assert.ok(item.styleTagLabels.length >= 1);
+  });
+});
+
+test("createListingFromCanvas publishes without a saved private template", () => {
+  gallery._resetListingCounter();
+  const sample = gallery.samplePublishCanvas();
+  assert.ok(sample && sample.canvas);
+  const created = gallery.createListingFromCanvas({
+    canvas: sample.canvas,
+    name: "Creator Weekly Look",
+    description: "A clean weekly show layout with branded captions.",
+    styleTags: ["interview", "brand-forward"],
+    brandKit: sample.brandKit,
+  });
+  assert.strictEqual(created.ok, true);
+  const store = gallery.publishListing(gallery.createGallery(), created.listing).gallery;
+  assert.strictEqual(gallery.listListings(store).length, 1);
+});
+
 test("serializeGallery and deserializeGallery round-trip published listings", () => {
   gallery._resetListingCounter();
   templates._resetTemplateCounter();

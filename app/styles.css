@@ -1520,6 +1520,12 @@ button.ghost:hover,
   margin-top: 14px;
 }
 
+.gallery-header-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+
 .gallery-empty-card .hint {
   margin-bottom: 12px;
 }

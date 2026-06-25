@@ -40,6 +40,60 @@
     return g.PdcShowBrandKit;
   }
 
+  function editorApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./canvas-editor.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcCanvasEditor;
+  }
+
+  function setupApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./episode-setup.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcEpisodeSetup;
+  }
+
+  // Sample layouts shipped with the gallery so a fresh install can browse, preview, and
+  // apply immediately — the maintainer's rendered UI review starts from an empty sandbox.
+  const STARTER_SPECS = [
+    {
+      id: "gallery-starter-split-interview",
+      name: "Split Interview Studio",
+      description: "Side-by-side speaker frames with clean captions — ideal for two-person interviews.",
+      styleTags: ["interview", "grid"],
+      presetId: "split-stage",
+      layout: "split",
+      titleText: "Founders Unfiltered",
+      captionText: "Two founders, one honest conversation.",
+      brandKit: { logoLabel: "FU", colors: { background: "#15192b", accent: "#e0563b", text: "#ffffff" }, captionStyle: "clean-bar" },
+    },
+    {
+      id: "gallery-starter-spotlight-brand",
+      name: "Spotlight Brand Show",
+      description: "Active-speaker spotlight with bold lower-thirds and on-brand overlays.",
+      styleTags: ["spotlight", "brand-forward", "bold-captions"],
+      presetId: "studio-spotlight",
+      layout: "spotlight",
+      titleText: "Building In Public",
+      captionText: "Welcome back — let's dive in.",
+      brandKit: { logoLabel: "BIP", colors: { background: "#10131f", accent: "#ffb347", text: "#f6f7fb" }, captionStyle: "bold-lower-third" },
+    },
+    {
+      id: "gallery-starter-panel-roundtable",
+      name: "Panel Roundtable",
+      description: "Balanced grid that keeps every guest on screen with minimal name tags.",
+      styleTags: ["grid", "minimal"],
+      presetId: "panel-grid",
+      layout: "grid",
+      titleText: "The Weekly Panel",
+      captionText: "The whole panel weighs in on this week's news.",
+      brandKit: { logoLabel: "PANEL", colors: { background: "#0f1a2b", accent: "#4dd0e1", text: "#eaf6fb" }, captionStyle: "minimal-tag" },
+    },
+  ];
+
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -129,6 +183,37 @@
       `</svg>`,
     ].join("");
     return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
+
+  function createListingFromCanvas(options) {
+    const opts = options || {};
+    const canvas = opts.canvas;
+    if (!canvas) {
+      return { ok: false, error: "Choose a layout to publish." };
+    }
+    const draftCheck = validateListingDraft({
+      name: opts.name,
+      description: opts.description,
+      styleTags: opts.styleTags,
+    });
+    if (!draftCheck.ok) {
+      return draftCheck;
+    }
+    listingCounter += 1;
+    const listing = {
+      id: opts.id || `gallery-${listingCounter}`,
+      name: draftCheck.name,
+      description: draftCheck.description,
+      styleTags: draftCheck.styleTags,
+      previewImage: opts.previewImage || buildPreviewImage(canvas, opts.brandKit),
+      canvas: clone(canvas),
+      brandKit: opts.brandKit ? clone(opts.brandKit) : null,
+      sourceTemplateId: opts.sourceTemplateId || "",
+      publishedAt: Date.now(),
+      presetName: canvas.presetName || "",
+      titleText: canvas.titleText || "",
+    };
+    return { ok: true, listing };
   }
 
   function createListingFromSavedTemplate(options) {
@@ -281,17 +366,110 @@
     }
   }
 
+  function sampleEpisodeSummary() {
+    const setup = setupApi();
+    const STY = styleApi();
+    if (!setup || !STY) {
+      return null;
+    }
+    const draft = setup.createDraft();
+    draft.episodeName = "Gallery preview episode";
+    draft.sourceMode = "upload";
+    draft.speakers = [
+      Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "host.mp4" }),
+      Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "guest.mp4" }),
+      Object.assign(setup.createSpeaker("Guest 2"), { name: "Alex Chen", fileName: "guest2.mp4" }),
+    ];
+    return setup.summarize(draft);
+  }
+
+  function buildCanvasFromSpec(spec) {
+    const setup = setupApi();
+    const STY = styleApi();
+    const CE = editorApi();
+    const BK = brandKitApi();
+    if (!setup || !STY || !CE || !spec) {
+      return null;
+    }
+    const episode = sampleEpisodeSummary();
+    const selection = STY.createSelection();
+    selection.presetId = spec.presetId;
+    selection.layout = spec.layout;
+    const applied = STY.summarizeStyle(selection, episode.speakerCount);
+    let doc = CE.createFromStyle(applied, episode, selection);
+    doc = CE.updateElement(doc, "titleText", spec.titleText);
+    doc = CE.updateElement(doc, "captionText", spec.captionText);
+    let kit = null;
+    if (BK && spec.brandKit) {
+      kit = BK.createBrandKit("gallery-starter", spec.brandKit);
+      doc = BK.applyToCanvas(doc, kit);
+    }
+    return { canvas: doc, brandKit: kit, presetName: applied.presetName };
+  }
+
+  function buildStarterListing(spec) {
+    const built = buildCanvasFromSpec(spec);
+    if (!built) {
+      return null;
+    }
+    return {
+      id: spec.id,
+      name: spec.name,
+      description: spec.description,
+      styleTags: normalizeStyleTags(spec.styleTags),
+      previewImage: buildPreviewImage(built.canvas, built.brandKit),
+      canvas: clone(built.canvas),
+      brandKit: built.brandKit ? clone(built.brandKit) : null,
+      sourceTemplateId: "",
+      publishedAt: Date.now(),
+      presetName: built.presetName || built.canvas.presetName || "",
+      titleText: spec.titleText,
+    };
+  }
+
+  function ensureStarterGallery(gallery) {
+    const base = gallery && Array.isArray(gallery.listings) ? gallery : createGallery();
+    if (base.listings.length > 0) {
+      return base;
+    }
+    let next = createGallery();
+    STARTER_SPECS.forEach((spec) => {
+      const listing = buildStarterListing(spec);
+      if (listing) {
+        const published = publishListing(next, listing);
+        if (published.ok) {
+          next = published.gallery;
+        }
+      }
+    });
+    return next;
+  }
+
+  function samplePublishCanvas() {
+    const built = buildCanvasFromSpec(STARTER_SPECS[0]);
+    if (!built) {
+      return null;
+    }
+    return {
+      canvas: clone(built.canvas),
+      brandKit: built.brandKit ? clone(built.brandKit) : null,
+      defaultName: "My Interview Layout",
+    };
+  }
+
   function _resetListingCounter() {
     listingCounter = 0;
   }
 
   const api = {
     STYLE_TAGS,
+    STARTER_SPECS,
     createGallery,
     getStyleTag,
     normalizeStyleTags,
     validateListingDraft,
     buildPreviewImage,
+    createListingFromCanvas,
     createListingFromSavedTemplate,
     publishListing,
     listListings,
@@ -299,6 +477,8 @@
     buildPreviewCanvas,
     applyListing,
     summarizeListing,
+    ensureStarterGallery,
+    samplePublishCanvas,
     serializeGallery,
     deserializeGallery,
     _resetListingCounter,
