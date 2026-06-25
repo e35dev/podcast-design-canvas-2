@@ -19,6 +19,7 @@
   const LIB = window.PdcShowLibrary;
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
+  const BR = window.PdcBrollSuggestions;
   const PP = window.PdcPublishPackage;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
@@ -56,6 +57,8 @@
   let showLibrary = { shows: [] };
   let activeShowId = null;
   let activeBrandKit = null;
+  // Smart b-roll suggestions (#67): the current suggestion set under review.
+  let brollSet = null;
   let startingFromShowIdentity = false;
   let showIdentitySummary = null;
 
@@ -1236,6 +1239,19 @@
       });
       pipeline.appendChild(stageList);
       view.appendChild(pipeline);
+    }
+
+    // Smart b-roll suggestions (#67)
+    if (BR) {
+      const brollSummary = brollSet ? BR.summarize(brollSet) : null;
+      const brollCard = el("section", { class: "card broll-card" }, el("h3", {}, "Smart b-roll"));
+      brollCard.appendChild(el("p", { class: "hint" },
+        brollSummary ? brollSummary.reviewLine : "Suggest relevant logos, products, and topic cards from the transcript and speaker context."));
+      const brollBtn = el("button", { type: "button", class: brollSummary && brollSummary.acceptedCount ? "ghost" : "primary" },
+        brollSummary ? "Review b-roll suggestions →" : "Suggest b-roll →");
+      brollBtn.addEventListener("click", () => renderBrollSuggestions(summary));
+      brollCard.appendChild(el("div", { class: "actions" }, brollBtn));
+      view.appendChild(brollCard);
     }
 
     const kitSummary = brandKitSummary();
@@ -2705,6 +2721,90 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Smart b-roll suggestions (#67) ----------------------------------------
+
+  // Assemble the b-roll model input from the episode: a simple transcript from speakers,
+  // keyword terms (speaker names + brands), and social context for brand-logo suggestions.
+  function buildBrollInput(summary) {
+    const speakers = Array.isArray(summary.speakers) ? summary.speakers : [];
+    const transcript = speakers.map((sp, i) => ({
+      id: `t-${i + 1}`,
+      speakerRole: sp.role || "Speaker",
+      speakerName: sp.name || "Speaker",
+      text: /host/i.test(sp.role || "")
+        ? `Welcome back — I'm ${sp.name || "your host"}.`
+        : `Thanks for having me, I'm ${sp.name || "a guest"}.`,
+      time: `${i}:00`,
+    }));
+    const keywords = [];
+    speakers.forEach((sp) => {
+      if (sp.name) keywords.push({ term: sp.name, kind: "topic-card" });
+    });
+    return {
+      transcript: transcript,
+      keywords: keywords,
+      speakers: speakers.map((sp) => ({ role: sp.role, name: sp.name, social: Array.isArray(sp.social) ? sp.social : [] })),
+    };
+  }
+
+  function renderBrollSuggestions(summary) {
+    if (!brollSet) {
+      brollSet = BR.generateSuggestions(buildBrollInput(summary));
+    }
+    root.innerHTML = "";
+    setStep("Smart b-roll · Review suggestions");
+
+    const view = el("div", { class: "broll-view" });
+    view.appendChild(
+      el("div", { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Smart b-roll"),
+        el("h2", {}, "Review b-roll suggestions"),
+        el("p", { class: "hint" }, "We spotted moments where a logo, product shot, or topic card would help. Accept the ones you want — they become visual moments in the review and export."),
+      )
+    );
+
+    const summaryLine = BR.summarize(brollSet);
+    view.appendChild(el("p", { class: "hint broll-review-line" }, summaryLine.reviewLine));
+
+    brollSet.suggestions.forEach((s) => {
+      const card = el("section", { class: `card broll-suggestion broll-${s.status}` });
+      card.appendChild(
+        el("div", { class: "broll-suggestion-head" },
+          el("span", { class: "status-pill" }, BR.getType(s.type).label),
+          el("span", { class: "broll-time" }, s.time || ""),
+          el("span", { class: `status-pill status-${s.status}` }, s.status),
+        )
+      );
+      card.appendChild(el("p", { class: "broll-text" }, s.text));
+      card.appendChild(el("p", { class: "hint broll-reason" }, s.reason));
+      const acceptBtn = el("button", { type: "button", class: "primary" }, s.status === "accepted" ? "Accepted ✓" : "Accept");
+      acceptBtn.addEventListener("click", () => { brollSet = BR.acceptSuggestion(brollSet, s.id); renderBrollSuggestions(summary); });
+      const skipBtn = el("button", { type: "button", class: "ghost" }, s.status === "skipped" ? "Skipped" : "Skip");
+      skipBtn.addEventListener("click", () => { brollSet = BR.skipSuggestion(brollSet, s.id); renderBrollSuggestions(summary); });
+      card.appendChild(el("div", { class: "actions" }, acceptBtn, skipBtn));
+      view.appendChild(card);
+    });
+
+    // Apply accepted b-roll into the visual moments board so it appears in review/export.
+    const applyBtn = el("button", { type: "button", class: "primary" }, "Add accepted b-roll to moments →");
+    applyBtn.addEventListener("click", () => {
+      if (VM) {
+        ensureMomentsBoard(summary);
+        BR.acceptedMoments(brollSet).forEach((m) => {
+          momentsBoard = VM.addMoment(momentsBoard, "broll", { time: m.time, text: m.text, speakerRole: m.speakerRole });
+        });
+        if (typeof persistMoments === "function") { persistMoments(); }
+      }
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, applyBtn, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
