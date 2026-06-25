@@ -87,6 +87,53 @@
     return cloneCanvas(template.canvas);
   }
 
+  // Look up the episode-style API in both Node (require) and the browser (global),
+  // mirroring how canvas-editor.js resolves its dependencies.
+  function styleApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./episode-style.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcEpisodeStyle;
+  }
+
+  // Apply a saved template to a *different* episode. The template's visual identity —
+  // preset, layout, palette, layer stack, title and caption styling — is carried forward,
+  // but the speaker frames are rebuilt from the current episode's assigned Host/Guest
+  // buckets. This is the reuse promise in issue #27: one show look, many episodes, each
+  // with its own speakers. Returns the adapted canvas, or null for a missing template.
+  function applyTemplateToEpisode(template, episodeSummary, styleSelection) {
+    const canvas = applyTemplate(template);
+    if (!canvas) {
+      return null;
+    }
+    const episode = episodeSummary || {};
+    if (!Array.isArray(episode.speakers)) {
+      return canvas;
+    }
+    const STY = styleApi();
+    if (STY && typeof STY.buildPreviewFrames === "function") {
+      // Build frames against the template's saved layout so the show identity holds,
+      // while the names/roles/count come from the current episode.
+      const selection = styleSelection || { layout: canvas.layoutId };
+      canvas.speakerFrames = STY.buildPreviewFrames(
+        episode.speakers,
+        Object.assign({}, selection, { layout: canvas.layoutId || selection.layout }),
+        episode.speakerCount,
+      );
+    } else {
+      // No style helper available — fall back to a minimal rebind so speaker names still
+      // reflect the current episode rather than the template's original cast.
+      canvas.speakerFrames = episode.speakers.map((speaker) => ({
+        role: (speaker && speaker.role) || "Speaker",
+        name: (speaker && speaker.name) || "Unnamed speaker",
+        active: false,
+        layout: canvas.layoutId,
+      }));
+    }
+    return canvas;
+  }
+
   function serializeStore(store) {
     return JSON.stringify(store || createStore());
   }
@@ -118,6 +165,7 @@
     listTemplates,
     getTemplate,
     applyTemplate,
+    applyTemplateToEpisode,
     serializeStore,
     deserializeStore,
     _resetTemplateCounter,

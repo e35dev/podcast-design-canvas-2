@@ -778,7 +778,9 @@
     if (!template) {
       return;
     }
-    canvasDoc = TM.applyTemplate(template);
+    // Rebind the saved template's speaker frames to the current episode's speakers,
+    // carrying the show identity forward while adapting to this episode's cast.
+    canvasDoc = TM.applyTemplateToEpisode(template, summary, styleSelection);
     activeTemplateId = template.id;
     if (canvasDoc && STY) {
       styleSelection = styleSelection || STY.createSelection();
