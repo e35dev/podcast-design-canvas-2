@@ -593,3 +593,180 @@ button:disabled {
   color: var(--ink-soft);
   margin: 10px 0 0;
 }
+
+/* ---- Saved show templates (shown on the workspace) ---- */
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.template-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fcfcff;
+}
+
+.template-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.template-meta .hint {
+  margin: 0;
+}
+
+.template-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* ---- Canvas editor (#11) ---- */
+.canvas-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .canvas-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.canvas-stage-holder {
+  position: sticky;
+  top: 16px;
+}
+
+.canvas-stage {
+  position: relative;
+  border-radius: 14px;
+  padding: 18px;
+  min-height: 240px;
+  overflow: hidden;
+}
+
+.canvas-title {
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+}
+
+.canvas-frames {
+  display: grid;
+  gap: 10px;
+}
+
+.canvas-stage.stage-grid .canvas-frames,
+.canvas-stage.stage-split .canvas-frames {
+  grid-template-columns: 1fr 1fr;
+}
+
+.canvas-stage.stage-spotlight .canvas-frames {
+  grid-template-columns: 1fr;
+}
+
+.canvas-frame {
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  min-height: 70px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.canvas-frame-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+
+.canvas-frame-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.canvas-caption {
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #10131f;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.canvas-caption.cap-centered {
+  text-align: center;
+}
+
+.canvas-caption.cap-minimal {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.canvas-overlay {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  margin: -6px 0 16px;
+  cursor: pointer;
+}
+
+.toggle-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.frame-controls {
+  border-top: 1px dashed var(--line);
+  padding-top: 14px;
+  margin-top: 4px;
+}
+
+.frame-controls h4,
+.save-template h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.save-template h4 {
+  margin-top: 20px;
+}
+
+.banner.success {
+  background: #f0fbf6;
+  border-color: #bfe6d4;
+}
+
+.banner.success {
+  color: var(--ok);
+  font-weight: 600;
+}

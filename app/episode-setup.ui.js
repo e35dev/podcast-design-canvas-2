@@ -7,6 +7,7 @@
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
+  const CE = window.PdcCanvasEditor;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -20,6 +21,14 @@
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
   let layoutCustomized = false;
+  // Canvas editor (#11) state, kept across navigation so a customized layout and the saved
+  // show templates survive Back / Edit setup. The template store persists in localStorage so
+  // saved templates are available for future episodes.
+  let canvasDesign = null;
+  let canvasFlash = null;
+  const templateStore = CE
+    ? CE.createTemplateStore(typeof window !== "undefined" && window.localStorage ? window.localStorage : null)
+    : null;
 
   function setStep(label) {
     if (stepPill) {
@@ -489,6 +498,22 @@
     if (styleAvailable) {
       styleButton.addEventListener("click", () => renderStyle(summary));
     }
+    // Once a style is applied, the canvas editor is the real next step: open the chosen
+    // preset as a starting point and personalize it into a reusable show layout.
+    const canvasAvailable = Boolean(CE && appliedStyle);
+    const canvasButton = canvasAvailable
+      ? (function () {
+          const button = el("button", { type: "button", class: "primary" }, "Open canvas editor →");
+          button.addEventListener("click", () => {
+            if (!canvasDesign) {
+              canvasDesign = CE.openDesign(appliedStyle, summary);
+            }
+            renderCanvas(summary);
+          });
+          return button;
+        })()
+      : null;
+
     view.appendChild(
       el(
         "section",
@@ -498,10 +523,11 @@
           "p",
           {},
           appliedStyle
-            ? "Your style is set. Detailed editing and export come next."
+            ? "Your style is set. Open the canvas editor to make it your own and save it as a reusable show template."
             : "Your sources, speaker roles, and context are saved. Pick a visual style next.",
         ),
         el("div", { class: "actions" },
+          canvasButton,
           styleButton,
           (function () {
             const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
@@ -514,6 +540,43 @@
         ),
       ),
     );
+
+    // Saved show templates are available for every future episode. Reselecting one opens the
+    // canvas editor with that saved identity, re-adapted to this episode's speakers.
+    if (CE && templateStore) {
+      const saved = templateStore.list();
+      if (saved.length) {
+        const templatesCard = el(
+          "section",
+          { class: "card templates-card" },
+          el("h3", {}, "Saved show templates"),
+          el("p", { class: "hint" }, "Reuse a saved look on this episode — the layout adapts to your current speakers."),
+        );
+        const list = el("div", { class: "template-list" });
+        saved.forEach((template) => {
+          const useButton = el("button", { type: "button", class: "ghost" }, "Use template");
+          useButton.addEventListener("click", () => {
+            canvasDesign = CE.applyTemplate(template, summary);
+            renderCanvas(summary);
+          });
+          list.appendChild(
+            el(
+              "div",
+              { class: "template-row" },
+              el(
+                "div",
+                { class: "template-meta" },
+                el("span", { class: "template-name" }, template.name),
+                el("span", { class: "hint" }, `${template.presetName} · ${template.layoutLabel} · ${template.speakerCount} speaker${template.speakerCount === 1 ? "" : "s"}`),
+              ),
+              useButton,
+            ),
+          );
+        });
+        templatesCard.appendChild(list);
+        view.appendChild(templatesCard);
+      }
+    }
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -673,6 +736,210 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Canvas editor (#11) ----------------------------------------------------
+
+  // The live canvas. Every element is drawn from the current design and updated in place as
+  // the creator edits, so a reviewer sees the layout change without reloading. User text is
+  // added as text nodes (never innerHTML), so renaming a frame or title is XSS-safe.
+  function buildCanvasStage(design) {
+    const stage = el("div", { class: `canvas-stage stage-${design.layoutId}` });
+    stage.style.background = design.background;
+    stage.style.color = design.textColor;
+
+    if (design.title.visible && design.title.text) {
+      stage.appendChild(el("div", { class: "canvas-title" }, design.title.text));
+    }
+
+    const frameWrap = el("div", { class: "canvas-frames" });
+    design.frames.forEach((frame) => {
+      const frameEl = el(
+        "div",
+        { class: "canvas-frame" },
+        el("span", { class: "canvas-frame-role" }, frame.role),
+        frame.showLabel ? el("span", { class: "canvas-frame-label" }, frame.label) : null,
+      );
+      frameEl.style.borderColor = design.accent;
+      frameWrap.appendChild(frameEl);
+    });
+    stage.appendChild(frameWrap);
+
+    if (design.caption.visible && design.caption.text) {
+      const cap = el("div", { class: `canvas-caption cap-${design.caption.style}` }, design.caption.text);
+      cap.style.background = design.accent;
+      stage.appendChild(cap);
+    }
+
+    if (design.overlay.visible && design.overlay.text) {
+      const overlay = el("div", { class: "canvas-overlay" }, design.overlay.text);
+      overlay.style.borderColor = design.accent;
+      stage.appendChild(overlay);
+    }
+
+    return stage;
+  }
+
+  function renderCanvas(summary) {
+    root.innerHTML = "";
+    setStep("Step 3 of 6 · Canvas editor");
+    if (!CE) {
+      renderWorkspace(summary);
+      return;
+    }
+    if (!canvasDesign) {
+      canvasDesign = CE.openDesign(appliedStyle, summary);
+    }
+    const design = canvasDesign;
+
+    const view = el("div", { class: "canvas-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Canvas editor"),
+        el("h2", {}, `Design ${summary.episodeName}`),
+        el("p", { class: "hint" }, `Started from ${design.presetName}. Adjust the layout elements, then save it as a reusable show template.`),
+      ),
+    );
+
+    if (canvasFlash) {
+      view.appendChild(el("div", { class: "banner success", role: "status" }, canvasFlash));
+      canvasFlash = null;
+    }
+
+    const grid = el("div", { class: "canvas-layout" });
+
+    // Live preview (repainted in place on each edit so text inputs keep focus).
+    const stageHolder = el("div", { class: "canvas-stage-holder" });
+    function paintStage() {
+      stageHolder.innerHTML = "";
+      stageHolder.appendChild(buildCanvasStage(design));
+    }
+    paintStage();
+    grid.appendChild(el("section", { class: "card preview-card" }, el("h3", {}, "Live canvas"), stageHolder));
+
+    // Element controls.
+    const controls = el("section", { class: "card" }, el("h3", {}, "Layout elements"));
+
+    function toggleRow(labelText, checked, onChange) {
+      const box = el("input", { type: "checkbox", checked: checked ? true : null });
+      box.addEventListener("change", () => onChange(box));
+      return el("label", { class: "toggle-row" }, box, el("span", {}, labelText));
+    }
+
+    // Background
+    const bgInput = el("input", { id: "canvas-bg", type: "color", value: design.background });
+    bgInput.addEventListener("input", (e) => { CE.setBackground(design, e.target.value); paintStage(); });
+    controls.appendChild(field("Background", bgInput, null, "Set your show's backdrop color."));
+
+    // Title text + visibility
+    const titleInput = el("input", { id: "canvas-title", type: "text", value: design.title.text, placeholder: "Show / episode title" });
+    titleInput.addEventListener("input", (e) => { CE.setTitleText(design, e.target.value); paintStage(); });
+    controls.appendChild(field("Title text", titleInput, null));
+    controls.appendChild(toggleRow("Show title on canvas", design.title.visible, (box) => {
+      CE.toggleElement(design, "title"); box.checked = design.title.visible; paintStage();
+    }));
+
+    // Caption text + style + visibility
+    const captionInput = el("input", { id: "canvas-caption", type: "text", value: design.caption.text, placeholder: "Sample caption text" });
+    captionInput.addEventListener("input", (e) => { CE.setCaptionText(design, e.target.value); paintStage(); });
+    controls.appendChild(field("Caption text", captionInput, null));
+    const captionStyle = el("select", { id: "canvas-caption-style" });
+    CE.CAPTION_STYLES.forEach((styleOption) => {
+      captionStyle.appendChild(el("option", { value: styleOption.id, selected: design.caption.style === styleOption.id ? true : null }, styleOption.label));
+    });
+    captionStyle.addEventListener("change", (e) => { CE.setCaptionStyle(design, e.target.value); paintStage(); });
+    controls.appendChild(field("Caption style", captionStyle, null));
+    controls.appendChild(toggleRow("Show captions on canvas", design.caption.visible, (box) => {
+      CE.toggleElement(design, "caption"); box.checked = design.caption.visible; paintStage();
+    }));
+
+    // Overlay area
+    const overlayInput = el("input", { id: "canvas-overlay", type: "text", value: design.overlay.text, placeholder: "e.g. @yourshow" });
+    overlayInput.addEventListener("input", (e) => { CE.setOverlayText(design, e.target.value); paintStage(); });
+    controls.appendChild(field("Overlay area", overlayInput, null, "A corner handle, brand tag, or b-roll placeholder."));
+    controls.appendChild(toggleRow("Show overlay on canvas", design.overlay.visible, (box) => {
+      CE.toggleElement(design, "overlay"); box.checked = design.overlay.visible; paintStage();
+    }));
+
+    // Speaker frames
+    const framesWrap = el("div", { class: "frame-controls" });
+    framesWrap.appendChild(el("h4", {}, "Speaker frames"));
+    design.frames.forEach((frame, index) => {
+      const labelInput = el("input", { id: `canvas-frame-${index}`, type: "text", value: frame.label, placeholder: frame.name });
+      labelInput.addEventListener("input", (e) => { CE.setFrameLabel(design, index, e.target.value); paintStage(); });
+      framesWrap.appendChild(field(`${frame.role} nameplate`, labelInput, null));
+      framesWrap.appendChild(toggleRow("Show nameplate", frame.showLabel, (box) => {
+        CE.toggleElement(design, `frame:${index}`); box.checked = design.frames[index].showLabel; paintStage();
+      }));
+    });
+    controls.appendChild(framesWrap);
+
+    grid.appendChild(controls);
+    view.appendChild(grid);
+
+    // Save as a reusable show template.
+    const saveCard = el("section", { class: "card save-template" }, el("h3", {}, "Save as show template"));
+    saveCard.appendChild(el("p", { class: "hint" }, "Save this look so future episodes can reuse the same identity while adapting to their own speakers."));
+    const nameInput = el("input", { id: "template-name", type: "text", placeholder: "e.g. Founders Show look" });
+    const saveError = el("p", { class: "field-error", role: "alert" });
+    saveError.style.display = "none";
+    saveCard.appendChild(field("Template name", nameInput, null));
+    saveCard.appendChild(saveError);
+    const saveButton = el("button", { type: "button", class: "primary" }, "Save show template");
+    saveButton.addEventListener("click", () => {
+      const result = templateStore.save(nameInput.value, design);
+      if (result.ok) {
+        canvasFlash = `Saved “${result.template.name}” — it's now available for future episodes.`;
+        renderCanvas(summary);
+      } else {
+        saveError.textContent = result.error;
+        saveError.style.display = "";
+        nameInput.focus();
+      }
+    });
+    saveCard.appendChild(el("div", { class: "actions" }, saveButton));
+
+    // Saved templates available for reuse.
+    const saved = templateStore.list();
+    if (saved.length) {
+      const list = el("div", { class: "template-list" });
+      saved.forEach((template) => {
+        const useButton = el("button", { type: "button", class: "ghost" }, "Use this template");
+        useButton.addEventListener("click", () => {
+          canvasDesign = CE.applyTemplate(template, summary);
+          canvasFlash = `Reselected “${template.name}” — adapted to this episode's speakers.`;
+          renderCanvas(summary);
+        });
+        list.appendChild(
+          el(
+            "div",
+            { class: "template-row" },
+            el(
+              "div",
+              { class: "template-meta" },
+              el("span", { class: "template-name" }, template.name),
+              el("span", { class: "hint" }, `${template.presetName} · ${template.layoutLabel}`),
+            ),
+            useButton,
+          ),
+        );
+      });
+      saveCard.appendChild(el("h4", {}, "Saved templates"));
+      saveCard.appendChild(list);
+    }
+    view.appendChild(saveCard);
+
+    // Navigation back to the workspace.
+    const done = el("button", { type: "button", class: "primary" }, "Done → workspace");
+    done.addEventListener("click", () => renderWorkspace(summary));
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, done, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
