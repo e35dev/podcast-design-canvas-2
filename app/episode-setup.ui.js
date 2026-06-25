@@ -232,7 +232,7 @@
       el(
         "div",
         { class: "actions" },
-        el("button", { type: "submit", class: "primary" }, "Continue to workspace →"),
+        el("button", { type: "submit", class: "primary" }, STY ? "Choose a style →" : "Continue to workspace →"),
       ),
     );
 
@@ -358,7 +358,12 @@
     errors = result.errors;
     showErrors = true;
     if (result.ok) {
-      renderWorkspace(ES.summarize(state));
+      const summary = ES.summarize(state);
+      if (STY) {
+        renderStyle(summary);
+      } else {
+        renderWorkspace(summary);
+      }
     } else {
       renderSetup();
     }
@@ -657,6 +662,7 @@
     // Actions
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply style & continue →");
     applyButton.addEventListener("click", () => {
+      if (!STY.validateStyleSelection(styleSelection).ok) { return; }
       appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
       renderWorkspace(summary);
     });
