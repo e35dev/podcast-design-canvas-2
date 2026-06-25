@@ -90,6 +90,28 @@ test("syncEpisodeProgress updates episode name, status, and export file", () => 
   assert.strictEqual(updated.exportFileName, "Agency-Weekly-12-1080p.mp4");
 });
 
+test("deserializeLibrary hydrates counters before creating more shows and episodes", () => {
+  library._resetCounters();
+  let lib = library.createLibrary();
+  const firstShow = library.createShow("Founders Unfiltered");
+  lib = library.saveShow(lib, firstShow);
+  lib = library.saveEpisode(lib, library.createEpisode(firstShow.id, "Episode 1"));
+
+  library._resetCounters();
+  lib = library.deserializeLibrary(library.serializeLibrary(lib));
+
+  const secondShow = library.createShow("Agency Weekly");
+  assert.strictEqual(secondShow.id, "show-2");
+  lib = library.saveShow(lib, secondShow);
+  assert.strictEqual(library.listShows(lib).length, 2);
+  assert.strictEqual(library.getShow(lib, firstShow.id).name, "Founders Unfiltered");
+
+  const started = library.startEpisodeForShow(lib, firstShow.id, "Episode 2");
+  assert.strictEqual(started.ok, true);
+  assert.strictEqual(started.episode.id, "ep-2");
+  assert.strictEqual(library.listEpisodes(started.library, firstShow.id).length, 2);
+});
+
 test("summarizeShow surfaces template identity and episode list", () => {
   library._resetCounters();
   let lib = library.createLibrary();

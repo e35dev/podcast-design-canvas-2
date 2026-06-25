@@ -27,6 +27,23 @@
     return { shows: [], episodes: [] };
   }
 
+  function counterValueForId(id, prefix) {
+    const match = new RegExp(`^${prefix}-(\\d+)$`).exec(trim(id));
+    return match ? Number(match[1]) : 0;
+  }
+
+  function hydrateCounters(library) {
+    const shows = library && Array.isArray(library.shows) ? library.shows : [];
+    const episodes = library && Array.isArray(library.episodes) ? library.episodes : [];
+
+    shows.forEach((show) => {
+      showCounter = Math.max(showCounter, counterValueForId(show && show.id, "show"));
+    });
+    episodes.forEach((episode) => {
+      episodeCounter = Math.max(episodeCounter, counterValueForId(episode && episode.id, "ep"));
+    });
+  }
+
   function validateShowName(library, name, excludeId) {
     const trimmed = trim(name);
     if (!trimmed) {
@@ -43,8 +60,12 @@
   }
 
   function createShow(name, options) {
-    showCounter += 1;
     const opts = options || {};
+    if (opts.id) {
+      showCounter = Math.max(showCounter, counterValueForId(opts.id, "show"));
+    } else {
+      showCounter += 1;
+    }
     return {
       id: opts.id || `show-${showCounter}`,
       name: trim(name),
@@ -54,8 +75,12 @@
   }
 
   function createEpisode(showId, episodeName, options) {
-    episodeCounter += 1;
     const opts = options || {};
+    if (opts.id) {
+      episodeCounter = Math.max(episodeCounter, counterValueForId(opts.id, "ep"));
+    } else {
+      episodeCounter += 1;
+    }
     return {
       id: opts.id || `ep-${episodeCounter}`,
       showId: showId,
@@ -226,7 +251,9 @@
       if (!parsed || !Array.isArray(parsed.shows) || !Array.isArray(parsed.episodes)) {
         return createLibrary();
       }
-      return { shows: parsed.shows, episodes: parsed.episodes };
+      const library = { shows: parsed.shows, episodes: parsed.episodes };
+      hydrateCounters(library);
+      return library;
     } catch (err) {
       return createLibrary();
     }
