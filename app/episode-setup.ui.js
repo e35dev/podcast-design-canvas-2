@@ -243,6 +243,40 @@
     );
   }
 
+  function setupSectionHeader(stepNum, title, lead) {
+    return el(
+      "div",
+      { class: "setup-section-head" },
+      el("span", { class: "setup-section-number", "aria-hidden": "true" }, String(stepNum)),
+      el(
+        "div",
+        { class: "setup-section-title-block" },
+        el("h2", {}, title),
+        lead ? el("p", { class: "hint setup-section-lead" }, lead) : null,
+      ),
+    );
+  }
+
+  function renderImportFlowOutline() {
+    return el(
+      "nav",
+      { class: "setup-import-flow", "aria-label": "Import setup sections" },
+      el("span", { class: "setup-flow-step is-current" }, "1 · Episode details"),
+      el("span", { class: "setup-flow-step" }, "2 · Recording source"),
+      el("span", { class: "setup-flow-step" }, "3 · Speaker sources"),
+    );
+  }
+
+  function renderSpeakerRoleOverview() {
+    const overview = el("div", { class: "setup-role-overview", "aria-label": "Current speaker role assignments" });
+    state.speakers.forEach((speaker, index) => {
+      overview.appendChild(
+        el("span", { class: "setup-role-chip", "data-role-chip": String(index) }, speaker.role || `Source ${index + 1}`),
+      );
+    });
+    return overview;
+  }
+
   function nextRole() {
     const used = {};
     state.speakers.forEach((s) => {
@@ -900,6 +934,8 @@
       ),
     );
 
+    form.appendChild(renderImportFlowOutline());
+
     const identityBanner = renderShowIdentityBanner();
     if (identityBanner) {
       form.appendChild(identityBanner);
@@ -947,9 +983,8 @@
 
     const detailsCard = el(
       "section",
-      { class: "card setup-section" },
-      el("h2", {}, "Episode details"),
-      el("p", { class: "hint setup-section-lead" }, "Name this episode so it is easy to find in your show library."),
+      { class: "card setup-section setup-section-episode" },
+      setupSectionHeader(1, "Episode details", "Name this episode so it is easy to find in your show library."),
       field("Episode name", nameInput, "episodeName"),
     );
     form.appendChild(detailsCard);
@@ -973,9 +1008,8 @@
 
     const sourceCard = el(
       "section",
-      { class: "card setup-section" },
-      el("h2", {}, "Recording source"),
-      el("p", { class: "hint setup-section-lead" }, "Choose how you recorded — Riverside link or separate synced speaker files."),
+      { class: "card setup-section setup-section-source" },
+      setupSectionHeader(2, "Recording source", "Choose how you recorded — Riverside link or separate synced speaker files."),
       el("div", { class: "mode-row" }, modeButtons),
     );
 
@@ -1009,16 +1043,16 @@
     const speakersCard = el(
       "section",
       { class: "card setup-section setup-speakers-card" },
-      el("h2", {}, "Speakers & sources"),
-      el(
-        "p",
-        { class: "hint setup-section-lead" },
+      setupSectionHeader(
+        3,
+        "Speakers & sources",
         "One card per speaker — assign Host, Guest 1, or Guest 2 and attach each synced source.",
       ),
+      renderSpeakerRoleOverview(),
       speakerStack,
     );
 
-    const addButton = el("button", { type: "button", class: "ghost" }, "+ Add speaker source");
+    const addButton = el("button", { type: "button", class: "btn-secondary setup-add-speaker-btn" }, "+ Add speaker source");
     addButton.addEventListener("click", () => {
       readSetupFormState();
       state.speakers.push(ES.createSpeaker(nextRole()));
@@ -1033,6 +1067,21 @@
       if (saved.length) {
         form.appendChild(renderSavedTemplatesCard(saved, null));
       }
+    }
+
+    if (activeShowId) {
+      form.appendChild(
+        el(
+          "aside",
+          { class: "setup-draft-review" },
+          el("p", { class: "setup-draft-review-text" },
+            el("strong", {}, "Draft saved to your show"),
+            " — Continue when speakers and sources are ready, or use ",
+            el("strong", {}, "Back to show"),
+            " anytime to review this draft in your episode list.",
+          ),
+        ),
+      );
     }
 
     form.appendChild(
@@ -1060,10 +1109,16 @@
 
   function renderSpeaker(speaker, index) {
     const card = el("article", { class: "speaker speaker-card" });
+    const roleBadge = el("span", { class: "speaker-role-badge" }, speaker.role || "Unassigned");
     const header = el(
       "div",
       { class: "speaker-head" },
-      el("span", { class: "speaker-tag" }, `Source ${index + 1}`),
+      el(
+        "div",
+        { class: "speaker-head-main" },
+        el("span", { class: "speaker-tag" }, `Source ${index + 1}`),
+        roleBadge,
+      ),
     );
     const removeButton = el("button", {
       type: "button",
@@ -1111,9 +1166,21 @@
     });
     roleSelect.addEventListener("change", (e) => {
       speaker.role = e.target.value;
+      roleBadge.textContent = speaker.role;
+      const chip = document.querySelector(`[data-role-chip="${index}"]`);
+      if (chip) {
+        chip.textContent = speaker.role;
+      }
     });
     core.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
-    body.appendChild(core);
+
+    const identityGroup = el(
+      "div",
+      { class: "speaker-group speaker-identity-group" },
+      el("h4", { class: "speaker-group-title" }, "Who is speaking"),
+      core,
+    );
+    body.appendChild(identityGroup);
 
     // Source: file (upload) or optional channel label (riverside)
     const sourceBlock = el("div", { class: "speaker-source-block" });
@@ -1151,10 +1218,17 @@
       });
       sourceBlock.appendChild(field("Channel label", trackInput, null, "Optional — name this speaker's channel in the recording."));
     }
-    body.appendChild(sourceBlock);
+
+    const recordingGroup = el(
+      "div",
+      { class: "speaker-group speaker-recording-group" },
+      el("h4", { class: "speaker-group-title" }, "Synced recording"),
+      sourceBlock,
+    );
+    body.appendChild(recordingGroup);
 
     // Optional social links
-    const social = el("details", { class: "social" });
+    const social = el("details", { class: "social speaker-group speaker-social-group" });
     social.appendChild(el("summary", {}, "Social links (optional)"));
     const socialHint = el(
       "p",

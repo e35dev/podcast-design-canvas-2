@@ -1,6 +1,6 @@
 "use strict";
 
-// Episode import UI polish smoke suite for Podcast Design Canvas (#77).
+// Episode import UI polish smoke suite for Podcast Design Canvas (#77, #86).
 // Run with: `node tests/import-polish.test.js`.
 
 const assert = require("assert");
@@ -40,6 +40,19 @@ test("ACCEPTANCE: library → create show → import path keeps polished setup s
   assert.ok(ui.includes("setup-speakers-card"));
   assert.ok(ui.includes("speaker-card"));
   assert.ok(styles.includes(".setup-cta-bar"));
+});
+
+test("import scan polish separates sections and groups speaker fields (#86)", () => {
+  assert.ok(ui.includes("setup-import-flow"));
+  assert.ok(ui.includes("setupSectionHeader"));
+  assert.ok(ui.includes("speaker-identity-group"));
+  assert.ok(ui.includes("speaker-recording-group"));
+  assert.ok(ui.includes("speaker-social-group"));
+  assert.ok(ui.includes("setup-role-overview"));
+  assert.ok(ui.includes("setup-draft-review"));
+  assert.ok(styles.includes(".setup-section-head"));
+  assert.ok(styles.includes(".speaker-group"));
+  assert.ok(styles.includes(".setup-role-chip"));
 });
 
 console.log(`\nimport polish: ${passed} assertions passed`);
