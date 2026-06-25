@@ -1696,8 +1696,8 @@
       ? `Import your first episode${show ? ` for ${show.name}` : ""}`
       : "Set up your recording and speakers";
     const importLead = firstImport
-      ? "Paste a Riverside link or attach synced speaker files, assign Host and guest buckets, and add social links — then continue to audio polish."
-      : "Import your synced sources, assign each speaker, and add social links — then continue to audio polish and style.";
+      ? "Paste a Riverside link or attach synced speaker files, assign Host and guest buckets, and add optional social links — they help the edit get names, transcripts, and visual moments right. Then continue to audio polish."
+      : "Import your synced sources, assign each speaker, and add optional social links — they sharpen transcript spellings and visual accuracy. Then continue to audio polish and style.";
 
     const form = el("form", {
       class: `setup setup-import${firstImport ? " setup-first-episode-import" : ""}`,
@@ -2079,7 +2079,7 @@
     const socialHint = el(
       "p",
       { class: "hint" },
-      "Used only to spell names right and add relevant context — never to surface personal details.",
+      "Optional, but they help: a host or guest link lets the edit spell names and brands correctly, sharpen transcript corrections, pull accurate references, and pick captions and visual moments that fit each speaker. Lightweight production context only — never an invasive profile crawl, and the import works fine with no links added.",
     );
     social.appendChild(socialHint);
     ES.SOCIAL_NETWORKS.forEach((net) => {
