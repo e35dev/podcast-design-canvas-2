@@ -400,7 +400,9 @@
       showLibrary = LIB.addShow(showLibrary, show);
       persistShowLibrary();
       activeShowId = show.id;
-      renderShowDetail(show.id);
+      // Core MVP path (#73): a new show goes straight into episode setup — import the
+      // recording and assign speakers first, before any brand/template work.
+      startEpisodeFromShow(show.id);
     });
 
     const footer = el("div", { class: "workspace-actions" }, cancelBtn, saveBtn);
@@ -424,20 +426,32 @@
     const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Library");
     backBtn.addEventListener("click", () => renderShowLibrary());
 
-    const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
-    newEpBtn.addEventListener("click", () => startEpisodeFromShow(showId));
-
     const header = el(
       "div",
       { class: "workspace-header" },
-      el("div", { class: "workspace-header-row" }, backBtn, newEpBtn),
+      el("div", { class: "workspace-header-row" }, backBtn),
       el("h1", {}, show.name),
       metaParts.length ? el("p", { class: "hint" }, metaParts.join(" · ")) : null,
     );
 
+    const view = el("div", { class: "workspace-root" }, header);
+
+    // PRIMARY action (#73): import the recording and assign speakers first. This is the
+    // core MVP path and must visibly come before brand/template work.
+    const hasEpisodes = episodes.length > 0;
+    const setupCard = el("section", { class: "card episode-setup-cta" },
+      el("h2", {}, hasEpisodes ? "Start the next episode" : "Start your first episode"),
+      el("p", { class: "hint" }, "Import a Riverside link or separate synced speaker files, assign each source to Host, Guest 1, or Guest 2, and add social links — then continue to style and the rest of the edit."),
+    );
+    const startBtn = el("button", { class: "btn-primary", type: "button" }, hasEpisodes ? "Start a new episode →" : "Set up episode →");
+    startBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+    setupCard.appendChild(el("div", { class: "actions" }, startBtn));
+    view.appendChild(setupCard);
+
+    // Episodes list.
     const epListEl = el("div", { class: "show-episode-list" });
     if (!episodes.length) {
-      epListEl.appendChild(el("p", { class: "hint" }, "No episodes yet. Start a new episode from this show."));
+      epListEl.appendChild(el("p", { class: "hint" }, "No episodes yet — start one above to import your recording and assign speakers."));
     } else {
       episodes.forEach((ep) => {
         const statusLabel = LIB.episodeStatusLabel(ep.status);
@@ -452,12 +466,12 @@
         epListEl.appendChild(epCard);
       });
     }
+    view.appendChild(el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
 
-    const view = el("div", { class: "workspace-root" }, header, el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
-
+    // SECONDARY: brand kit — optional, after episode setup, not the primary action.
     const kit = show.brandKit;
     const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
-    const brandCard = el("section", { class: "card brand-kit-card" }, el("h2", {}, "Brand kit"));
+    const brandCard = el("section", { class: "card brand-kit-card" }, el("h2", {}, "Brand kit (optional)"));
     if (kitSummary && kitSummary.identityLine !== "No brand kit configured") {
       brandCard.appendChild(el("p", { class: "brand-kit-line" }, kitSummary.identityLine));
       if (kitSummary.colorSummary) {
@@ -467,12 +481,12 @@
         brandCard.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
       }
     } else {
-      brandCard.appendChild(el("p", { class: "hint" }, "Define logo, colors, type, captions, and overlay assets so every episode feels on-brand."));
+      brandCard.appendChild(el("p", { class: "hint" }, "Optional — once your episode is set up, define logo, colors, type, captions, and overlays so every episode feels on-brand."));
     }
     const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, kit ? "Edit brand kit" : "Create brand kit");
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
     brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
-    view.insertBefore(brandCard, view.lastChild);
+    view.appendChild(brandCard);
 
     root.appendChild(view);
   }
