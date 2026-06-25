@@ -640,6 +640,7 @@
     if (!template) {
       return;
     }
+    const episodeSummary = summary || ES.summarize(state);
     canvasDoc = TM.applyTemplate(template);
     activeTemplateId = template.id;
     if (canvasDoc && STY) {
@@ -647,7 +648,10 @@
       styleSelection.presetId = canvasDoc.presetId || styleSelection.presetId;
       styleSelection.layout = canvasDoc.layoutId || styleSelection.layout;
       styleSelection.pacing = canvasDoc.pacingId || styleSelection.pacing;
-      appliedStyle = STY.summarizeStyle(styleSelection, summary ? summary.speakerCount : 3);
+      appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
+    }
+    if (canvasDoc && CE) {
+      canvasDoc = CE.refreshSpeakerFrames(canvasDoc, episodeSummary, styleSelection);
     }
     if (summary) {
       renderWorkspace(summary);
@@ -660,6 +664,8 @@
     workspaceSummaryCache = summary;
     if (!canvasDoc && CE && appliedStyle) {
       canvasDoc = CE.createFromStyle(appliedStyle, summary, styleSelection);
+    } else if (canvasDoc && CE) {
+      canvasDoc = CE.refreshSpeakerFrames(canvasDoc, summary, styleSelection);
     }
     renderCanvasEditor(summary);
   }
@@ -1090,6 +1096,8 @@
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply style & continue →");
     applyButton.addEventListener("click", () => {
       appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
+      canvasDoc = null;
+      activeTemplateId = null;
       renderWorkspace(summary);
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");

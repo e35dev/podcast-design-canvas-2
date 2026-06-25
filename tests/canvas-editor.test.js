@@ -47,6 +47,29 @@ test("createFromStyle seeds a canvas document from the applied preset", () => {
   assert.deepStrictEqual(doc.speakerFrames.map((f) => f.role), ["Host", "Guest 1", "Guest 2"]);
 });
 
+test("refreshSpeakerFrames rebuilds speaker frames for a new episode", () => {
+  const draftA = completeUploadDraft();
+  const episodeA = setup.summarize(draftA);
+  const selection = style.createSelection();
+  const applied = style.summarizeStyle(selection, episodeA.speakerCount);
+  let doc = editor.createFromStyle(applied, episodeA, selection);
+  assert.deepStrictEqual(doc.speakerFrames.map((f) => f.name), ["Sam Rivera", "Dana Kim", "Marco Vidal"]);
+
+  const draftB = setup.createDraft();
+  draftB.episodeName = "Different Episode";
+  draftB.sourceMode = "upload";
+  draftB.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Alex Chen", fileName: "alex.mp4" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Jordan Lee", fileName: "jordan.mp4" }),
+  ];
+  const episodeB = setup.summarize(draftB);
+
+  doc = editor.refreshSpeakerFrames(doc, episodeB, selection);
+  assert.strictEqual(doc.speakerFrames.length, 2);
+  assert.deepStrictEqual(doc.speakerFrames.map((f) => f.name), ["Alex Chen", "Jordan Lee"]);
+  assert.strictEqual(doc.titleText, "Founders Unfiltered #7", "layout customizations are preserved");
+});
+
 test("updateElement changes title and background on the canvas document", () => {
   const draft = completeUploadDraft();
   const episode = setup.summarize(draft);
@@ -127,6 +150,29 @@ test("ACCEPTANCE: customize canvas, save named template, and reselect it", () =>
   assert.strictEqual(appliedCanvas.titleText, "Founders Unfiltered Show Layout");
   assert.strictEqual(appliedCanvas.presetName, "Studio Spotlight");
   assert.ok(appliedCanvas.layers.length >= 5);
+});
+
+test("applyTemplate keeps layout but callers should refresh speakers for the new episode", () => {
+  templates._resetTemplateCounter();
+  const draftA = completeUploadDraft();
+  const episodeA = setup.summarize(draftA);
+  const selection = style.createSelection();
+  const applied = style.summarizeStyle(selection, episodeA.speakerCount);
+  const doc = editor.createFromStyle(applied, episodeA, selection);
+  const template = templates.createTemplate("My Show", doc, "tpl-speakers");
+  const saved = templates.applyTemplate(template);
+
+  const draftB = setup.createDraft();
+  draftB.sourceMode = "upload";
+  draftB.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "New Host", fileName: "host.mp4" }),
+  ];
+  const episodeB = setup.summarize(draftB);
+  const refreshed = editor.refreshSpeakerFrames(saved, episodeB, selection);
+
+  assert.strictEqual(saved.speakerFrames.length, 3, "stored template keeps original speakers");
+  assert.strictEqual(refreshed.speakerFrames.length, 1);
+  assert.strictEqual(refreshed.speakerFrames[0].name, "New Host");
 });
 
 console.log(`\ncanvas editor: ${passed} assertions passed`);
