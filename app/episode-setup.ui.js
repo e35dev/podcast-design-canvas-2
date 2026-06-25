@@ -18,6 +18,7 @@
   const WS = window.PdcEpisodeWorkspace;
   const LIB = window.PdcShowLibrary;
   const BK = window.PdcShowBrandKit;
+  const SI = window.PdcShowIdentity;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -52,7 +53,33 @@
   const LIB_STORAGE_KEY = "pdc-show-library";
   let showLibrary = { shows: [] };
   let activeShowId = null;
+  let activeEpisodeId = null;
   let activeBrandKit = null;
+
+  function getActiveShow() {
+    if (!activeShowId || !LIB) {
+      return null;
+    }
+    return LIB.getShow(showLibrary, activeShowId);
+  }
+
+  function renderShowIdentityBanner() {
+    const show = getActiveShow();
+    if (!show || !SI) {
+      return null;
+    }
+    const identity = SI.buildIdentitySummary(show);
+    if (!identity.active) {
+      return null;
+    }
+    return el(
+      "section",
+      { class: "card show-identity-banner" },
+      el("p", { class: "eyebrow" }, "Show identity"),
+      el("p", { class: "show-identity-headline" }, identity.headline),
+      identity.detailLine ? el("p", { class: "hint" }, identity.detailLine) : null,
+    );
+  }
 
   function getActiveBrandKit() {
     if (activeBrandKit) {
@@ -263,7 +290,10 @@
     const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
     newShowBtn.addEventListener("click", () => renderNewShowForm());
 
-    const actions = el("div", { class: "workspace-actions" }, newShowBtn);
+    const blankEpBtn = el("button", { class: "btn-secondary", type: "button" }, "Start blank episode");
+    blankEpBtn.addEventListener("click", () => startBlankEpisode());
+
+    const actions = el("div", { class: "workspace-actions" }, newShowBtn, blankEpBtn);
 
     const listEl = el("div", { class: "show-library-list" });
 
@@ -604,11 +634,10 @@
     root.appendChild(view);
   }
 
-  function startEpisodeFromShow(showId) {
-    const show = LIB.getShow(showLibrary, showId);
-    const prefill = show ? LIB.newEpisodeDraft(show) : {};
-    activeShowId = showId;
-    activeBrandKit = prefill.brandKit || null;
+  function startBlankEpisode() {
+    activeShowId = null;
+    activeEpisodeId = null;
+    activeBrandKit = null;
     state = ES.createDraft();
     errors = {};
     showErrors = false;
@@ -617,6 +646,38 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    activeTemplateId = null;
+    canvasDoc = null;
+    momentsBoard = null;
+    selectedMomentId = null;
+    exportJob = null;
+    contextReview = null;
+    contextApproved = false;
+    publishReview = null;
+    publishReviewApproved = false;
+    renderSetup();
+  }
+
+  function startEpisodeFromShow(showId) {
+    const show = LIB.getShow(showLibrary, showId);
+    if (!show) {
+      renderShowLibrary();
+      return;
+    }
+
+    activeShowId = showId;
+    activeBrandKit = show.brandKit ? JSON.parse(JSON.stringify(show.brandKit)) : null;
+
+    const applied = SI ? SI.applyToDraft(show, ES.createDraft()) : { draft: ES.createDraft() };
+    state = applied.draft;
+    errors = {};
+    showErrors = false;
+    styleSelection = STY ? STY.createSelection() : null;
+    appliedStyle = null;
+    layoutCustomized = false;
+    audioPolish = null;
+    appliedAudioPolish = null;
+    activeTemplateId = null;
     canvasDoc = null;
     momentsBoard = null;
     selectedMomentId = null;
@@ -626,22 +687,27 @@
     publishReview = null;
     publishReviewApproved = false;
 
-    // Apply show prefill.
-    if (prefill.templateId && TM) {
-      activeTemplateId = prefill.templateId;
-      const tpl = TM.listTemplates(templateStore).find((t) => t.id === prefill.templateId);
-      if (tpl) {
-        canvasDoc = tpl.canvasDoc ? JSON.parse(JSON.stringify(tpl.canvasDoc)) : null;
+    if (SI) {
+      const startCtx = SI.applyStartContext(show, templateStore, ES.summarize(state));
+      if (startCtx.styleSelection) {
+        styleSelection = startCtx.styleSelection;
+        layoutCustomized = startCtx.layoutCustomized;
+      }
+      activeTemplateId = startCtx.activeTemplateId;
+      canvasDoc = startCtx.canvasDoc;
+      if (startCtx.activeBrandKit) {
+        activeBrandKit = startCtx.activeBrandKit;
       }
     }
-    if (prefill.presetName && STY) {
-      const presets = STY.listPresets ? STY.listPresets() : [];
-      const match = presets.find((p) => p.name === prefill.presetName);
-      if (match) {
-        styleSelection.presetId = match.id;
-        styleSelection.presetName = match.name;
-      }
-    }
+
+    const episode = LIB.createEpisode(showId, state.episodeName || "Untitled Episode", {
+      templateId: show.templateId || "",
+      templateName: show.templateName || "",
+      presetName: show.presetName || "",
+    });
+    showLibrary = LIB.addEpisode(showLibrary, showId, episode);
+    activeEpisodeId = episode.id;
+    persistShowLibrary();
 
     renderSetup();
   }
@@ -705,6 +771,11 @@
       field("Episode name", nameInput, "episodeName"),
     );
     form.appendChild(detailsCard);
+
+    const identityBanner = renderShowIdentityBanner();
+    if (identityBanner) {
+      form.appendChild(identityBanner);
+    }
 
     // Recording source
     const modeButtons = ES.SOURCE_MODES.map((mode) => {
@@ -904,6 +975,34 @@
     showErrors = true;
     if (result.ok) {
       const summary = ES.summarize(state);
+      if (activeShowId && LIB && SI) {
+        const defaults = SI.captureDefaultsFromDraft(state);
+        showLibrary = LIB.saveShowDefaults(showLibrary, activeShowId, defaults);
+        if (activeEpisodeId) {
+          showLibrary = LIB.updateEpisode(showLibrary, activeShowId, activeEpisodeId, {
+            name: summary.episodeName,
+          });
+        }
+        persistShowLibrary();
+        const show = LIB.getShow(showLibrary, activeShowId);
+        const afterSetup = SI.applyAfterSetup(show, templateStore, summary, state);
+        if (afterSetup.styleSelection) {
+          styleSelection = afterSetup.styleSelection;
+          layoutCustomized = afterSetup.layoutCustomized;
+        }
+        if (afterSetup.activeTemplateId) {
+          activeTemplateId = afterSetup.activeTemplateId;
+        }
+        if (afterSetup.canvasDoc) {
+          canvasDoc = afterSetup.canvasDoc;
+        }
+        if (afterSetup.appliedStyle) {
+          appliedStyle = afterSetup.appliedStyle;
+        }
+        if (afterSetup.activeBrandKit) {
+          activeBrandKit = afterSetup.activeBrandKit;
+        }
+      }
       if (SC && !contextApproved) {
         contextReview = SC.createReview(summary);
         renderContextReview(summary);
@@ -1106,6 +1205,11 @@
         el("p", { class: "hint" }, "One self-serve flow from import to publish. Each stage shows what is ready and what still needs attention."),
       ),
     );
+
+    const identityBanner = renderShowIdentityBanner();
+    if (identityBanner) {
+      view.appendChild(identityBanner);
+    }
 
     if (WS) {
       ensureMomentsBoard(summary);
@@ -2346,6 +2450,11 @@
         el("p", { class: "hint" }, "Start from a preset, then fine-tune layout and pacing. The preview uses your real speakers."),
       ),
     );
+
+    const identityBanner = renderShowIdentityBanner();
+    if (identityBanner) {
+      view.appendChild(identityBanner);
+    }
 
     const layoutGrid = el("div", { class: "style-layout" });
 

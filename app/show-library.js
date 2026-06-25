@@ -40,6 +40,8 @@
       templateName: opts.templateName || "",
       presetName: opts.presetName || "",
       brandKit: opts.brandKit || null,
+      defaultSourceMode: opts.defaultSourceMode || "",
+      defaultSpeakers: Array.isArray(opts.defaultSpeakers) ? clone(opts.defaultSpeakers) : [],
       createdAt: opts.createdAt || Date.now(),
       episodes: [],
     };
@@ -178,8 +180,17 @@
       templateName: s.templateName || "",
       presetName: s.presetName || "",
       brandKit: s.brandKit ? clone(s.brandKit) : null,
-      speakerRoles: Array.isArray(s.defaultSpeakerRoles) ? s.defaultSpeakerRoles.slice() : [],
+      defaultSourceMode: s.defaultSourceMode || "",
+      defaultSpeakers: Array.isArray(s.defaultSpeakers) ? clone(s.defaultSpeakers) : [],
     };
+  }
+
+  function saveShowDefaults(library, showId, defaults) {
+    const patch = defaults || {};
+    return updateShow(library, showId, {
+      defaultSourceMode: patch.defaultSourceMode || "",
+      defaultSpeakers: Array.isArray(patch.defaultSpeakers) ? clone(patch.defaultSpeakers) : [],
+    });
   }
 
   function summarizeLibrary(library) {
@@ -207,6 +218,18 @@
     try {
       const parsed = JSON.parse(json);
       if (!parsed || !Array.isArray(parsed.shows)) return createLibrary();
+      parsed.shows.forEach(function (show) {
+        const showMatch = /^show-(\d+)$/.exec(show.id || "");
+        if (showMatch) {
+          showCounter = Math.max(showCounter, Number(showMatch[1]));
+        }
+        (show.episodes || []).forEach(function (episode) {
+          const epMatch = /^ep-(\d+)$/.exec(episode.id || "");
+          if (epMatch) {
+            episodeCounter = Math.max(episodeCounter, Number(epMatch[1]));
+          }
+        });
+      });
       return parsed;
     } catch (err) {
       return createLibrary();
@@ -233,6 +256,7 @@
     listEpisodes,
     episodeStatusLabel,
     newEpisodeDraft,
+    saveShowDefaults,
     summarizeLibrary,
     serializeLibrary,
     deserializeLibrary,

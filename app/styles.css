@@ -1555,6 +1555,15 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+.show-identity-banner {
+  border-left: 3px solid var(--brand);
+}
+
+.show-identity-headline {
+  margin: 0;
+  font-weight: 600;
+}
+
 /* Episode list inside show detail */
 .show-episode-list {
   display: grid;
