@@ -15,6 +15,7 @@
   const EXP = window.PdcEpisodeExport;
   const PR = window.PdcPublishReview;
   const WS = window.PdcEpisodeWorkspace;
+  const LIB = window.PdcShowLibrary;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -46,6 +47,13 @@
   let contextApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  // Show library (#47): the home dashboard of shows/episodes, mirrored to localStorage.
+  // The show the current episode belongs to, if it was started from a show, so the episode
+  // status can be tracked back to its show.
+  const LIB_STORAGE_KEY = "pdc-show-library";
+  let showLibrary = LIB ? LIB.deserializeLibrary(safeLoadLibrary()) : { shows: [] };
+  let activeShowId = null;
+  let currentEpisodeRef = null;
 
   function safeLoadMoments() {
     try {
@@ -93,6 +101,29 @@
     } catch (err) {
       /* ignore quota errors */
     }
+  }
+
+  function safeLoadLibrary() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(LIB_STORAGE_KEY) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistLibrary() {
+    if (!LIB || typeof localStorage === "undefined") {
+      return;
+    }
+    try {
+      localStorage.setItem(LIB_STORAGE_KEY, LIB.serializeLibrary(showLibrary));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  function nowStamp() {
+    return typeof Date !== "undefined" && typeof Date.now === "function" ? Date.now() : 0;
   }
 
   function summaryFromWorkspace() {
@@ -445,6 +476,7 @@
     showErrors = true;
     if (result.ok) {
       const summary = ES.summarize(state);
+      syncEpisodeToShow(summary);
       if (SC && !contextApproved) {
         contextReview = SC.createReview(summary);
         renderContextReview(summary);
@@ -703,7 +735,15 @@
       publishReview = null;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
+    const workspaceActions = el("div", { class: "actions workspace-actions" }, editSetup);
+    if (LIB) {
+      const toLibrary = el("button", { type: "button", class: "ghost" }, "← Show library");
+      toLibrary.addEventListener("click", function () {
+        renderLibrary();
+      });
+      workspaceActions.appendChild(toLibrary);
+    }
+    view.appendChild(workspaceActions);
 
     if (TM) {
       const saved = TM.listTemplates(templateStore);
@@ -1962,9 +2002,332 @@
     view.scrollIntoView({ block: "start" });
   }
 
+  // ---- Show library dashboard (#47) -------------------------------------------
+
+  // Start a new episode from a show: record it on the show, then prefill setup with the
+  // show's recurring speakers, style selection, and template so repeat production is fast.
+  function startEpisodeForShow(show, episodeName) {
+    const episode = LIB.createEpisode(show, episodeName, { status: "in-progress", updatedAt: nowStamp() });
+    showLibrary = LIB.addEpisode(showLibrary, show.id, episode);
+    persistLibrary();
+
+    const prefill = LIB.startEpisodeFromShow(show, episodeName);
+
+    const draft = ES.createDraft();
+    draft.episodeName = prefill.episodeName;
+    if (prefill.speakers.length) {
+      draft.speakers = prefill.speakers.map((sp) => {
+        const speaker = ES.createSpeaker(sp.role || "");
+        speaker.name = sp.name || "";
+        return speaker;
+      });
+    }
+    state = draft;
+
+    if (STY) {
+      styleSelection = STY.createSelection();
+      if (prefill.styleSelection) {
+        styleSelection.presetId = prefill.styleSelection.presetId || styleSelection.presetId;
+        styleSelection.layout = prefill.styleSelection.layout || styleSelection.layout;
+        styleSelection.pacing = prefill.styleSelection.pacing || styleSelection.pacing;
+      } else if (prefill.templateId && TM) {
+        const tpl = TM.getTemplate(templateStore, prefill.templateId);
+        const fromCanvas = tpl ? TM.styleSelectionFromCanvas(tpl.canvas) : null;
+        if (fromCanvas) {
+          styleSelection = fromCanvas;
+        }
+      }
+    }
+    activeTemplateId = prefill.templateId || null;
+    activeShowId = show.id;
+    currentEpisodeRef = { showId: show.id, episodeId: episode.id };
+
+    // Reset per-episode working state so the new episode starts clean.
+    appliedStyle = null;
+    layoutCustomized = false;
+    audioPolish = null;
+    appliedAudioPolish = null;
+    canvasDoc = null;
+    momentsBoard = null;
+    selectedMomentId = null;
+    exportJob = null;
+    contextReview = null;
+    contextApproved = false;
+    publishReview = null;
+    publishReviewApproved = false;
+    showErrors = false;
+    errors = {};
+
+    renderSetup();
+  }
+
+  // When an episode belongs to a show, remember the speakers and style the creator set as
+  // the show's defaults, and keep the episode name/updated time in sync — so the next
+  // episode of this show prefills from real, recurring choices.
+  function syncEpisodeToShow(summary) {
+    if (!LIB || !currentEpisodeRef) {
+      return;
+    }
+    const show = LIB.getShow(showLibrary, currentEpisodeRef.showId);
+    if (!show) {
+      return;
+    }
+    show.speakerDefaults = summary.speakers.map((sp) => ({ role: sp.role, name: sp.name }));
+    if (styleSelection) {
+      show.styleSelection = {
+        presetId: styleSelection.presetId,
+        layout: styleSelection.layout,
+        pacing: styleSelection.pacing,
+      };
+    }
+    const episode = (show.episodes || []).find((ep) => ep.id === currentEpisodeRef.episodeId);
+    if (episode) {
+      episode.name = summary.episodeName || episode.name;
+      episode.updatedAt = nowStamp();
+    }
+    showLibrary = LIB.saveShow(showLibrary, show);
+    persistLibrary();
+  }
+
+  function identityLine(row) {
+    const bits = [];
+    if (row.presetName) {
+      bits.push(row.presetName);
+    }
+    if (row.speakerCount) {
+      bits.push(`${row.speakerCount} speaker${row.speakerCount === 1 ? "" : "s"}`);
+    }
+    return bits.length ? bits.join(" · ") : "No saved identity yet";
+  }
+
+  function renderCreateShowCard() {
+    const card = el("section", { class: "card create-show" }, el("h3", {}, "Create a show"));
+    const errorBox = el("p", { class: "field-error" });
+    errorBox.style.display = "none";
+
+    const nameInput = el("input", { type: "text", id: "new-show-name", placeholder: "e.g. Founders Unfiltered" });
+
+    let templateSelect = null;
+    const savedTemplates = TM ? TM.listTemplates(templateStore) : [];
+    if (savedTemplates.length) {
+      templateSelect = el("select", { id: "new-show-template" });
+      templateSelect.appendChild(el("option", { value: "" }, "No template yet"));
+      savedTemplates.forEach((tpl) => {
+        templateSelect.appendChild(
+          el("option", { value: tpl.id }, tpl.presetName ? `${tpl.name} · ${tpl.presetName}` : tpl.name),
+        );
+      });
+    }
+
+    const createButton = el("button", { type: "button", class: "primary" }, "Create show");
+    createButton.addEventListener("click", () => {
+      const result = LIB.validateShowName(showLibrary, nameInput.value);
+      if (!result.ok) {
+        errorBox.textContent = result.error;
+        errorBox.style.display = "";
+        nameInput.setAttribute("aria-invalid", "true");
+        return;
+      }
+      const opts = { createdAt: nowStamp() };
+      if (templateSelect && templateSelect.value && TM) {
+        const tpl = TM.getTemplate(templateStore, templateSelect.value);
+        if (tpl) {
+          opts.templateId = tpl.id;
+          opts.presetName = tpl.canvas && tpl.canvas.presetName;
+          opts.styleSelection = TM.styleSelectionFromCanvas(tpl.canvas);
+        }
+      }
+      const show = LIB.createShow(showLibrary, result.name, opts);
+      showLibrary = LIB.saveShow(showLibrary, show);
+      persistLibrary();
+      activeShowId = show.id;
+      renderLibrary();
+    });
+
+    const fields = el(
+      "div",
+      { class: "create-show-fields" },
+      el("div", { class: "field" }, el("label", { for: "new-show-name" }, "Show name"), nameInput),
+    );
+    if (templateSelect) {
+      fields.appendChild(
+        el(
+          "div",
+          { class: "field" },
+          el("label", { for: "new-show-template" }, "Show identity (optional)"),
+          templateSelect,
+          el("p", { class: "hint" }, "Adopt a saved show template so new episodes start with this show's look."),
+        ),
+      );
+    }
+    card.appendChild(fields);
+    card.appendChild(errorBox);
+    card.appendChild(el("div", { class: "actions" }, createButton));
+    return card;
+  }
+
+  function renderShowDetail(row) {
+    const show = LIB.getShow(showLibrary, row.id);
+    const wrap = el("div", { class: "show-detail" });
+
+    const episodes = (show && show.episodes) || [];
+    const episodesCard = el("div", { class: "show-episodes" }, el("h4", {}, "Episodes"));
+    if (!episodes.length) {
+      episodesCard.appendChild(
+        el("p", { class: "hint" }, "No episodes yet. Start one below to reuse this show's identity."),
+      );
+    } else {
+      episodes.forEach((ep) => {
+        const epRow = el("div", { class: "episode-row" }, el("span", { class: "episode-name" }, ep.name));
+        const statusSelect = el("select", { class: "episode-status", "aria-label": `Status for ${ep.name}` });
+        LIB.EPISODE_STATUSES.forEach((status) => {
+          statusSelect.appendChild(
+            el("option", { value: status.key, selected: ep.status === status.key ? true : null }, status.label),
+          );
+        });
+        statusSelect.addEventListener("change", (event) => {
+          showLibrary = LIB.updateEpisodeStatus(showLibrary, show.id, ep.id, event.target.value, nowStamp());
+          persistLibrary();
+          renderLibrary();
+        });
+        epRow.appendChild(statusSelect);
+        episodesCard.appendChild(epRow);
+      });
+    }
+    wrap.appendChild(episodesCard);
+
+    const startName = el("input", { type: "text", placeholder: "New episode name" });
+    const startButton = el("button", { type: "button", class: "primary" }, "Start new episode →");
+    startButton.addEventListener("click", () => {
+      const name = (startName.value || "").trim() || `Episode ${episodes.length + 1}`;
+      startEpisodeForShow(show, name);
+    });
+    wrap.appendChild(
+      el(
+        "div",
+        { class: "start-episode" },
+        el("div", { class: "field" }, el("label", {}, "Start a new episode"), startName),
+        el("div", { class: "actions" }, startButton),
+      ),
+    );
+
+    const removeButton = el("button", { type: "button", class: "link-button" }, "Delete show");
+    removeButton.addEventListener("click", () => {
+      showLibrary = LIB.removeShow(showLibrary, show.id);
+      if (activeShowId === show.id) {
+        activeShowId = null;
+      }
+      persistLibrary();
+      renderLibrary();
+    });
+    wrap.appendChild(el("div", { class: "actions" }, removeButton));
+
+    return wrap;
+  }
+
+  function renderShowRow(row) {
+    const selected = row.id === activeShowId;
+    const card = el("div", { class: `show-card${selected ? " selected" : ""}` });
+
+    const openButton = el("button", { type: "button", class: selected ? "ghost" : "primary" }, selected ? "Hide" : "Open");
+    openButton.addEventListener("click", () => {
+      activeShowId = selected ? null : row.id;
+      renderLibrary();
+    });
+
+    card.appendChild(
+      el(
+        "div",
+        { class: "show-card-head" },
+        el(
+          "div",
+          { class: "show-card-title" },
+          el("span", { class: "show-name" }, row.name),
+          el("span", { class: "hint" }, identityLine(row)),
+        ),
+        el(
+          "div",
+          { class: "chips" },
+          el("span", { class: "chip" }, `${row.episodeCount} episode${row.episodeCount === 1 ? "" : "s"}`),
+          row.publishedCount ? el("span", { class: "chip" }, `${row.publishedCount} published`) : null,
+        ),
+        openButton,
+      ),
+    );
+
+    if (selected) {
+      card.appendChild(renderShowDetail(row));
+    }
+    return card;
+  }
+
+  function renderLibrary() {
+    root.innerHTML = "";
+    setStep("Show library · Home");
+
+    const view = el("div", { class: "show-library" });
+    const summary = LIB.summarizeLibrary(showLibrary);
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Show library"),
+        el("h2", {}, "Your shows"),
+        el(
+          "p",
+          { class: "hint" },
+          "Keep every podcast identity separate. Start a new episode from a show to reuse its template, style, and recurring speakers.",
+        ),
+      ),
+    );
+
+    view.appendChild(
+      el(
+        "section",
+        { class: "card" },
+        el("h3", {}, "Library at a glance"),
+        el(
+          "div",
+          { class: "stats" },
+          stat(String(summary.showCount), `Show${summary.showCount === 1 ? "" : "s"}`),
+          stat(String(summary.episodeCount), `Episode${summary.episodeCount === 1 ? "" : "s"}`),
+          stat(String(summary.publishedCount), "Published"),
+        ),
+      ),
+    );
+
+    view.appendChild(renderCreateShowCard());
+
+    const shows = LIB.listShows(showLibrary);
+    if (!shows.length) {
+      view.appendChild(
+        el(
+          "section",
+          { class: "card" },
+          el(
+            "p",
+            { class: "hint" },
+            "No shows yet — create your first show above to start producing episodes with a consistent identity.",
+          ),
+        ),
+      );
+    } else {
+      const list = el("section", { class: "card show-list" }, el("h3", {}, "Shows"));
+      shows.forEach((row) => list.appendChild(renderShowRow(row)));
+      view.appendChild(list);
+    }
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
   function stat(value, label) {
     return el("div", { class: "stat" }, el("span", { class: "stat-value" }, value), el("span", { class: "stat-label" }, label));
   }
 
-  renderSetup();
+  if (LIB) {
+    renderLibrary();
+  } else {
+    renderSetup();
+  }
 }());

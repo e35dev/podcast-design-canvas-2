@@ -19,6 +19,7 @@ const required = [
   "app/episode-export.js",
   "app/publish-review.js",
   "app/episode-workspace.js",
+  "app/show-library.js",
   "app/episode-setup.ui.js",
 ];
 
@@ -47,6 +48,7 @@ for (const file of [
   "app/episode-export.js",
   "app/publish-review.js",
   "app/episode-workspace.js",
+  "app/show-library.js",
   "app/episode-setup.ui.js",
 ]) {
   if (!existsSync(file)) {
@@ -69,6 +71,7 @@ if (existsSync("index.html")) {
     "app/canvas-layers.js",
     "app/canvas-editor.js",
     "app/show-templates.js",
+    "app/show-library.js",
     "app/episode-setup.ui.js",
     'id="app"',
   ]) {
