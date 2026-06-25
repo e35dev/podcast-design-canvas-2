@@ -3376,6 +3376,38 @@
     return stage;
   }
 
+  function renderPresetCardPreview(preset) {
+    const layoutId = preset.defaultLayout || "spotlight";
+    const card = el("div", { class: `preset-card-preview preset-card-preview-${layoutId}` });
+    const accent = preset.accent;
+    const surface = preset.surface || "rgba(255,255,255,0.16)";
+
+    if (layoutId === "spotlight") {
+      const lead = el("span", { class: "preset-card-frame preset-card-frame-lead" });
+      lead.style.borderColor = accent;
+      lead.style.background = surface;
+      card.appendChild(lead);
+      const rail = el("div", { class: "preset-card-rail" });
+      for (let i = 0; i < 3; i += 1) {
+        const tile = el("span", { class: "preset-card-frame preset-card-frame-small" });
+        tile.style.borderColor = accent;
+        tile.style.background = surface;
+        rail.appendChild(tile);
+      }
+      card.appendChild(rail);
+      return card;
+    }
+
+    const frameCount = layoutId === "split" ? 2 : 4;
+    for (let i = 0; i < frameCount; i += 1) {
+      const frame = el("span", { class: `preset-card-frame preset-card-frame-${layoutId}` });
+      frame.style.borderColor = accent;
+      frame.style.background = surface;
+      card.appendChild(frame);
+    }
+    return card;
+  }
+
   function renderStyle(summary) {
     root.innerHTML = "";
     setStep("Step 4 of 8 · Choose a style");
@@ -3405,6 +3437,8 @@
     const presetGrid = el("div", { class: "preset-grid" });
     STY.STYLE_PRESETS.forEach((preset) => {
       const selected = styleSelection.presetId === preset.id;
+      const layout = STY.getLayout(preset.defaultLayout || "spotlight");
+      const pacing = STY.getPacing("balanced");
       const card = el(
         "button",
         {
@@ -3421,8 +3455,16 @@
           swatch.appendChild(dot);
           return swatch;
         })(),
+        renderPresetCardPreview(preset),
         el("span", { class: "preset-name" }, preset.name),
         el("span", { class: "preset-tagline" }, preset.tagline),
+        el(
+          "div",
+          { class: "preset-card-cues" },
+          el("span", { class: "preset-card-cue" }, layout.label),
+          el("span", { class: "preset-card-cue" }, preset.captionStyle),
+          el("span", { class: "preset-card-cue" }, pacing.label + " pacing"),
+        ),
       );
       card.addEventListener("click", () => {
         styleSelection = STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized);

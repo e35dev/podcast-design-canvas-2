@@ -523,7 +523,7 @@ button.ghost:hover,
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
   text-align: left;
   padding: 14px;
   border: 1px solid var(--line);
@@ -560,10 +560,76 @@ button.ghost:hover,
   font-size: 14px;
 }
 
+.preset-card-preview {
+  width: 100%;
+  min-height: 76px;
+  border-radius: 10px;
+  border: 1px solid rgba(27, 28, 46, 0.08);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.preset-card-preview-spotlight {
+  grid-template-columns: 1fr;
+}
+
+.preset-card-preview-split,
+.preset-card-preview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.preset-card-frame {
+  display: block;
+  border: 2px solid currentColor;
+  border-radius: 8px;
+}
+
+.preset-card-frame-lead {
+  min-height: 30px;
+}
+
+.preset-card-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.preset-card-frame-small,
+.preset-card-frame-split,
+.preset-card-frame-grid {
+  min-height: 16px;
+}
+
+.preset-card-frame-split {
+  min-height: 48px;
+}
+
+.preset-card-frame-grid {
+  min-height: 20px;
+}
+
 .preset-tagline {
   font-size: 12px;
   color: var(--ink-soft);
   line-height: 1.4;
+}
+
+.preset-card-cues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset-card-cue {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: #eef0f8;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
 }
 
 /* Live preview stage */
@@ -2491,4 +2557,3 @@ button.ghost:hover,
     grid-template-columns: 1fr;
   }
 }
-
