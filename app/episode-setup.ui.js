@@ -1,11 +1,11 @@
 "use strict";
 
-// Browser wiring for episode setup (#1), preset style (#4), and canvas editor (#11).
-// Renders the setup wizard, workspace, style selection, and canvas editor from the
-// shared PdcEpisodeSetup / PdcEpisodeStyle / PdcCanvasEditor / PdcShowTemplates rules.
+// Browser wiring for episode setup (#1), audio polish (#15), preset style (#4),
+// and canvas editor (#11).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
+  const AP = window.PdcAudioPolish;
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
@@ -22,6 +22,8 @@
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
   let layoutCustomized = false;
+  let audioPolish = null;
+  let appliedAudioPolish = null;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
   let activeTemplateId = null;
@@ -271,7 +273,7 @@
       el(
         "div",
         { class: "actions" },
-        el("button", { type: "submit", class: "primary" }, "Continue to style →"),
+        el("button", { type: "submit", class: "primary" }, "Continue to audio polish →"),
       ),
     );
 
@@ -398,7 +400,10 @@
     showErrors = true;
     if (result.ok) {
       const summary = ES.summarize(state);
-      if (STY && !appliedStyle) {
+      if (AP && !appliedAudioPolish) {
+        audioPolish = AP.createPolish(summary);
+        renderAudioPolish(summary);
+      } else if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {
         renderWorkspace(summary);
@@ -491,6 +496,20 @@
     });
     view.appendChild(sources);
 
+    // Audio polish summary
+    if (AP && appliedAudioPolish) {
+      view.appendChild(
+        el(
+          "section",
+          { class: "card audio-summary" },
+          el("h3", {}, "Audio polish"),
+          el("p", { class: "audio-summary-preset" }, appliedAudioPolish.presetName),
+          el("p", { class: "hint" }, appliedAudioPolish.tagline),
+          el("p", { class: "audio-summary-facts" }, appliedAudioPolish.treatmentLine),
+        ),
+      );
+    }
+
     // Selected style (shown once a preset has been applied to the episode)
     if (STY && appliedStyle) {
       const styleCard = el(
@@ -537,12 +556,47 @@
       }
     }
 
-    // Next step — style, canvas, or template
+    // Episode review / export path
+    if (AP && appliedAudioPolish) {
+      const templateName = activeTemplateId && TM
+        ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
+        : "";
+      const review = AP.buildReviewSummary(summary, appliedAudioPolish, {
+        styleName: appliedStyle ? appliedStyle.presetName : "",
+        templateName: templateName || "",
+      });
+      const reviewCard = el("section", { class: "card episode-review" }, el("h3", {}, "Episode review"));
+      review.summaryLines.forEach((line) => {
+        reviewCard.appendChild(el("p", { class: "review-line" }, line));
+      });
+      if (review.readyForExport) {
+        reviewCard.appendChild(
+          el("p", { class: "review-ready" }, "Audio treatment saved — ready for export when visual editing is complete."),
+        );
+      }
+      view.appendChild(reviewCard);
+    }
+
+    // Next step — audio, style, canvas, or template
+    const audioAvailable = Boolean(AP);
     const styleAvailable = Boolean(STY);
     const canvasAvailable = Boolean(CL && CE && appliedStyle);
+    const audioButton = el(
+      "button",
+      { type: "button", class: "ghost", disabled: audioAvailable ? null : true },
+      appliedAudioPolish ? "Change audio polish →" : "Polish audio →",
+    );
+    if (audioAvailable) {
+      audioButton.addEventListener("click", () => {
+        if (!audioPolish) {
+          audioPolish = AP.createPolish(summary);
+        }
+        renderAudioPolish(summary);
+      });
+    }
     const styleButton = el(
       "button",
-      { type: "button", class: canvasAvailable ? "ghost" : "primary", disabled: styleAvailable ? null : true },
+      { type: "button", class: canvasAvailable || !appliedStyle ? (appliedAudioPolish ? "primary" : "ghost") : "ghost", disabled: styleAvailable ? null : true },
       appliedStyle ? "Change style →" : "Choose a style →",
     );
     if (styleAvailable) {
@@ -560,18 +614,29 @@
       ? "Template saved"
       : appliedStyle
         ? "Style applied"
-        : "Ready for the next step";
+        : appliedAudioPolish
+          ? "Audio polished"
+          : "Ready for the next step";
     const nextCopy = activeTemplateId
       ? "Your show template is saved and ready for the next episode."
       : appliedStyle
         ? "Your style is set. Open the canvas editor to personalize the layout and save a reusable show template."
-        : "Your sources, speaker roles, and context are saved. Pick a visual style next.";
+        : appliedAudioPolish
+          ? "Your audio treatment is set. Pick a visual style next."
+          : "Your sources, speaker roles, and context are saved. Polish audio next.";
     const actions = el("div", { class: "actions" });
     if (appliedStyle && canvasAvailable) {
       actions.appendChild(canvasButton);
       actions.appendChild(styleButton);
-    } else {
+      actions.appendChild(audioButton);
+    } else if (appliedAudioPolish && !appliedStyle) {
       actions.appendChild(styleButton);
+      actions.appendChild(audioButton);
+    } else {
+      actions.appendChild(appliedAudioPolish ? styleButton : audioButton);
+      if (appliedAudioPolish) {
+        actions.appendChild(audioButton);
+      }
     }
     actions.appendChild(
       (function () {
@@ -795,7 +860,7 @@
       canvasDoc = CE.createFromStyle(appliedStyle, summary, styleSelection);
     }
     root.innerHTML = "";
-    setStep("Step 3 of 6 · Canvas editor");
+    setStep("Step 4 of 6 · Canvas editor");
 
     const evaluation = CL.evaluateLayout(canvasDoc.layers);
     const view = el("div", { class: "canvas-step" });
@@ -941,6 +1006,107 @@
     view.scrollIntoView({ block: "start" });
   }
 
+  // ---- Audio polish (#15) -----------------------------------------------------
+
+  function renderAudioPolish(summary) {
+    if (!audioPolish) {
+      audioPolish = AP.createPolish(summary);
+    }
+    root.innerHTML = "";
+    setStep("Step 2 of 6 · Audio polish");
+
+    const view = el("div", { class: "audio-step" });
+    view.appendChild(
+      el("div", { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Audio polish"),
+        el("h2", {}, `Shape the sound for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Each speaker track below will get this treatment."),
+      ),
+    );
+
+    const grid = el("div", { class: "audio-layout" });
+
+    const controls = el("section", { class: "card" }, el("h3", {}, "Sound quality"));
+    const presetGrid = el("div", { class: "audio-preset-grid" });
+    AP.QUALITY_PRESETS.forEach((preset) => {
+      const selected = audioPolish.presetId === preset.id;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          class: `audio-preset-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        el("span", { class: "audio-preset-name" }, preset.name),
+        el("span", { class: "audio-preset-tagline" }, preset.tagline),
+      );
+      card.addEventListener("click", () => {
+        audioPolish = AP.applyPreset(audioPolish, preset.id);
+        renderAudioPolish(summary);
+      });
+      presetGrid.appendChild(card);
+    });
+    controls.appendChild(presetGrid);
+
+    AP.CONTROLS.forEach((control) => {
+      const select = el("select", { id: `audio-${control.id}` });
+      AP.LEVELS.forEach((level) => {
+        select.appendChild(
+          el("option", {
+            value: level.id,
+            selected: audioPolish[control.id] === level.id ? true : null,
+          }, level.label),
+        );
+      });
+      select.addEventListener("change", (e) => {
+        audioPolish = AP.updateControl(audioPolish, control.id, e.target.value);
+        renderAudioPolish(summary);
+      });
+      controls.appendChild(field(control.label, select, null, control.hint));
+    });
+    grid.appendChild(controls);
+
+    const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
+    tracksCard.appendChild(
+      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+    );
+    const trackList = el("div", { class: "audio-track-list" });
+    audioPolish.speakers.forEach((track) => {
+      trackList.appendChild(
+        el("div", { class: "audio-track" },
+          el("div", { class: "audio-track-main" },
+            el("span", { class: "role-pill" }, track.role),
+            el("span", { class: "summary-name" }, track.name),
+          ),
+          el("p", { class: "summary-source" }, track.sourceLabel),
+          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+        ),
+      );
+    });
+    tracksCard.appendChild(trackList);
+    grid.appendChild(tracksCard);
+    view.appendChild(grid);
+
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+    applyButton.addEventListener("click", () => {
+      appliedAudioPolish = AP.summarizePolish(audioPolish);
+      if (STY && !appliedStyle) {
+        renderStyle(summary);
+      } else {
+        renderWorkspace(summary);
+      }
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
+    back.addEventListener("click", () => {
+      showErrors = false;
+      renderSetup();
+    });
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
   // ---- Preset style selection + preview (#4) ----------------------------------
 
   // A live preview built from the real assigned speakers. `compact` renders the smaller
@@ -996,7 +1162,7 @@
 
   function renderStyle(summary) {
     root.innerHTML = "";
-    setStep("Step 2 of 6 · Choose a style");
+    setStep("Step 3 of 6 · Choose a style");
     if (!styleSelection) {
       styleSelection = STY.createSelection();
     }

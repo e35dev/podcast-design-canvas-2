@@ -10,6 +10,7 @@ const required = [
   "app/styles.css",
   "app/episode-setup.js",
   "app/episode-style.js",
+  "app/audio-polish.js",
   "app/canvas-layers.js",
   "app/canvas-editor.js",
   "app/show-templates.js",
@@ -32,6 +33,7 @@ for (const file of required) {
 for (const file of [
   "app/episode-setup.js",
   "app/episode-style.js",
+  "app/audio-polish.js",
   "app/canvas-layers.js",
   "app/canvas-editor.js",
   "app/show-templates.js",
@@ -53,6 +55,7 @@ if (existsSync("index.html")) {
     "app/styles.css",
     "app/episode-setup.js",
     "app/episode-style.js",
+    "app/audio-polish.js",
     "app/canvas-layers.js",
     "app/canvas-editor.js",
     "app/show-templates.js",
