@@ -1710,3 +1710,13 @@ button:disabled {
   opacity: 0.9;
 }
 
+.show-identity-banner {
+  margin-bottom: 16px;
+  border-color: rgba(108, 76, 255, 0.25);
+  background: rgba(108, 76, 255, 0.04);
+}
+
+.show-identity-note {
+  margin-bottom: 0;
+}
+
