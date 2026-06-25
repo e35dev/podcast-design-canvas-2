@@ -1521,7 +1521,38 @@ button.ghost:hover,
 }
 
 .gallery-empty-card .hint {
-  margin-bottom: 0;
+  margin-bottom: 12px;
+}
+
+.gallery-empty-actions {
+  margin-top: 4px;
+}
+
+.creator-gallery-promo {
+  margin-bottom: 18px;
+}
+
+.creator-gallery-promo h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.creator-gallery-promo-actions {
+  margin-top: 12px;
+}
+
+.create-show-gallery-entry {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.create-show-gallery-btn {
+  margin-top: 8px;
+}
+
+.template-library-empty {
+  padding: 12px 0 4px;
 }
 
 @media (max-width: 820px) {
