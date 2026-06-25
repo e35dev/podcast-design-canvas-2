@@ -566,6 +566,534 @@ button.ghost:hover,
   line-height: 1.4;
 }
 
+/* ===== #102: realistic, demo-quality episode previews ===== */
+
+/* Standalone label for card/segmented controls (no native input id) */
+.field-label {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+/* Create-a-show: two-column preset-first layout */
+.create-show-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.create-show-preset-heading {
+  margin: 18px 0 10px;
+  font-size: 15px;
+}
+
+.create-show-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.create-show-preview-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.create-show-main-preview {
+  min-height: 300px;
+}
+
+.create-show-blank-preview {
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 28px;
+  text-align: center;
+  background: #fafaff;
+}
+
+.create-show-blank-badge {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  background: #eef0f8;
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.create-show-secondary {
+  margin-top: 18px;
+}
+
+.create-show-secondary summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.create-show-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.create-show-secondary-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fbfbff;
+  cursor: pointer;
+}
+
+.create-show-secondary-card:hover {
+  border-color: var(--brand);
+}
+
+.create-show-secondary-card.selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(108, 76, 255, 0.25);
+  background: rgba(108, 76, 255, 0.06);
+}
+
+.create-show-secondary-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.create-show-secondary-cue {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* Preset picker cards that carry a live mini episode preview */
+.rich-preset-card,
+.style-preset-grid .rich-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  text-align: left;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fbfbff;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.rich-preset-card:hover {
+  border-color: var(--brand);
+  transform: translateY(-2px);
+}
+
+.rich-preset-card.selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(108, 76, 255, 0.3);
+  background: rgba(108, 76, 255, 0.06);
+}
+
+.rich-preset-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px 2px;
+}
+
+.rich-preset-card-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.rich-preset-card-cue {
+  font-size: 11px;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
+.style-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+/* Layout & pacing as visual cards on the style step (replaces native selects) */
+.style-option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.style-option-card {
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfbff;
+  cursor: pointer;
+  flex: 1 1 110px;
+  text-align: center;
+}
+
+.style-option-card:hover {
+  border-color: var(--brand);
+}
+
+.style-option-card.selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(108, 76, 255, 0.25);
+  background: rgba(108, 76, 255, 0.06);
+}
+
+.style-option-label {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* The realistic episode preview itself */
+.rich-ep {
+  width: 100%;
+}
+
+.rich-ep-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.rich-ep-large .rich-ep-stage {
+  min-height: 340px;
+  padding: 16px;
+  gap: 12px;
+}
+
+.rich-ep-card .rich-ep-stage {
+  min-height: 150px;
+  padding: 10px;
+  gap: 7px;
+  border-radius: 12px;
+}
+
+.rich-ep-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rich-ep-bug {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 70%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #0c0e16;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rich-ep-card .rich-ep-bug {
+  font-size: 9px;
+  padding: 3px 7px;
+}
+
+.rich-ep-bug-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #0c0e16;
+  opacity: 0.65;
+}
+
+.rich-ep-overlay {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.rich-ep-card .rich-ep-overlay {
+  font-size: 8px;
+  padding: 2px 6px;
+}
+
+.rich-ep-frames {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+}
+
+.rich-ep-card .rich-ep-frames {
+  gap: 5px;
+}
+
+.stage-spotlight .rich-ep-frames {
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+}
+
+.stage-spotlight .rich-ep-tile.is-active {
+  grid-column: 1 / -1;
+}
+
+.stage-split .rich-ep-frames {
+  grid-template-columns: 1fr 1fr;
+}
+
+.stage-grid .rich-ep-frames {
+  grid-template-columns: 1fr 1fr;
+}
+
+.rich-ep-tile {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  min-height: 54px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.rich-ep-large .stage-spotlight .rich-ep-tile.is-active {
+  min-height: 150px;
+}
+
+.rich-ep-tile-sheen {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 70% 12%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 55%);
+  pointer-events: none;
+}
+
+.rich-ep-avatar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -60%);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.32);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.rich-ep-card .rich-ep-avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+}
+
+.rich-ep-lowerthird {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 8px;
+  border-left: 3px solid #fff;
+  border-radius: 3px;
+  background: rgba(8, 10, 18, 0.74);
+  color: #fff;
+  max-width: calc(100% - 12px);
+}
+
+.rich-ep-lt-name {
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rich-ep-lt-role {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.82;
+}
+
+.rich-ep-card .rich-ep-lt-name {
+  font-size: 8px;
+}
+
+.rich-ep-card .rich-ep-lt-role {
+  display: none;
+}
+
+/* Episode title treatments */
+.rich-ep-titleblock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rich-ep-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.rich-ep-card .rich-ep-kicker {
+  font-size: 8px;
+}
+
+.rich-ep-title {
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.rich-ep-card .rich-ep-title {
+  font-size: 12px;
+}
+
+.title-topic-card .rich-ep-title {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 16px;
+}
+
+.title-minimal-tag .rich-ep-title {
+  font-size: 14px;
+  font-weight: 700;
+  opacity: 0.92;
+}
+
+.title-broadcast .rich-ep-title {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 22px;
+}
+
+.rich-ep-card .title-topic-card .rich-ep-title,
+.rich-ep-card .title-broadcast .rich-ep-title,
+.rich-ep-card .title-minimal-tag .rich-ep-title {
+  font-size: 12px;
+}
+
+/* Burned-in caption treatments */
+.rich-ep-caption {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 5px 10px;
+  border-radius: 7px;
+  color: #0c0e16;
+}
+
+.rich-ep-card .rich-ep-caption {
+  font-size: 9px;
+  padding: 3px 7px;
+}
+
+.caption-clean-bar {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.caption-name-tag {
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.caption-bold-lower-third,
+.caption-big-animated {
+  background: rgba(8, 10, 18, 0.78) !important;
+  color: #fff;
+  border-bottom: 3px solid #fff;
+  border-radius: 4px;
+}
+
+.caption-big-animated {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 13px;
+}
+
+.rich-ep-card .caption-big-animated {
+  font-size: 9px;
+}
+
+/* Pacing cue: a tiny edit timeline with cut markers */
+.rich-ep-timeline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 8px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 0 6px;
+}
+
+.rich-ep-tick {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.rich-ep-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.rich-ep-meta-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: #eef0f8;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+@media (max-width: 900px) {
+  .create-show-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .create-show-preview-panel {
+    position: static;
+  }
+}
+
 /* Live preview stage */
 .preview-stage {
   border-radius: 14px;

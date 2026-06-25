@@ -382,6 +382,17 @@
     );
   }
 
+  // Like field(), but for a card/segmented control group with no single input id.
+  function optionField(labelText, control, hint) {
+    return el(
+      "div",
+      { class: "field" },
+      el("span", { class: "field-label" }, labelText),
+      hint ? el("p", { class: "hint" }, hint) : null,
+      control,
+    );
+  }
+
   function setupSectionHeader(stepNum, title, lead) {
     return el(
       "div",
@@ -474,7 +485,7 @@
         heading.textContent = "Create a show";
       }
       if (copy) {
-        copy.textContent = "Name your show and optionally pick a saved template. Next you will import your first episode recording and assign speakers.";
+        copy.textContent = "Name your show and choose a professional style preset — preview how a finished episode will look before you import. Next you will import your first recording and assign speakers.";
       }
       return;
     }
@@ -611,53 +622,207 @@
     root.appendChild(view);
   }
 
-  function renderNewShowForm(prefillName, errorMsg) {
+  function selectionForPreset(preset) {
+    return { presetId: preset.id, layout: preset.defaultLayout, pacing: "balanced" };
+  }
+
+  // Resolve a create-show selection token into the preset it represents. Tokens are
+  // `preset:<id>` for a named preset, a saved template id, or "" for a blank show.
+  function presetForChoiceToken(token, saved) {
+    if (!STY || !token) {
+      return null;
+    }
+    if (token.indexOf("preset:") === 0) {
+      return STY.getPreset(token.slice("preset:".length));
+    }
+    const tpl = (saved || []).find((item) => item.id === token);
+    if (tpl && tpl.presetName) {
+      return STY.STYLE_PRESETS.find((item) => item.name === tpl.presetName) || null;
+    }
+    return null;
+  }
+
+  function renderNewShowForm(prefillName, errorMsg, formOptions) {
     setPageIntro("new-show");
     root.innerHTML = "";
     setStep("Show Library · New Show");
 
     const saved = TM ? TM.listTemplates(templateStore) : [];
-
-    const nameInput = el("input", { id: "f-show-name", type: "text", value: prefillName || "", placeholder: "e.g. Founders Unfiltered" });
-
-    let selectedTemplateId = "";
-    let selectedPresetName = "";
-    const tplOptions = [el("option", { value: "" }, "No template")].concat(
-      saved.map((t) => el("option", { value: t.id }, t.name)),
-    );
-    const tplSelect = el("select", { id: "f-show-template" }, ...tplOptions);
-    tplSelect.addEventListener("change", () => {
-      selectedTemplateId = tplSelect.value;
-      const tpl = saved.find((t) => t.id === selectedTemplateId);
-      selectedPresetName = tpl && tpl.presetName ? tpl.presetName : "";
-    });
+    const opts = formOptions || {};
+    const defaultToken = STY ? `preset:${STY.defaultPreset().id}` : "";
+    let selectedTemplateId = opts.initialPresetId != null ? opts.initialPresetId : defaultToken;
 
     if (errorMsg) {
       root.appendChild(el("div", { class: "banner", role: "alert" }, errorMsg));
     }
 
-    const form = el(
-      "div",
-      { class: "card create-show-form" },
-      el("h2", {}, "Create new show"),
+    const nameInput = el("input", {
+      id: "f-show-name",
+      type: "text",
+      value: prefillName || "",
+      placeholder: "e.g. Founders Unfiltered",
+    });
+
+    function currentShowName() {
+      return nameInput.value.trim();
+    }
+
+    function resolvePresetName(token) {
+      const preset = presetForChoiceToken(token, saved);
+      return preset ? preset.name : "";
+    }
+
+    // The large live preview panel on the right.
+    const previewHost = el("div", { class: "create-show-main-preview", id: "create-show-main-preview" });
+    function updateMainPreview() {
+      previewHost.innerHTML = "";
+      const preset = presetForChoiceToken(selectedTemplateId, saved);
+      if (!preset || !STY) {
+        previewHost.appendChild(
+          el(
+            "div",
+            { class: "create-show-blank-preview" },
+            el("span", { class: "create-show-blank-badge" }, "Blank show"),
+            el("p", { class: "hint" }, "No default style yet — you'll choose a look during episode import. Pick a preset to preview a finished episode here."),
+          ),
+        );
+        return;
+      }
+      const model = STY.buildRichPreviewModel(preset, selectionForPreset(preset), { showName: currentShowName() });
+      previewHost.appendChild(renderRichEpisodePreview(model, "large"));
+    }
+
+    // Preset cards (primary, preset-first).
+    const presetGrid = el("div", { class: "create-show-preset-grid", role: "radiogroup", "aria-label": "Show style preset" });
+    const presetCards = [];
+    const presetTokens = STY ? STY.STYLE_PRESETS.map((p) => `preset:${p.id}`) : [];
+
+    function syncSelection() {
+      const all = presetGrid.querySelectorAll("button[data-choice]");
+      all.forEach((node) => {
+        const isSel = node.getAttribute("data-choice") === selectedTemplateId;
+        node.classList.toggle("selected", isSel);
+        node.setAttribute("aria-pressed", isSel ? "true" : "false");
+      });
+      if (secondaryGrid) {
+        secondaryGrid.querySelectorAll("button[data-choice]").forEach((node) => {
+          const isSel = node.getAttribute("data-choice") === selectedTemplateId;
+          node.classList.toggle("selected", isSel);
+          node.setAttribute("aria-pressed", isSel ? "true" : "false");
+        });
+      }
+    }
+
+    function choosePreset(token) {
+      selectedTemplateId = token;
+      syncSelection();
+      updateMainPreview();
+    }
+
+    if (STY) {
+      STY.STYLE_PRESETS.forEach((preset) => {
+        const token = `preset:${preset.id}`;
+        const selected = token === selectedTemplateId;
+        const model = STY.buildRichPreviewModel(preset, selectionForPreset(preset), { showName: currentShowName() });
+        const card = el(
+          "button",
+          {
+            type: "button",
+            role: "radio",
+            "data-choice": token,
+            class: `rich-preset-card${selected ? " selected" : ""}`,
+            "aria-pressed": selected ? "true" : "false",
+          },
+          renderRichEpisodePreview(model, "card"),
+          el(
+            "span",
+            { class: "rich-preset-card-info" },
+            el("span", { class: "rich-preset-card-name" }, preset.name),
+            el("span", { class: "rich-preset-card-cue" }, `${STY.getLayout(preset.defaultLayout).label} · ${preset.captionStyle}`),
+          ),
+        );
+        card.addEventListener("click", () => choosePreset(token));
+        presetCards.push(card);
+        presetGrid.appendChild(card);
+      });
+    }
+
+    // Secondary options: blank show + saved templates, tucked under a disclosure so the
+    // strong preset defaults lead.
+    let secondaryGrid = null;
+    const secondaryChoices = [{ id: "", name: "Blank show", cue: "No default style", kind: "blank" }].concat(
+      saved.map((t) => ({ id: t.id, name: t.name, cue: t.presetName || "Saved template", kind: "template" })),
+    );
+    secondaryGrid = el("div", { class: "create-show-secondary-grid", role: "radiogroup", "aria-label": "Other starting points" });
+    secondaryChoices.forEach((choice) => {
+      const selected = choice.id === selectedTemplateId;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          role: "radio",
+          "data-choice": choice.id,
+          class: `create-show-secondary-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        el("span", { class: "create-show-secondary-name" }, choice.name),
+        el("span", { class: "create-show-secondary-cue" }, choice.cue),
+      );
+      card.addEventListener("click", () => choosePreset(choice.id));
+      secondaryGrid.appendChild(card);
+    });
+
+    // Refresh card + main previews live as the show name is typed (name is preserved).
+    nameInput.addEventListener("input", () => {
+      updateMainPreview();
+      if (STY) {
+        presetCards.forEach((node, i) => {
+          const preset = STY.getPreset(STY.STYLE_PRESETS[i].id);
+          const old = node.querySelector(".rich-ep");
+          if (old) {
+            old.replaceWith(
+              renderRichEpisodePreview(
+                STY.buildRichPreviewModel(preset, selectionForPreset(preset), { showName: currentShowName() }),
+                "card",
+              ),
+            );
+          }
+        });
+      }
+    });
+
+    const formCol = el("div", { class: "card create-show-form-col" });
+    formCol.appendChild(el("h2", {}, "Create new show"));
+    formCol.appendChild(
+      el("p", { class: "hint" }, "Pick a professional look first — each card previews a finished, multi-speaker episode with speaker frames, captions, and overlays. You can fine-tune everything later."),
+    );
+    formCol.appendChild(
+      el("div", { class: "field" }, el("label", { for: "f-show-name" }, "Show name"), nameInput),
+    );
+    formCol.appendChild(el("h3", { class: "create-show-preset-heading" }, "Choose a style preset"));
+    formCol.appendChild(presetGrid);
+    formCol.appendChild(
       el(
-        "div",
-        { class: "field" },
-        el("label", { for: "f-show-name" }, "Show name"),
-        nameInput,
-      ),
-      el(
-        "div",
-        { class: "field" },
-        el("label", { for: "f-show-template" }, "Start from template (optional)"),
-        tplSelect,
-      ),
-      el(
-        "p",
-        { class: "hint" },
-        "After you create the show, you will go straight to episode import — Riverside link or synced speaker files, speaker roles, and social links.",
+        "details",
+        { class: "create-show-secondary" },
+        el("summary", {}, "Or start blank / use a saved template"),
+        el("p", { class: "hint" }, "Blank show skips a default style — you can still pick one during episode import."),
+        secondaryGrid,
       ),
     );
+    formCol.appendChild(
+      el("p", { class: "hint" }, "After you create the show, you'll go straight to episode import — Riverside link or synced speaker files, speaker roles, and social links."),
+    );
+
+    const previewCol = el(
+      "section",
+      { class: "card create-show-preview-panel" },
+      el("h3", {}, "Episode look preview"),
+      el("p", { class: "hint" }, "Sample three-speaker content — updates instantly as you switch presets. Your show name stays in the fields on the left."),
+      previewHost,
+    );
+
+    const layout = el("div", { class: "create-show-layout" }, formCol, previewCol);
 
     const cancelBtn = el("button", { class: "btn-secondary", type: "button" }, "Cancel");
     cancelBtn.addEventListener("click", () => renderShowLibrary());
@@ -667,14 +832,15 @@
       const name = nameInput.value;
       const check = LIB.validateShowName(showLibrary, name);
       if (!check.ok) {
-        renderNewShowForm(name, check.error);
+        renderNewShowForm(name, check.error, { initialPresetId: selectedTemplateId });
         return;
       }
-      const tpl = saved.find((t) => t.id === selectedTemplateId);
+      const isTemplate = selectedTemplateId && selectedTemplateId.indexOf("preset:") !== 0;
+      const tpl = isTemplate ? saved.find((t) => t.id === selectedTemplateId) : null;
       const show = LIB.createShow(check.name, {
-        templateId: selectedTemplateId,
+        templateId: tpl ? tpl.id : "",
         templateName: tpl ? tpl.name : "",
-        presetName: selectedPresetName,
+        presetName: resolvePresetName(selectedTemplateId),
       });
       showLibrary = LIB.addShow(showLibrary, show);
       persistShowLibrary();
@@ -683,7 +849,8 @@
     });
 
     const footer = el("div", { class: "workspace-actions setup-cta-bar" }, cancelBtn, saveBtn);
-    root.appendChild(el("div", { class: "workspace-root" }, form, footer));
+    root.appendChild(el("div", { class: "workspace-root create-show-root" }, layout, footer));
+    updateMainPreview();
   }
 
   function renderShowDetail(showId) {
@@ -3376,6 +3543,92 @@
     return stage;
   }
 
+  // A realistic, publishable-looking episode preview (#102): themed speaker "video" tiles
+  // with name lower-thirds, an episode title treatment, a burned-in caption, an on-brand
+  // overlay, and a pacing timeline — so creators see what a finished episode looks like
+  // rather than an abstract diagram. `size` is "large" (preview panel) or "card" (picker).
+  function renderRichEpisodePreview(model, size) {
+    const compact = size === "card";
+    const wrap = el("div", { class: `rich-ep rich-ep-${size || "large"} stage-${model.layoutId}` });
+    const stage = el("div", { class: "rich-ep-stage" });
+    stage.style.background = model.theme.background;
+    stage.style.color = model.theme.textColor;
+
+    const topbar = el("div", { class: "rich-ep-topbar" });
+    const bug = el("span", { class: "rich-ep-bug" });
+    bug.style.background = model.theme.accent;
+    bug.appendChild(el("span", { class: "rich-ep-bug-dot" }));
+    bug.appendChild(document.createTextNode((model.showName || model.presetName).slice(0, 18)));
+    topbar.appendChild(bug);
+    if (model.overlayLabel) {
+      const overlay = el("span", { class: "rich-ep-overlay" }, model.overlayLabel);
+      overlay.style.borderColor = model.theme.accent;
+      topbar.appendChild(overlay);
+    }
+    stage.appendChild(topbar);
+
+    const frames = el("div", { class: "rich-ep-frames" });
+    model.frames.forEach((frame) => {
+      const tile = el("div", { class: `rich-ep-tile${frame.active ? " is-active" : ""}` });
+      tile.style.background = frame.tint;
+      const sheen = el("span", { class: "rich-ep-tile-sheen", "aria-hidden": "true" });
+      tile.appendChild(sheen);
+      const avatar = el("span", { class: "rich-ep-avatar" }, frame.initials);
+      tile.appendChild(avatar);
+      const lower = el(
+        "span",
+        { class: "rich-ep-lowerthird" },
+        el("span", { class: "rich-ep-lt-name" }, frame.name),
+        el("span", { class: "rich-ep-lt-role" }, frame.role),
+      );
+      lower.style.borderLeftColor = model.theme.accent;
+      tile.appendChild(lower);
+      frames.appendChild(tile);
+    });
+    stage.appendChild(frames);
+
+    const titleBlock = el("div", { class: `rich-ep-titleblock title-${model.titleTreatment}` });
+    if (model.kicker) {
+      const kicker = el("span", { class: "rich-ep-kicker" }, model.kicker);
+      kicker.style.color = model.theme.accent;
+      titleBlock.appendChild(kicker);
+    }
+    titleBlock.appendChild(el("span", { class: "rich-ep-title" }, model.titleText));
+    stage.appendChild(titleBlock);
+
+    const caption = el("div", { class: `rich-ep-caption caption-${model.captionTreatment}` }, model.captionText);
+    if (model.captionTreatment === "bold-lower-third" || model.captionTreatment === "big-animated") {
+      caption.style.borderBottomColor = model.theme.accent;
+    } else {
+      caption.style.background = model.theme.accent;
+    }
+    stage.appendChild(caption);
+
+    if (!compact) {
+      const timeline = el("div", { class: "rich-ep-timeline", title: `${model.pacingLabel} pacing` });
+      for (let i = 0; i < model.cutCount; i += 1) {
+        const tick = el("span", { class: "rich-ep-tick" });
+        tick.style.background = model.theme.accent;
+        timeline.appendChild(tick);
+      }
+      stage.appendChild(timeline);
+    }
+
+    wrap.appendChild(stage);
+
+    if (!compact) {
+      const meta = el(
+        "div",
+        { class: "rich-ep-meta" },
+        el("span", { class: "rich-ep-meta-chip" }, model.layoutLabel),
+        el("span", { class: "rich-ep-meta-chip" }, model.captionStyle),
+        el("span", { class: "rich-ep-meta-chip" }, `${model.pacingLabel} pacing`),
+      );
+      wrap.appendChild(meta);
+    }
+    return wrap;
+  }
+
   function renderStyle(summary) {
     root.innerHTML = "";
     setStep("Step 4 of 8 · Choose a style");
@@ -3402,27 +3655,28 @@
 
     // Controls column
     const controls = el("section", { class: "card" }, el("h3", {}, "Style presets"));
-    const presetGrid = el("div", { class: "preset-grid" });
+    const presetGrid = el("div", { class: "style-preset-grid", role: "radiogroup", "aria-label": "Style preset" });
     STY.STYLE_PRESETS.forEach((preset) => {
       const selected = styleSelection.presetId === preset.id;
+      const model = STY.buildRichPreviewModel(preset, STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized), {
+        showName: summary.episodeName,
+        speakers: summary.speakers,
+      });
       const card = el(
         "button",
         {
           type: "button",
-          class: `preset-card${selected ? " selected" : ""}`,
+          role: "radio",
+          class: `rich-preset-card${selected ? " selected" : ""}`,
           "aria-pressed": selected ? "true" : "false",
         },
-        (function () {
-          const swatch = el("span", { class: "preset-swatch" });
-          swatch.style.background = preset.background;
-          swatch.style.borderColor = preset.accent;
-          const dot = el("span", { class: "preset-swatch-dot" });
-          dot.style.background = preset.accent;
-          swatch.appendChild(dot);
-          return swatch;
-        })(),
-        el("span", { class: "preset-name" }, preset.name),
-        el("span", { class: "preset-tagline" }, preset.tagline),
+        renderRichEpisodePreview(model, "card"),
+        el(
+          "span",
+          { class: "rich-preset-card-info" },
+          el("span", { class: "rich-preset-card-name" }, preset.name),
+          el("span", { class: "rich-preset-card-cue" }, preset.tagline),
+        ),
       );
       card.addEventListener("click", () => {
         styleSelection = STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized);
@@ -3434,45 +3688,68 @@
     });
     controls.appendChild(presetGrid);
 
-    // Layout control
-    const layoutSelect = el("select", { id: "style-layout" });
+    // Layout control — visual cards, not a native select.
+    const layoutGroup = el("div", { class: "style-option-group", role: "radiogroup", "aria-label": "Layout" });
     STY.LAYOUTS.forEach((layout) => {
-      layoutSelect.appendChild(
-        el("option", { value: layout.id, selected: styleSelection.layout === layout.id ? true : null }, layout.label),
+      const selected = styleSelection.layout === layout.id;
+      const opt = el(
+        "button",
+        {
+          type: "button",
+          role: "radio",
+          class: `style-option-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        el("span", { class: "style-option-label" }, layout.label),
       );
+      opt.addEventListener("click", () => {
+        styleSelection.layout = layout.id;
+        layoutCustomized = styleSelection.layout !== "auto";
+        activeTemplateId = null;
+        canvasDoc = null;
+        renderStyle(summary);
+      });
+      layoutGroup.appendChild(opt);
     });
-    layoutSelect.addEventListener("change", (e) => {
-      styleSelection.layout = e.target.value;
-      layoutCustomized = styleSelection.layout !== "auto";
-      activeTemplateId = null;
-      canvasDoc = null;
-      renderStyle(summary);
-    });
-    controls.appendChild(field("Layout", layoutSelect, null, "Auto matches the number of speakers you set up."));
+    controls.appendChild(optionField("Layout", layoutGroup, "Auto matches the number of speakers you set up."));
 
-    // Pacing control
-    const pacingSelect = el("select", { id: "style-pacing" });
+    // Pacing control — visual cards, not a native select.
+    const pacingGroup = el("div", { class: "style-option-group", role: "radiogroup", "aria-label": "Pacing" });
     STY.PACING.forEach((pacing) => {
-      pacingSelect.appendChild(
-        el("option", { value: pacing.id, selected: styleSelection.pacing === pacing.id ? true : null }, pacing.label),
+      const selected = styleSelection.pacing === pacing.id;
+      const opt = el(
+        "button",
+        {
+          type: "button",
+          role: "radio",
+          class: `style-option-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+          title: pacing.note,
+        },
+        el("span", { class: "style-option-label" }, pacing.label),
       );
+      opt.addEventListener("click", () => {
+        styleSelection.pacing = pacing.id;
+        activeTemplateId = null;
+        canvasDoc = null;
+        renderStyle(summary);
+      });
+      pacingGroup.appendChild(opt);
     });
-    pacingSelect.addEventListener("change", (e) => {
-      styleSelection.pacing = e.target.value;
-      activeTemplateId = null;
-      canvasDoc = null;
-      renderStyle(summary);
-    });
-    controls.appendChild(field("Pacing", pacingSelect, null, STY.getPacing(styleSelection.pacing).note));
+    controls.appendChild(optionField("Pacing", pacingGroup, STY.getPacing(styleSelection.pacing).note));
 
     layoutGrid.appendChild(controls);
 
-    // Preview column
+    // Preview column — the same realistic episode preview, built from the real speakers.
+    const styleModel = STY.buildRichPreviewModel(STY.getPreset(styleSelection.presetId), styleSelection, {
+      showName: summary.episodeName,
+      speakers: summary.speakers,
+    });
     const previewCard = el(
       "section",
       { class: "card preview-card" },
       el("h3", {}, "Preview"),
-      renderPreview(summary, styleSelection, false),
+      renderRichEpisodePreview(styleModel, "large"),
     );
     layoutGrid.appendChild(previewCard);
 

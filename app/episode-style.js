@@ -69,6 +69,51 @@
     { id: "punchy", label: "Punchy", note: "Tighter cuts and quicker reframes for more energy." },
   ];
 
+  // Sample three-speaker content used to show how a finished multi-speaker episode looks
+  // before the creator has imported their own recording.
+  const SAMPLE_SPEAKERS = [
+    { role: "Host", name: "Sam Rivera" },
+    { role: "Guest 1", name: "Dana Kim" },
+    { role: "Guest 2", name: "Alex Chen" },
+  ];
+
+  // Per-preset, demo-quality preview content: a real episode title, a burned-in caption,
+  // an on-brand overlay, and the on-screen text treatments that make each look distinct.
+  const PRESET_PREVIEW_DETAILS = {
+    "studio-spotlight": {
+      episodeTitle: "Building In Public",
+      kicker: "Episode 42",
+      captionText: "...and that's how we shipped it in a weekend.",
+      overlayLabel: "● LIVE",
+      titleTreatment: "lower-third",
+      captionTreatment: "bold-lower-third",
+    },
+    "split-stage": {
+      episodeTitle: "Founders Unfiltered",
+      kicker: "The honest take",
+      captionText: "Two founders, one honest conversation.",
+      overlayLabel: "S2 · E07",
+      titleTreatment: "topic-card",
+      captionTreatment: "clean-bar",
+    },
+    "panel-grid": {
+      episodeTitle: "The Weekly Panel",
+      kicker: "Roundtable",
+      captionText: "The whole panel weighs in on this week's news.",
+      overlayLabel: "PANEL",
+      titleTreatment: "minimal-tag",
+      captionTreatment: "name-tag",
+    },
+    "bold-broadcast": {
+      episodeTitle: "Bold Takes",
+      kicker: "Hot off the mic",
+      captionText: "BIG IDEA — ship faster, learn louder.",
+      overlayLabel: "BREAKING",
+      titleTreatment: "broadcast",
+      captionTreatment: "big-animated",
+    },
+  };
+
   function defaultPreset() {
     return STYLE_PRESETS[0];
   }
@@ -159,10 +204,104 @@
     };
   }
 
+  function trimText(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  // A stable hue (0-359) derived from a name, so each speaker tile reads as a different
+  // "camera" without random flicker between renders.
+  function hueFromName(name) {
+    const text = trimText(name) || "Speaker";
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      hash = (hash * 31 + text.charCodeAt(i)) % 360;
+    }
+    return hash;
+  }
+
+  function speakerInitials(name) {
+    const parts = trimText(name).split(/\s+/).filter(Boolean);
+    if (!parts.length) {
+      return "SP";
+    }
+    return parts.map((part) => part.charAt(0)).join("").slice(0, 2).toUpperCase();
+  }
+
+  function previewDetailsForPreset(preset) {
+    const item = preset && preset.id ? preset : defaultPreset();
+    return PRESET_PREVIEW_DETAILS[item.id] || {
+      episodeTitle: "Episode preview",
+      kicker: "Preview",
+      captionText: "This is how your on-screen captions will look.",
+      overlayLabel: "",
+      titleTreatment: "lower-third",
+      captionTreatment: "clean-bar",
+    };
+  }
+
+  // Everything a realistic, publishable-looking episode preview needs: themed speaker
+  // "video" tiles (a distinct duotone per speaker), an episode title treatment, a burned-in
+  // caption, an on-brand overlay, and pacing/format cues. DOM-free so the UI and tests share
+  // exactly the same model.
+  function buildRichPreviewModel(preset, selection, options) {
+    const opts = options || {};
+    const item = preset && preset.id ? preset : defaultPreset();
+    const speakers = Array.isArray(opts.speakers) && opts.speakers.length
+      ? opts.speakers
+      : SAMPLE_SPEAKERS;
+    const sel = selection || {
+      presetId: item.id,
+      layout: item.defaultLayout,
+      pacing: "balanced",
+    };
+    const details = previewDetailsForPreset(item);
+    const showName = trimText(opts.showName);
+    const layoutId = resolveLayout(sel, speakers.length);
+    const pacing = getPacing(sel.pacing);
+    const baseFrames = buildPreviewFrames(speakers, Object.assign({}, sel, { layout: layoutId }), speakers.length);
+    const frames = baseFrames.map((frame) => {
+      const hue = hueFromName(frame.name);
+      return Object.assign({}, frame, {
+        initials: speakerInitials(frame.name),
+        // A duotone "on-camera" gradient that differs per speaker but stays on-theme.
+        tint: `linear-gradient(150deg, hsl(${hue}, 52%, 42%), hsl(${(hue + 38) % 360}, 46%, 24%))`,
+      });
+    });
+    // Pacing maps to how many cut markers the timeline shows.
+    const cutCount = pacing.id === "punchy" ? 7 : pacing.id === "relaxed" ? 3 : 5;
+    return {
+      presetId: item.id,
+      presetName: item.name,
+      tagline: item.tagline,
+      showName: showName,
+      kicker: details.kicker,
+      titleText: showName || details.episodeTitle,
+      episodeTitle: details.episodeTitle,
+      captionText: details.captionText,
+      overlayLabel: details.overlayLabel,
+      titleTreatment: details.titleTreatment,
+      captionTreatment: details.captionTreatment,
+      frames: frames,
+      layoutId: layoutId,
+      layoutLabel: getLayout(layoutId).label,
+      pacingId: pacing.id,
+      pacingLabel: pacing.label,
+      cutCount: cutCount,
+      captionStyle: item.captionStyle,
+      theme: {
+        background: item.background,
+        surface: item.surface,
+        accent: item.accent,
+        textColor: item.textColor,
+      },
+    };
+  }
+
   const api = {
     STYLE_PRESETS,
     LAYOUTS,
     PACING,
+    SAMPLE_SPEAKERS,
     defaultPreset,
     getPreset,
     getLayout,
@@ -172,6 +311,9 @@
     resolveLayout,
     buildPreviewFrames,
     summarizeStyle,
+    speakerInitials,
+    previewDetailsForPreset,
+    buildRichPreviewModel,
   };
 
   if (typeof module !== "undefined" && module.exports) {
