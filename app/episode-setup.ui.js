@@ -22,6 +22,7 @@
   const SI = window.PdcShowIdentity;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const BR = window.PdcBrollSuggestions;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -51,6 +52,9 @@
   let publishPackage = null;
   let correctionReview = null;
   let correctionApproved = false;
+  // Smart b-roll suggestions (#67): generated suggestion board, mirrored to localStorage.
+  let brollBoard = null;
+  const BROLL_STORAGE_KEY = "pdc-broll-suggestions";
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -118,6 +122,88 @@
     if (!momentsBoard) {
       momentsBoard = VM.deserializeBoard(safeLoadMoments(), summary);
     }
+  }
+
+  function safeLoadBroll() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(BROLL_STORAGE_KEY) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistBroll() {
+    if (!BR || typeof localStorage === "undefined" || !brollBoard) {
+      return;
+    }
+    try {
+      localStorage.setItem(BROLL_STORAGE_KEY, BR.serializeBoard(brollBoard));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  // Build the suggestion inputs: speaker signals (name/brand/topics) from social context,
+  // and time-anchored caption/title lines from the moments board.
+  function brollOptions(summary) {
+    ensureMomentsBoard(summary);
+    const speakers = Array.isArray(summary.speakers) ? summary.speakers : [];
+    const speakerSignals = speakers.map((sp) => {
+      const derived = SC && SC.deriveSpeakerContext ? SC.deriveSpeakerContext(sp) : {};
+      return {
+        role: sp.role,
+        name: sp.name || derived.displayName || "",
+        brand: derived.brand || "",
+        topics: Array.isArray(derived.topics) ? derived.topics : [],
+      };
+    });
+    const lines = VM && momentsBoard
+      ? VM.listMoments(momentsBoard)
+          .filter((moment) => moment.type === "caption" || moment.type === "title")
+          .map((moment) => ({ time: moment.time, text: moment.text, speakerRole: moment.speakerRole, speakerName: moment.speakerName }))
+      : [];
+    return { speakerSignals, lines };
+  }
+
+  function ensureBrollBoard(summary, regenerate) {
+    if (!BR) {
+      return null;
+    }
+    if (!brollBoard) {
+      brollBoard = BR.deserializeBoard(safeLoadBroll());
+    }
+    if (regenerate || !brollBoard.suggestions.length) {
+      brollBoard = BR.generateSuggestions(summary, brollOptions(summary));
+      persistBroll();
+    }
+    return brollBoard;
+  }
+
+  // Turn accepted suggestions into real b-roll visual moments (skipping any already added),
+  // so they flow through the existing review and export path.
+  function applyAcceptedBroll(summary) {
+    if (!BR || !VM) {
+      return 0;
+    }
+    ensureMomentsBoard(summary);
+    const existing = {};
+    VM.listMoments(momentsBoard)
+      .filter((moment) => moment.type === "broll")
+      .forEach((moment) => {
+        existing[(moment.text || "").toLowerCase()] = true;
+      });
+    let added = 0;
+    BR.acceptedMoments(brollBoard).forEach((payload) => {
+      if (!existing[(payload.text || "").toLowerCase()]) {
+        momentsBoard = VM.addMoment(momentsBoard, "broll", payload);
+        existing[(payload.text || "").toLowerCase()] = true;
+        added += 1;
+      }
+    });
+    if (added) {
+      persistMoments();
+    }
+    return added;
   }
 
   function safeLoadTemplates() {
@@ -649,6 +735,14 @@
     publishPackage = null;
     correctionReview = null;
     correctionApproved = false;
+    brollBoard = null;
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem(BROLL_STORAGE_KEY);
+      }
+    } catch (err) {
+      /* ignore */
+    }
     contextReview = null;
     contextApproved = false;
     publishReview = null;
@@ -1223,6 +1317,7 @@
       correctionSummary: correctionReview && correctionReview.approved && TC
         ? TC.summarizeCorrection(correctionReview)
         : null,
+      brollSummary: BR && brollBoard ? BR.summarizeBoard(brollBoard) : null,
     };
   }
 
@@ -1446,6 +1541,25 @@
       correctionButton.addEventListener("click", () => renderTranscriptCorrection(summary, { returnTo: "review" }));
       correctionCard.appendChild(el("div", { class: "actions transcript-correction-actions" }, correctionButton));
       view.appendChild(correctionCard);
+    }
+
+    if (BR) {
+      const brollSummary = BR.summarizeBoard(brollBoard);
+      const brollCard = el("section", { class: "card broll-banner" }, el("h3", {}, "Smart b-roll"));
+      brollCard.appendChild(
+        el("p", { class: "hint" }, "Suggested overlays from your transcript, captions, and speaker social context. Accept the ones that fit — they become b-roll moments in your edit and export."),
+      );
+      if (brollSummary && brollSummary.reviewLine) {
+        brollCard.appendChild(el("p", { class: "broll-banner-line" }, brollSummary.reviewLine));
+      }
+      const brollButton = el(
+        "button",
+        { type: "button", class: brollSummary && brollSummary.accepted ? "ghost" : "primary" },
+        brollSummary && brollSummary.total ? "Review b-roll suggestions" : "Generate b-roll suggestions →",
+      );
+      brollButton.addEventListener("click", () => renderBrollSuggestions(summary));
+      brollCard.appendChild(el("div", { class: "actions" }, brollButton));
+      view.appendChild(brollCard);
     }
 
     const approveError = el("p", { class: "field-error", role: "alert", hidden: true });
@@ -2938,6 +3052,99 @@
       } else if (canvasDoc && BK && getActiveBrandKit()) {
         canvasDoc = BK.applyToCanvas(canvasDoc, getActiveBrandKit());
       }
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Smart b-roll suggestions (#67) -----------------------------------------
+
+  function brollStatusLabel(status) {
+    if (status === "accepted") {
+      return "Accepted";
+    }
+    if (status === "skipped") {
+      return "Skipped";
+    }
+    return "Suggested";
+  }
+
+  function renderBrollSuggestions(summary) {
+    root.innerHTML = "";
+    setStep("Smart b-roll · Contextual visuals");
+    if (!BR) {
+      renderWorkspace(summary);
+      return;
+    }
+    ensureBrollBoard(summary);
+
+    const view = el("div", { class: "broll-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Smart b-roll"),
+        el("h2", {}, `B-roll suggestions for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Generated from your transcript, captions, and speaker social context. Accept the ones that fit — they become b-roll overlays in your edit and export. Skip the rest."),
+      ),
+    );
+
+    const summaryLine = BR.summarizeBoard(brollBoard);
+    const headCard = el("section", { class: "card" }, el("h3", {}, "Review suggestions"));
+    headCard.appendChild(el("p", { class: "hint" }, summaryLine.reviewLine || "No suggestions yet."));
+    const regenButton = el("button", { type: "button", class: "ghost" }, "Regenerate suggestions");
+    regenButton.addEventListener("click", () => {
+      ensureBrollBoard(summary, true);
+      renderBrollSuggestions(summary);
+    });
+    headCard.appendChild(el("div", { class: "actions" }, regenButton));
+    view.appendChild(headCard);
+
+    const list = el("section", { class: "card broll-list" }, el("h3", {}, "Suggestions"));
+    if (!brollBoard.suggestions.length) {
+      list.appendChild(el("p", { class: "hint" }, "No suggestions — add speaker social links or caption moments, then regenerate."));
+    } else {
+      brollBoard.suggestions.forEach((suggestion) => {
+        const preview = BR.previewSuggestion(brollBoard, suggestion.id);
+        const card = el("div", { class: `broll-card broll-${suggestion.status}` });
+        card.appendChild(
+          el(
+            "div",
+            { class: "broll-card-head" },
+            el("span", { class: `broll-kind broll-kind-${suggestion.kind}` }, preview.kindLabel),
+            el("span", { class: "broll-time" }, suggestion.time),
+            el("span", { class: "broll-status" }, brollStatusLabel(suggestion.status)),
+          ),
+        );
+        card.appendChild(el("p", { class: "broll-label" }, suggestion.label));
+        card.appendChild(el("p", { class: "broll-reason" }, suggestion.reason));
+        card.appendChild(el("p", { class: "hint broll-treatment" }, preview.treatment));
+        const acceptButton = el("button", { type: "button", class: suggestion.status === "accepted" ? "primary" : "ghost" }, suggestion.status === "accepted" ? "Accepted ✓" : "Accept");
+        acceptButton.addEventListener("click", () => {
+          brollBoard = BR.acceptSuggestion(brollBoard, suggestion.id);
+          persistBroll();
+          renderBrollSuggestions(summary);
+        });
+        const skipButton = el("button", { type: "button", class: "link-button" }, suggestion.status === "skipped" ? "Skipped" : "Skip");
+        skipButton.addEventListener("click", () => {
+          brollBoard = BR.skipSuggestion(brollBoard, suggestion.id);
+          persistBroll();
+          renderBrollSuggestions(summary);
+        });
+        card.appendChild(el("div", { class: "actions broll-card-actions" }, acceptButton, skipButton));
+        list.appendChild(card);
+      });
+    }
+    view.appendChild(list);
+
+    const applyButton = el("button", { type: "button", class: "primary" }, "Add accepted b-roll to edit →");
+    applyButton.addEventListener("click", () => {
+      applyAcceptedBroll(summary);
       renderWorkspace(summary);
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
