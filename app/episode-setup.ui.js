@@ -1297,7 +1297,8 @@
     selection.layout = "split";
     const applied = STY.summarizeStyle(selection, episodeA.speakerCount);
     let doc = CE.createFromStyle(applied, episodeA, selection);
-    doc = CE.updateElement(doc, "titleText", "Agency Split Layout");
+    doc = CE.updateElement(doc, "titleText", "Founders Unfiltered · Episode 12");
+    doc = CE.updateElement(doc, "captionText", "Dana: Side-by-side framing keeps the conversation balanced.");
     const captionsIdx = doc.layers.findIndex((layer) => layer.type === "captions");
     doc = CE.updateLayers(doc, CL.moveLayer(doc.layers, captionsIdx, -1));
     if (!CE.validateForSave(doc).ok) {
@@ -4118,6 +4119,9 @@
       framesWrap.appendChild(frameEl);
     });
     stage.appendChild(framesWrap);
+    if (look.topicLabel) {
+      stage.appendChild(el("div", { class: "episode-look-topic" }, look.topicLabel));
+    }
     stage.appendChild(
       el(
         "div",
@@ -4128,6 +4132,9 @@
         look.captionText,
       ),
     );
+    if (look.lowerThird) {
+      stage.appendChild(el("div", { class: "episode-look-lower-third" }, look.lowerThird));
+    }
     stage.appendChild(
       el(
         "div",

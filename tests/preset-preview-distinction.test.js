@@ -38,9 +38,9 @@ test("preset previews differ in layout, caption treatment, and overlay tone", ()
   assert.strictEqual(captions.size, style.STYLE_PRESETS.length);
   assert.strictEqual(overlays.size, style.STYLE_PRESETS.length);
   assert.strictEqual(backgrounds.size, style.STYLE_PRESETS.length);
-  assert.ok(looks.some((look) => look.overlayLabel === "Founders"));
-  assert.ok(looks.some((look) => look.overlayLabel === "Panel"));
-  assert.ok(looks.some((look) => look.overlayLabel === "ON AIR"));
+  assert.ok(looks.some((look) => look.overlayLabel === "Episode 12"));
+  assert.ok(looks.some((look) => look.overlayLabel === "Roundtable"));
+  assert.ok(looks.some((look) => look.overlayLabel === "On air"));
 });
 
 test("UI and styles render preset-specific preview classes", () => {

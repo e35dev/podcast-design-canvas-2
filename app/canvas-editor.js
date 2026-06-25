@@ -22,6 +22,22 @@
     return g.PdcEpisodeStyle;
   }
 
+  function previewApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./style-preview.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcStylePreview;
+  }
+
+  function defaultCaptionForPreset(presetId) {
+    const SP = previewApi();
+    if (SP && typeof SP.defaultCanvasCaption === "function") {
+      return SP.defaultCanvasCaption(presetId);
+    }
+    return "Dana: Thanks for joining us on the show today.";
+  }
+
   function cloneDoc(doc) {
     return JSON.parse(JSON.stringify(doc));
   }
@@ -60,7 +76,7 @@
       background: style.background || "#10131f",
       accent: style.accent || "#6c4cff",
       titleText: episode.episodeName || "Episode title",
-      captionText: "Sample caption — this is how on-screen text will look.",
+      captionText: defaultCaptionForPreset(style.presetId),
       layers: seedLayersFromPreset(style),
       speakerFrames: speakerFrames,
     };

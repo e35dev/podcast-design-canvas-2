@@ -980,7 +980,7 @@ button.ghost:hover,
   box-shadow: 0 6px 16px rgba(35, 32, 28, 0.08);
 }
 
-.caption-minimal-tag .episode-look-caption {
+.caption-minimal-tag .episode-look-topic {
   width: auto;
   display: inline-block;
   margin-top: 10px;
@@ -990,9 +990,22 @@ button.ghost:hover,
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border-radius: 999px;
-  background: rgba(77, 208, 225, 0.18) !important;
+  background: rgba(77, 208, 225, 0.18);
   color: #eaf6fb;
   border: 1px solid rgba(77, 208, 225, 0.35);
+}
+
+.caption-minimal-tag .episode-look-caption {
+  width: 100%;
+  margin-top: 8px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  background: transparent !important;
+  color: inherit;
+  border: 0;
 }
 
 .caption-broadcast-banner .episode-look-caption {
@@ -1000,12 +1013,38 @@ button.ghost:hover,
   margin-top: 8px;
   border-radius: 12px;
   font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: none;
   text-align: center;
   color: #fff;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.episode-look-topic {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: inherit;
+  opacity: 0.88;
+}
+
+.episode-look-lower-third {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.preset-split-stage .episode-look-lower-third {
+  background: rgba(35, 32, 28, 0.08);
+  color: #23201c;
 }
 
 .episode-look-card.caption-broadcast-banner .episode-look-caption {

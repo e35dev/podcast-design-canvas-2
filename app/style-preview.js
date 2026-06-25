@@ -1,10 +1,10 @@
 "use strict";
 
-// Rich episode look previews for Podcast Design Canvas (#102, #120).
+// Rich episode look previews for Podcast Design Canvas (#102, #120, #126).
 //
 // Builds demo-quality preset previews with realistic multi-speaker framing, captions,
 // title treatment, overlays, and pacing cues. Each preset uses a distinct visual profile
-// so creators can tell styles apart at a glance. DOM-free so UI and tests share one model.
+// with natural podcast sample copy — not developer placeholders.
 (function (global) {
   function styleApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
@@ -21,10 +21,10 @@
   ];
 
   const PRESET_OVERLAY = {
-    "studio-spotlight": "LIVE",
-    "split-stage": "Founders",
-    "panel-grid": "Panel",
-    "bold-broadcast": "ON AIR",
+    "studio-spotlight": "Live",
+    "split-stage": "Episode 12",
+    "panel-grid": "Roundtable",
+    "bold-broadcast": "On air",
   };
 
   const PRESET_VISUAL_PROFILE = {
@@ -32,39 +32,78 @@
       previewLayout: "spotlight",
       pacing: "relaxed",
       captionTreatment: "lower-third",
-      captionText: "The host holds the room while guests react in the filmstrip.",
+      topicLabel: "Founder interview",
+      captionText: "Sam: What changed the week you finally shipped?",
+      lowerThird: "Sam Rivera · Host",
       overlayTone: "live",
       titleStyle: "studio-bar",
       frameTiles: ["#ffb347", "#3d4460", "#3d4460"],
+      pacingCaptions: {
+        relaxed: "Sam: Take your time — what did launch week feel like?",
+        balanced: "Sam: What changed the week you finally shipped?",
+        punchy: "Sam: Give us the headline from launch week.",
+      },
     },
     "split-stage": {
       previewLayout: "split",
       pacing: "balanced",
       captionTreatment: "caption-bar",
-      captionText: "Two voices stay equal — the conversation stays side by side.",
+      topicLabel: "Building in public",
+      captionText: "Dana: We doubled revenue without adding headcount.",
+      lowerThird: "Dana Kim · Guest",
       overlayTone: "founders",
       titleStyle: "editorial",
       frameTiles: ["#e0563b", "#c9c2b8", "#e0563b"],
+      pacingCaptions: {
+        relaxed: "Dana: We made one hiring decision and kept the team lean.",
+        balanced: "Dana: We doubled revenue without adding headcount.",
+        punchy: "Dana: Two customers became two hundred in six weeks.",
+      },
     },
     "panel-grid": {
       previewLayout: "grid",
       pacing: "balanced",
       captionTreatment: "minimal-tag",
-      captionText: "Every panelist stays on screen with clean name tags.",
+      topicLabel: "Product strategy",
+      captionText: "Alex: Each team gets one roadmap bet this quarter.",
+      lowerThird: "Panel · 3 speakers",
       overlayTone: "panel",
       titleStyle: "panel-header",
       frameTiles: ["#4dd0e1", "#243652", "#4dd0e1"],
+      pacingCaptions: {
+        relaxed: "Alex: Let's hear one priority from each founder.",
+        balanced: "Alex: Each team gets one roadmap bet this quarter.",
+        punchy: "Alex: Quick round — what's your single ship this month?",
+      },
     },
     "bold-broadcast": {
       previewLayout: "broadcast",
       pacing: "punchy",
       captionTreatment: "broadcast-banner",
-      captionText: "ON AIR energy — captions land big on every beat.",
+      topicLabel: "Breaking news",
+      captionText: "Three founders react live to today's funding headlines.",
+      lowerThird: "Live from the studio",
       overlayTone: "on-air",
       titleStyle: "broadcast-ticker",
       frameTiles: ["#ff5d8f", "#7c3aed", "#f0a030"],
+      pacingCaptions: {
+        relaxed: "After the break — founders on what the news means for hiring.",
+        balanced: "Three founders react live to today's funding headlines.",
+        punchy: "Breaking now — founders respond in real time.",
+      },
     },
   };
+
+  const FORBIDDEN_PREVIEW_PHRASES = [
+    "on air energy",
+    "every panel",
+    "every panelist",
+    "filmstrip",
+    "land big on every beat",
+    "sample caption",
+    "this is how on-screen text will look",
+    "agency split layout",
+  ];
 
   function trim(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -72,6 +111,21 @@
 
   function getVisualProfile(presetId) {
     return PRESET_VISUAL_PROFILE[presetId] || PRESET_VISUAL_PROFILE["studio-spotlight"];
+  }
+
+  function resolvePreviewCopy(profile, pacingId) {
+    const pacing = pacingId || profile.pacing || "balanced";
+    const pacingCaptions = profile.pacingCaptions || {};
+    return {
+      topicLabel: profile.topicLabel || "",
+      captionText: pacingCaptions[pacing] || profile.captionText || "",
+      lowerThird: profile.lowerThird || "",
+    };
+  }
+
+  function defaultCanvasCaption(presetId) {
+    const profile = getVisualProfile(presetId);
+    return profile.captionText || "Dana: Thanks for joining us on the show today.";
   }
 
   function sampleEpisodeSummary(showName) {
@@ -150,6 +204,7 @@
       : STY.resolveLayout(mergedSelection, speakerCount);
     const pacing = STY.getPacing(mergedSelection.pacing);
     const showName = trim(episode.showName) || trim(episode.episodeName).split("·")[0].trim() || "Your show";
+    const copy = resolvePreviewCopy(profile, pacing.id);
     return {
       presetId: preset.id,
       presetName: preset.name,
@@ -160,13 +215,15 @@
       pacingLabel: pacing.label,
       captionStyle: preset.captionStyle,
       captionTreatment: profile.captionTreatment,
-      captionText: profile.captionText,
+      captionText: copy.captionText,
+      topicLabel: copy.topicLabel,
+      lowerThird: copy.lowerThird,
       titleStyle: profile.titleStyle,
       overlayTone: profile.overlayTone,
       formatCue: STY.presetCardSummary(preset).formatCue,
       episodeTitle: trim(episode.episodeName) || `${showName} · Episode 12`,
       showName: showName,
-      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
+      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0],
       theme: {
         background: preset.background,
         surface: preset.surface,
@@ -209,8 +266,11 @@
     SAMPLE_SPEAKERS,
     PRESET_OVERLAY,
     PRESET_VISUAL_PROFILE,
+    FORBIDDEN_PREVIEW_PHRASES,
     sampleEpisodeSummary,
     getVisualProfile,
+    resolvePreviewCopy,
+    defaultCanvasCaption,
     previewVisualSignature,
     buildEpisodeLook,
     buildEpisodeLookFromEpisode,
