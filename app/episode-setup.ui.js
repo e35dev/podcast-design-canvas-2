@@ -1297,7 +1297,8 @@
     selection.layout = "split";
     const applied = STY.summarizeStyle(selection, episodeA.speakerCount);
     let doc = CE.createFromStyle(applied, episodeA, selection);
-    doc = CE.updateElement(doc, "titleText", "Agency Split Layout");
+    doc = CE.updateElement(doc, "titleText", "Founders Unfiltered");
+    doc = CE.updateElement(doc, "captionText", "Two founders, one honest conversation.");
     const captionsIdx = doc.layers.findIndex((layer) => layer.type === "captions");
     doc = CE.updateLayers(doc, CL.moveLayer(doc.layers, captionsIdx, -1));
     if (!CE.validateForSave(doc).ok) {
@@ -2913,7 +2914,9 @@
 
   function galleryPreviewSummary(showName) {
     const base = workspaceSummaryCache || ES.summarize(state);
-    if (base && base.speakerCount > 0) {
+    const hasNamedSpeakers = base && Array.isArray(base.speakers)
+      && base.speakers.some((speaker) => typeof speaker.name === "string" && speaker.name.trim());
+    if (hasNamedSpeakers) {
       return base;
     }
     const title = typeof showName === "string" && showName.trim() ? showName.trim() : "Founders Unfiltered";
@@ -2938,7 +2941,7 @@
     const previewCanvas = GAL.applyListingForEpisode(listing, previewSummary, styleFromListing);
     const wrap = el("div", { class: "creator-gallery-preview-thumb" });
     if (previewCanvas) {
-      wrap.appendChild(renderCanvasStage(previewCanvas));
+      wrap.appendChild(renderGalleryStagePreview(previewCanvas));
     }
     return wrap;
   }
@@ -3025,7 +3028,7 @@
       }
       const styleFromListing = GAL.styleSelectionFromListing(listing);
       const previewCanvas = GAL.applyListingForEpisode(listing, previewSummary, styleFromListing);
-      previewBody.appendChild(renderCanvasStage(previewCanvas));
+      previewBody.appendChild(renderGalleryStagePreview(previewCanvas));
       previewMeta.appendChild(el("h4", { class: "creator-gallery-preview-name" }, listing.name));
       if (listing.description) {
         previewMeta.appendChild(el("p", { class: "hint" }, listing.description));
@@ -3387,6 +3390,39 @@
     if (type === "safe-area") return "Safe area";
     if (type === "background") return "Background";
     return CL.getLayerType(type).label;
+  }
+
+  function renderGalleryStagePreview(doc) {
+    const stage = el("div", { class: "canvas-stage canvas-stage-gallery-preview", "aria-hidden": "true" });
+    stage.style.background = doc.background || "#10131f";
+
+    CL.visibleLayersForStage(doc.layers).forEach((layer) => {
+      if (layer.type === "speaker") {
+        const frameWrap = el("div", { class: `canvas-speaker-frames stage-${doc.layoutId || "grid"}` });
+        (doc.speakerFrames || []).forEach((frame) => {
+          const frameEl = el(
+            "div",
+            { class: `preview-frame${frame.active ? " active" : ""}` },
+            el("span", { class: "preview-role" }, frame.role),
+            el("span", { class: "preview-name" }, frame.name),
+          );
+          frameEl.style.borderColor = doc.accent;
+          frameWrap.appendChild(frameEl);
+        });
+        stage.appendChild(frameWrap);
+        return;
+      }
+      if (layer.type === "title" && doc.titleText) {
+        stage.appendChild(el("div", { class: "canvas-obj canvas-obj-title canvas-title-live" }, doc.titleText));
+        return;
+      }
+      if (layer.type === "captions" && doc.captionText) {
+        stage.appendChild(
+          el("div", { class: "canvas-obj canvas-obj-captions canvas-caption-live" }, doc.captionText),
+        );
+      }
+    });
+    return stage;
   }
 
   function renderCanvasStage(doc) {

@@ -49,4 +49,15 @@ test("ACCEPTANCE: gallery cards use plain product language for template status",
   assert.ok(ui.includes('"Interview", "Split stage", "Multi-speaker"'));
 });
 
+test("gallery previews hide editor layer chrome and use named sample speakers", () => {
+  assert.ok(ui.includes("renderGalleryStagePreview"));
+  const galleryPreviewFn = ui.slice(
+    ui.indexOf("function renderGalleryStagePreview"),
+    ui.indexOf("function renderCanvasStage"),
+  );
+  assert.ok(!galleryPreviewFn.includes("shortLayerLabel"));
+  assert.ok(ui.includes("hasNamedSpeakers"));
+  assert.ok(!ui.includes('"Unnamed speaker"'));
+});
+
 console.log(`\ngallery copy: ${passed} assertions passed`);

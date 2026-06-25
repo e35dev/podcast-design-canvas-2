@@ -1510,6 +1510,18 @@ button.ghost:hover,
   gap: 8px 18px;
 }
 
+.canvas-stage-gallery-preview {
+  min-height: 140px;
+}
+
+.canvas-stage-gallery-preview .canvas-obj-background,
+.canvas-stage-gallery-preview .canvas-obj-brand,
+.canvas-stage-gallery-preview .canvas-obj-lower-thirds,
+.canvas-stage-gallery-preview .canvas-obj-broll,
+.canvas-stage-gallery-preview .canvas-obj-safe-area {
+  display: none;
+}
+
 .home-gallery-spotlight {
   display: grid;
   gap: 16px;
