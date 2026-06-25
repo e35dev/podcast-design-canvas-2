@@ -126,6 +126,25 @@
     }));
   }
 
+  // Guard called before applying a selection. Returns { ok: true } or { ok: false, error }.
+  // The getters above are lenient (they fall back silently), so this is the one place that
+  // rejects an explicitly wrong id rather than silently substituting a default.
+  function validateStyleSelection(selection) {
+    if (!selection || typeof selection !== "object") {
+      return { ok: false, error: "Style selection is required." };
+    }
+    if (!STYLE_PRESETS.some((p) => p.id === selection.presetId)) {
+      return { ok: false, error: `Unknown preset: "${selection.presetId}". Pick one of: ${STYLE_PRESETS.map((p) => p.id).join(", ")}.` };
+    }
+    if (!LAYOUTS.some((l) => l.id === selection.layout)) {
+      return { ok: false, error: `Unknown layout: "${selection.layout}". Pick one of: ${LAYOUTS.map((l) => l.id).join(", ")}.` };
+    }
+    if (!PACING.some((p) => p.id === selection.pacing)) {
+      return { ok: false, error: `Unknown pacing: "${selection.pacing}". Pick one of: ${PACING.map((p) => p.id).join(", ")}.` };
+    }
+    return { ok: true };
+  }
+
   // Everything the workspace shows once a style is applied. Computed from the selection
   // and speaker count, so the applied-style summary always reflects the real choices.
   function summarizeStyle(selection, speakerCount) {
@@ -158,6 +177,7 @@
     createSelection,
     resolveLayout,
     buildPreviewFrames,
+    validateStyleSelection,
     summarizeStyle,
   };
 

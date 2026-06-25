@@ -96,8 +96,51 @@ test("summarizeStyle resolves an auto layout from the speaker count", () => {
   assert.strictEqual(summary.layoutId, "grid");
 });
 
+test("validateStyleSelection passes for a fresh default selection", () => {
+  assert.deepStrictEqual(style.validateStyleSelection(style.createSelection()), { ok: true });
+});
+
+test("validateStyleSelection rejects a null or missing selection", () => {
+  assert.strictEqual(style.validateStyleSelection(null).ok, false);
+  assert.strictEqual(style.validateStyleSelection(undefined).ok, false);
+  assert.ok(style.validateStyleSelection(null).error);
+});
+
+test("validateStyleSelection rejects an unknown preset id", () => {
+  const result = style.validateStyleSelection({ presetId: "neon-chaos", layout: "auto", pacing: "balanced" });
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.error.includes("neon-chaos"));
+});
+
+test("validateStyleSelection rejects an unknown layout", () => {
+  const sel = style.createSelection();
+  sel.layout = "diagonal";
+  const result = style.validateStyleSelection(sel);
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.error.includes("diagonal"));
+});
+
+test("validateStyleSelection rejects an unknown pacing", () => {
+  const sel = style.createSelection();
+  sel.pacing = "frantic";
+  const result = style.validateStyleSelection(sel);
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.error.includes("frantic"));
+});
+
+test("validateStyleSelection accepts every built-in preset + layout + pacing combination", () => {
+  style.STYLE_PRESETS.forEach((preset) => {
+    style.LAYOUTS.forEach((layout) => {
+      style.PACING.forEach((pacing) => {
+        const result = style.validateStyleSelection({ presetId: preset.id, layout: layout.id, pacing: pacing.id });
+        assert.strictEqual(result.ok, true, `${preset.id} / ${layout.id} / ${pacing.id} should be valid`);
+      });
+    });
+  });
+});
+
 // End-to-end: a completed setup feeds the style step, and the preview + summary reflect
-// the real assigned speakers — the documented runnable check for issue #3.
+// the real assigned speakers — the documented runnable check for issues #3 and #4.
 test("ACCEPTANCE: pick a preset and preview the real episode speakers", () => {
   const draft = setup.createDraft();
   draft.episodeName = "Founders Unfiltered #7";
@@ -112,6 +155,7 @@ test("ACCEPTANCE: pick a preset and preview the real episode speakers", () => {
   const episode = setup.summarize(draft);
   const selection = style.createSelection();
   selection.presetId = "split-stage"; // change away from the default preset
+  assert.deepStrictEqual(style.validateStyleSelection(selection), { ok: true });
 
   const frames = style.buildPreviewFrames(episode.speakers, selection, episode.speakerCount);
   assert.deepStrictEqual(frames.map((f) => f.role), ["Host", "Guest 1", "Guest 2"]);
