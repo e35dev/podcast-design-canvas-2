@@ -753,6 +753,10 @@ button.ghost:hover,
   line-height: 1.4;
 }
 
+.create-show-preset-format {
+  margin-top: 2px;
+}
+
 .create-show-blank-option {
   justify-self: start;
   margin-top: 4px;

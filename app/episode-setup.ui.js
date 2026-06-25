@@ -797,6 +797,7 @@
           renderEpisodeLookPreview(SP.buildEpisodeLook(preset.id, { showName: nameInput.value }), "card"),
           el("span", { class: "create-show-preset-name" }, preset.name),
           el("span", { class: "create-show-preset-tagline" }, preset.tagline),
+          el("span", { class: "preset-format-cue create-show-preset-format" }, STY.presetCardSummary(preset).formatCue),
         );
         card.addEventListener("click", () => {
           selectedTemplateId = choiceId;
@@ -4093,11 +4094,14 @@
       ].filter(Boolean).join(" "),
     });
 
+    const chromeTitle = previewSize === "card" && SP
+      ? SP.galleryCardChromeTitle(look)
+      : look.episodeTitle;
     preview.appendChild(
       el(
         "div",
         { class: "episode-look-chrome" },
-        el("span", { class: "episode-look-title" }, look.episodeTitle),
+        el("span", { class: "episode-look-title" }, chromeTitle),
         el("span", { class: "episode-look-overlay" }, look.overlayLabel),
       ),
     );

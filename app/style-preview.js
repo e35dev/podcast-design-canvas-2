@@ -170,6 +170,17 @@
     });
   }
 
+  function galleryCardChromeTitle(look) {
+    if (!look) {
+      return "";
+    }
+    const topic = trim(look.topicLabel);
+    if (topic) {
+      return topic;
+    }
+    return look.presetName || "Preset preview";
+  }
+
   function previewVisualSignature(look) {
     if (!look) {
       return "";
@@ -271,6 +282,7 @@
     getVisualProfile,
     resolvePreviewCopy,
     defaultCanvasCaption,
+    galleryCardChromeTitle,
     previewVisualSignature,
     buildEpisodeLook,
     buildEpisodeLookFromEpisode,
