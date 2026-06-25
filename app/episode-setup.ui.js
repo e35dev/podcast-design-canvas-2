@@ -6,7 +6,7 @@
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
 // transcript correction (#63), episode import before brand setup (#73),
 // and episode import polish (#77, #86, #89), visual style preset cards (#94, #102),
-// and creator template gallery (#106).
+// creator template gallery (#106), and home screen polish (#112).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -28,6 +28,7 @@
   const SP = window.PdcStylePreview;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const HOME = window.PdcHomeScreen;
   const root = document.getElementById("app");
   const stepIndicator = document.querySelector(".workflow-step-indicator");
   const stepCountEl = document.querySelector(".workflow-step-count");
@@ -548,6 +549,182 @@
 
   // ---- Show library view -----------------------------------------------------
 
+  function dispatchHomeAction(actionId, planEntry) {
+    const id = actionId || (planEntry && planEntry.actionId);
+    if (id === "create-show" || id === "resume-latest") {
+      if (id === "resume-latest" && planEntry && planEntry.showId) {
+        activeShowId = planEntry.showId;
+        if (planEntry.episodeId) {
+          activeEpisodeId = planEntry.episodeId;
+        }
+        const show = LIB.getShow(showLibrary, planEntry.showId);
+        if (show) {
+          renderShowDetail(show.id);
+          return;
+        }
+      }
+      renderNewShowForm();
+      return;
+    }
+    if (id === "open-style-demo") {
+      openStylePickerDemo();
+      return;
+    }
+    if (id === "open-gallery-demo") {
+      openGalleryDemo();
+      return;
+    }
+    if (id === "open-gallery-browse") {
+      if (GAL && !GAL.listListings(galleryStore).length) {
+        seedGalleryDemoData();
+      }
+      renderCreatorGalleryBrowse(null, { returnTo: "library" });
+      return;
+    }
+    if (id === "open-publish-demo") {
+      openPublishGalleryDemo();
+      return;
+    }
+    if (id === "start-blank-episode") {
+      startBlankEpisode();
+      return;
+    }
+    if (id === "apply-gallery-listing" && planEntry && planEntry.id) {
+      activeGalleryListingId = planEntry.id;
+      if (GAL && !GAL.listListings(galleryStore).length) {
+        seedGalleryDemoData();
+      }
+      renderCreatorGalleryBrowse(null, { returnTo: "library" });
+      return;
+    }
+  }
+
+  function renderHomePrimary(plan) {
+    const primary = plan && plan.primary ? plan.primary : null;
+    if (!primary) {
+      return null;
+    }
+    const badge = primary.badge
+      ? el("span", { class: "home-primary-badge" }, primary.badge)
+      : null;
+    const hint = primary.hint
+      ? el("p", { class: "home-primary-hint" }, primary.hint)
+      : null;
+    const button = el(
+      "button",
+      { type: "button", class: "btn-primary home-primary-btn" },
+      primary.label || "Create a new show →",
+    );
+    button.addEventListener("click", () => dispatchHomeAction(primary.actionId, primary));
+    const card = el(
+      "section",
+      { class: "card home-primary-card" },
+      el(
+        "div",
+        { class: "home-primary-head" },
+        badge,
+        el("h2", { class: "home-primary-title" }, primary.id === "resume-latest" ? "Welcome back" : "Start a new episode"),
+      ),
+      hint,
+      button,
+    );
+    return card;
+  }
+
+  function renderHomeSecondary(plan) {
+    const items = plan && Array.isArray(plan.secondary) ? plan.secondary : [];
+    const buttons = items.map(function (entry) {
+      const btn = el(
+        "button",
+        { type: "button", class: "ghost home-secondary-btn" },
+        entry.label,
+      );
+      btn.title = entry.hint || entry.label;
+      btn.addEventListener("click", () => dispatchHomeAction(entry.actionId, entry));
+      return btn;
+    });
+    return el(
+      "nav",
+      { class: "home-secondary-actions", "aria-label": "Explore other ways to start" },
+      buttons,
+    );
+  }
+
+  function renderGalleryPreviewTile(preview) {
+    const accent = preview.accent || "#6c4cff";
+    const background = preview.background || "#10131f";
+    const styleAttr = `background: linear-gradient(135deg, ${background} 0%, ${accent} 140%);`;
+    const inner = el(
+      "div",
+      { class: "home-gallery-thumb-inner" },
+      el("span", { class: "home-gallery-thumb-title" }, preview.name),
+      el("span", { class: "home-gallery-thumb-meta" }, preview.presetName || "Custom layout"),
+      el("span", { class: "home-gallery-thumb-creator" }, `by ${preview.creatorName || "Creator"}`),
+    );
+    const tile = el(
+      "button",
+      { type: "button", class: "home-gallery-thumb", style: styleAttr, "aria-label": `Open ${preview.name}` },
+      inner,
+    );
+    tile.addEventListener("click", () => dispatchHomeAction(preview.actionId, preview));
+    return tile;
+  }
+
+  function renderGalleryCard(plan) {
+    if (!GAL) {
+      return null;
+    }
+    const gallery = plan && plan.gallery ? plan.gallery : null;
+    if (!gallery || !gallery.visible) {
+      return null;
+    }
+    const previews = Array.isArray(gallery.previews) ? gallery.previews : [];
+    const tiles = previews.length
+      ? el(
+          "div",
+          { class: "home-gallery-preview-grid" },
+          previews.map(renderGalleryPreviewTile),
+        )
+      : el(
+          "p",
+          { class: "home-gallery-empty hint" },
+          "No published templates yet — save a show layout and publish it to see it here.",
+        );
+    const browseBtn = el(
+      "button",
+      { type: "button", class: "ghost home-gallery-browse-btn" },
+      "Browse creator gallery →",
+    );
+    browseBtn.addEventListener("click", () => dispatchHomeAction("open-gallery-browse", { actionId: "open-gallery-browse" }));
+    const publishBtn = el(
+      "button",
+      { type: "button", class: "ghost home-gallery-publish-btn" },
+      "Try publish flow →",
+    );
+    publishBtn.addEventListener("click", () => dispatchHomeAction("open-publish-demo", { actionId: "open-publish-demo" }));
+    return el(
+      "section",
+      { class: "card home-gallery-card show-library-gallery-card" },
+      el(
+        "div",
+        { class: "home-gallery-head" },
+        el("h2", { class: "show-library-gallery-title home-gallery-title" }, "Creator template gallery"),
+        el(
+          "p",
+          { class: "hint" },
+          "Polished preview tiles from your saved gallery listings. Pick a layout to drop into your next episode with frames, captions, overlays, and brand styling carried over.",
+        ),
+      ),
+      tiles,
+      el(
+        "div",
+        { class: "home-gallery-actions template-library-actions" },
+        browseBtn,
+        publishBtn,
+      ),
+    );
+  }
+
   function renderShowLibrary() {
     if (!LIB) {
       setPageIntro("episode-setup");
@@ -560,6 +737,9 @@
 
     const shows = LIB.listShows(showLibrary);
     const summary = LIB.summarizeLibrary(showLibrary);
+    const homePlan = HOME
+      ? HOME.buildHomePlan({ libraryApi: LIB, galleryApi: GAL, library: showLibrary, gallery: galleryStore })
+      : null;
 
     const header = el(
       "div",
@@ -568,75 +748,17 @@
       el("p", { class: "hint" }, summary.libraryLine),
     );
 
-    const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
-    newShowBtn.addEventListener("click", () => renderNewShowForm());
+    const primaryCard = homePlan ? renderHomePrimary(homePlan) : null;
+    const secondaryActions = homePlan ? renderHomeSecondary(homePlan) : null;
+    const galleryCard = homePlan ? renderGalleryCard(homePlan) : null;
 
-    const blankEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start blank episode");
-    blankEpisodeBtn.addEventListener("click", () => startBlankEpisode());
-
-    const styleDemoBtn = el("button", { class: "btn-primary", type: "button" }, "Try style preset cards →");
-    styleDemoBtn.addEventListener("click", () => openStylePickerDemo());
-
-    const galleryDemoBtn = GAL
-      ? el("button", { class: "btn-primary", type: "button" }, "Gallery walkthrough →")
-      : null;
-    if (galleryDemoBtn) {
-      galleryDemoBtn.addEventListener("click", () => openGalleryDemo());
-    }
-
-    const galleryBtn = GAL
-      ? el("button", { class: "btn-secondary", type: "button" }, "Creator template gallery →")
-      : null;
-    if (galleryBtn) {
-      galleryBtn.addEventListener("click", () => {
-        if (!GAL.listListings(galleryStore).length) {
-          seedGalleryDemoData();
-        }
-        renderCreatorGalleryBrowse(null, { returnTo: "library" });
-      });
-    }
-
-    const actions = el(
-      "div",
-      { class: "workspace-actions" },
-      newShowBtn,
-      styleDemoBtn,
-      galleryDemoBtn,
-      galleryBtn,
-      blankEpisodeBtn,
+    const homeSection = el(
+      "section",
+      { class: "home-screen-section" },
+      primaryCard,
+      secondaryActions,
+      galleryCard,
     );
-
-    const galleryCard = GAL
-      ? el(
-          "section",
-          { class: "card show-library-gallery-card" },
-          el("h2", { class: "show-library-gallery-title" }, "Creator template gallery"),
-          el(
-            "p",
-            { class: "hint" },
-            "Publish saved layouts with name, description, style tags, and preview image. Other shows browse, preview on the episode canvas, and apply frames, captions, overlays, and brand styling.",
-          ),
-          el(
-            "div",
-            { class: "template-library-actions" },
-            (() => {
-              const browseBtn = el("button", { type: "button", class: "ghost" }, "Browse creator gallery →");
-              browseBtn.addEventListener("click", () => {
-                if (!GAL.listListings(galleryStore).length) {
-                  seedGalleryDemoData();
-                }
-                renderCreatorGalleryBrowse(null, { returnTo: "library" });
-              });
-              return browseBtn;
-            })(),
-            (() => {
-              const publishBtn = el("button", { type: "button", class: "ghost" }, "Try publish flow →");
-              publishBtn.addEventListener("click", () => openPublishGalleryDemo());
-              return publishBtn;
-            })(),
-          ),
-        )
-      : null;
 
     const listEl = el("div", { class: "show-library-list" });
 
@@ -694,7 +816,7 @@
       });
     }
 
-    const view = el("div", { class: "workspace-root" }, header, actions, galleryCard, listEl);
+    const view = el("div", { class: "workspace-root" }, header, homeSection, listEl);
     root.appendChild(view);
   }
 
