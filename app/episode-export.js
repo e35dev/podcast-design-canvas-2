@@ -130,6 +130,9 @@
     if (ctx.contextSummary && ctx.contextSummary.reviewLine) {
       lines.push(ctx.contextSummary.reviewLine);
     }
+    if (ctx.brandKitSummary && ctx.brandKitSummary.reviewLine) {
+      lines.push(ctx.brandKitSummary.reviewLine);
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);

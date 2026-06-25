@@ -1627,3 +1627,86 @@ button:disabled {
   font-size: 13px;
 }
 
+/* ---- Show brand kit (#52) ---- */
+.brand-kit-card,
+.brand-kit-workspace-card {
+  margin-bottom: 16px;
+}
+
+.brand-kit-line {
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.brand-kit-actions {
+  margin-top: 12px;
+}
+
+.brand-color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.brand-overlay-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.brand-overlay-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.brand-overlay-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.brand-kit-swatch {
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 120px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.brand-kit-swatch-logo {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.brand-kit-swatch-caption {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #10131f;
+  width: fit-content;
+}
+
+.brand-kit-swatch-type {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.preview-brand-logo {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+  opacity: 0.9;
+}
+

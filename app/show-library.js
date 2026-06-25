@@ -39,6 +39,7 @@
       templateId: opts.templateId || "",
       templateName: opts.templateName || "",
       presetName: opts.presetName || "",
+      brandKit: opts.brandKit || null,
       createdAt: opts.createdAt || Date.now(),
       episodes: [],
     };
@@ -91,6 +92,7 @@
         templateId: show.templateId || "",
         templateName: show.templateName || "",
         presetName: show.presetName || "",
+        brandKit: show.brandKit ? clone(show.brandKit) : null,
         episodeCount: Array.isArray(show.episodes) ? show.episodes.length : 0,
         latestEpisode: latestEpisodeSummary(show.episodes),
         createdAt: show.createdAt,
@@ -175,6 +177,7 @@
       templateId: s.templateId || "",
       templateName: s.templateName || "",
       presetName: s.presetName || "",
+      brandKit: s.brandKit ? clone(s.brandKit) : null,
       speakerRoles: Array.isArray(s.defaultSpeakerRoles) ? s.defaultSpeakerRoles.slice() : [],
     };
   }

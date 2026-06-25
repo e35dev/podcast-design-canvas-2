@@ -2,7 +2,8 @@
 
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
-// publish review (#37), guided workspace (#40), export (#30), and show library (#47).
+// publish review (#37), guided workspace (#40), export (#30), show library (#47),
+// and show brand kits (#52).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -16,6 +17,7 @@
   const PR = window.PdcPublishReview;
   const WS = window.PdcEpisodeWorkspace;
   const LIB = window.PdcShowLibrary;
+  const BK = window.PdcShowBrandKit;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -50,6 +52,34 @@
   const LIB_STORAGE_KEY = "pdc-show-library";
   let showLibrary = { shows: [] };
   let activeShowId = null;
+  let activeBrandKit = null;
+
+  function getActiveBrandKit() {
+    if (activeBrandKit) {
+      return activeBrandKit;
+    }
+    if (activeShowId && LIB) {
+      const show = LIB.getShow(showLibrary, activeShowId);
+      return show && show.brandKit ? show.brandKit : null;
+    }
+    return null;
+  }
+
+  function brandKitSummary() {
+    const kit = getActiveBrandKit();
+    return BK && kit ? BK.summarizeBrandKit(kit) : null;
+  }
+
+  function brandedAppliedStyle(summary) {
+    if (!appliedStyle || !STY) {
+      return appliedStyle;
+    }
+    const kit = getActiveBrandKit();
+    if (!kit || !BK) {
+      return appliedStyle;
+    }
+    return BK.applyToStyleSummary(appliedStyle, kit);
+  }
 
   function safeLoadMoments() {
     try {
@@ -250,6 +280,12 @@
         const meta = [];
         if (show.templateName) meta.push(show.templateName);
         if (show.presetName) meta.push(show.presetName);
+        if (show.brandKit && BK) {
+          const brandLine = BK.summarizeBrandKit(show.brandKit).identityLine;
+          if (brandLine && brandLine !== "No brand kit configured") {
+            meta.push(brandLine);
+          }
+        }
         const metaText = meta.length ? meta.join(" · ") : "No template saved";
 
         const epCount = el("span", { class: "show-ep-count" }, `${show.episodeCount} episode${show.episodeCount === 1 ? "" : "s"}`);
@@ -405,13 +441,174 @@
     }
 
     const view = el("div", { class: "workspace-root" }, header, el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
+
+    const kit = show.brandKit;
+    const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
+    const brandCard = el("section", { class: "card brand-kit-card" }, el("h2", {}, "Brand kit"));
+    if (kitSummary && kitSummary.identityLine !== "No brand kit configured") {
+      brandCard.appendChild(el("p", { class: "brand-kit-line" }, kitSummary.identityLine));
+      if (kitSummary.colorSummary) {
+        brandCard.appendChild(el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`));
+      }
+      if (kitSummary.overlayCount) {
+        brandCard.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
+      }
+    } else {
+      brandCard.appendChild(el("p", { class: "hint" }, "Define logo, colors, type, captions, and overlay assets so every episode feels on-brand."));
+    }
+    const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, kit ? "Edit brand kit" : "Create brand kit");
+    editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
+    brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
+    view.insertBefore(brandCard, view.lastChild);
+
+    root.appendChild(view);
+  }
+
+  function renderBrandKitEditor(showId) {
+    if (!BK || !LIB) {
+      renderShowDetail(showId);
+      return;
+    }
+    const show = LIB.getShow(showLibrary, showId);
+    if (!show) {
+      renderShowLibrary();
+      return;
+    }
+    activeShowId = showId;
+    let kit = show.brandKit || BK.createBrandKit(showId);
+    root.innerHTML = "";
+    setStep(`Show Library · ${show.name} · Brand kit`);
+
+    const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Back to show");
+    backBtn.addEventListener("click", () => renderShowDetail(showId));
+
+    const view = el("div", { class: "workspace-root brand-kit-editor" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-header" },
+        el("div", { class: "workspace-header-row" }, backBtn),
+        el("h1", {}, "Brand kit"),
+        el("p", { class: "hint" }, `Reusable identity for ${show.name} — logo, colors, type, captions, and overlay assets.`),
+      ),
+    );
+
+    const form = el("form", { class: "card", novalidate: true });
+    const logoInput = el("input", { id: "brand-logo", type: "text", value: kit.logoLabel || "", placeholder: "e.g. Founders wordmark" });
+    form.appendChild(field("Logo label", logoInput, null, "Name the logo asset creators should expect on episodes."));
+
+    const colorGrid = el("div", { class: "brand-color-grid" });
+    ["primary", "secondary", "background", "accent", "text"].forEach((key) => {
+      const input = el("input", {
+        id: `brand-color-${key}`,
+        type: "text",
+        value: kit.colors[key] || "",
+        placeholder: "#000000",
+      });
+      colorGrid.appendChild(field(key.charAt(0).toUpperCase() + key.slice(1), input));
+    });
+    form.appendChild(el("div", { class: "field" }, el("label", {}, "Brand colors"), colorGrid));
+
+    const typeSelect = el("select", { id: "brand-type-style" });
+    BK.TYPE_STYLES.forEach((item) => {
+      typeSelect.appendChild(el("option", { value: item.id, selected: kit.typeStyle === item.id ? true : null }, item.label));
+    });
+    form.appendChild(field("Type style", typeSelect));
+
+    const captionSelect = el("select", { id: "brand-caption-style" });
+    BK.CAPTION_STYLES.forEach((item) => {
+      captionSelect.appendChild(el("option", { value: item.id, selected: kit.captionStyle === item.id ? true : null }, item.label));
+    });
+    form.appendChild(field("Caption style", captionSelect));
+
+    const overlayList = el("div", { class: "brand-overlay-list" });
+    function renderOverlayList() {
+      overlayList.innerHTML = "";
+      (kit.overlayAssets || []).forEach((asset) => {
+        const row = el(
+          "div",
+          { class: "brand-overlay-row" },
+          el("span", {}, `${asset.name} · ${asset.kindLabel || asset.kind}`),
+        );
+        const removeBtn = el("button", { type: "button", class: "link-button" }, "Remove");
+        removeBtn.addEventListener("click", () => {
+          kit = BK.removeOverlayAsset(kit, asset.id);
+          renderOverlayList();
+        });
+        row.appendChild(removeBtn);
+        overlayList.appendChild(row);
+      });
+    }
+    renderOverlayList();
+
+    const overlayName = el("input", { id: "brand-overlay-name", type: "text", placeholder: "Asset name" });
+    const overlayKind = el("select", { id: "brand-overlay-kind" });
+    BK.OVERLAY_KINDS.forEach((item) => {
+      overlayKind.appendChild(el("option", { value: item.id }, item.label));
+    });
+    const addOverlayBtn = el("button", { type: "button", class: "ghost" }, "+ Add overlay asset");
+    addOverlayBtn.addEventListener("click", () => {
+      kit = BK.addOverlayAsset(kit, overlayName.value, overlayKind.value);
+      overlayName.value = "";
+      renderOverlayList();
+    });
+    form.appendChild(field("Overlay assets", overlayList));
+    form.appendChild(el("div", { class: "brand-overlay-add" }, overlayName, overlayKind, addOverlayBtn));
+
+    const previewCard = el("section", { class: "card brand-kit-preview-card" }, el("h3", {}, "Preview"));
+    const preset = STY ? STY.getPreset("studio-spotlight") : {};
+    const previewTheme = BK.getPreviewTheme(preset, kit);
+    const swatch = el("div", { class: "brand-kit-swatch" });
+    swatch.style.background = previewTheme.background;
+    swatch.style.color = previewTheme.textColor;
+    swatch.style.borderColor = previewTheme.accent;
+    swatch.appendChild(el("span", { class: "brand-kit-swatch-logo" }, previewTheme.logoLabel || "Logo"));
+    swatch.appendChild(el("span", { class: "brand-kit-swatch-caption", style: `background:${previewTheme.accent}` }, previewTheme.captionStyle));
+    swatch.appendChild(el("span", { class: "brand-kit-swatch-type" }, previewTheme.typeStyleLabel));
+    previewCard.appendChild(swatch);
+    form.appendChild(previewCard);
+
+    const error = el("p", { class: "field-error", role: "alert", hidden: true });
+    form.appendChild(error);
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      kit = BK.updateBrandKit(kit, {
+        logoLabel: logoInput.value,
+        typeStyle: typeSelect.value,
+        captionStyle: captionSelect.value,
+        colors: {
+          primary: document.getElementById("brand-color-primary").value,
+          secondary: document.getElementById("brand-color-secondary").value,
+          background: document.getElementById("brand-color-background").value,
+          accent: document.getElementById("brand-color-accent").value,
+          text: document.getElementById("brand-color-text").value,
+        },
+      });
+      const check = BK.validateBrandKit(kit);
+      if (!check.ok) {
+        error.hidden = false;
+        error.textContent = check.error;
+        return;
+      }
+      showLibrary = LIB.updateShow(showLibrary, showId, { brandKit: kit });
+      persistShowLibrary();
+      activeBrandKit = kit;
+      renderShowDetail(showId);
+    });
+
+    form.appendChild(
+      el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, "Save brand kit")),
+    );
+    view.appendChild(form);
     root.appendChild(view);
   }
 
   function startEpisodeFromShow(showId) {
     const show = LIB.getShow(showLibrary, showId);
     const prefill = show ? LIB.newEpisodeDraft(show) : {};
-    // Reset episode state and pre-fill from the show.
+    activeShowId = showId;
+    activeBrandKit = prefill.brandKit || null;
     state = ES.createDraft();
     errors = {};
     showErrors = false;
@@ -886,10 +1083,11 @@
       : null;
     return {
       audioPolish: appliedAudioPolish,
-      appliedStyle: appliedStyle,
+      appliedStyle: brandedAppliedStyle(summary),
       templateName: templateName || "",
       momentsSummary: momentsSummary,
       contextSummary: contextSummary,
+      brandKitSummary: brandKitSummary(),
     };
   }
 
@@ -954,6 +1152,19 @@
       });
       pipeline.appendChild(stageList);
       view.appendChild(pipeline);
+    }
+
+    const kitSummary = brandKitSummary();
+    if (kitSummary && kitSummary.reviewLine) {
+      view.appendChild(
+        el(
+          "section",
+          { class: "card brand-kit-workspace-card" },
+          el("h3", {}, "Show brand kit"),
+          el("p", { class: "brand-kit-line" }, kitSummary.reviewLine),
+          kitSummary.colorSummary ? el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`) : null,
+        ),
+      );
     }
 
     const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
@@ -2058,12 +2269,25 @@
     const pacing = STY.getPacing(selection && selection.pacing);
     const frames = STY.buildPreviewFrames(summary.speakers, selection, summary.speakerCount);
     const layoutId = STY.resolveLayout(selection, summary.speakerCount);
+    const kit = getActiveBrandKit();
+    const theme = BK && kit ? BK.getPreviewTheme(preset, kit) : {
+      background: preset.background,
+      textColor: preset.textColor,
+      accent: preset.accent,
+      captionStyle: preset.captionStyle,
+      typeStyleLabel: "",
+      logoLabel: "",
+    };
 
     const stage = el("div", {
       class: `preview-stage stage-${layoutId} pacing-${pacing.id}${compact ? " compact" : ""}`,
     });
-    stage.style.background = preset.background;
-    stage.style.color = preset.textColor;
+    stage.style.background = theme.background;
+    stage.style.color = theme.textColor;
+
+    if (theme.logoLabel) {
+      stage.appendChild(el("span", { class: "preview-brand-logo" }, theme.logoLabel));
+    }
 
     const frameWrap = el("div", { class: "preview-frames" });
     frames.forEach((frame) => {
@@ -2073,28 +2297,31 @@
         el("span", { class: "preview-role" }, frame.role),
         el("span", { class: "preview-name" }, frame.name),
       );
-      frameEl.style.borderColor = preset.accent;
+      frameEl.style.borderColor = theme.accent;
       if (frame.active) {
-        frameEl.style.boxShadow = `0 0 0 2px ${preset.accent}`;
+        frameEl.style.boxShadow = `0 0 0 2px ${theme.accent}`;
       }
       frameWrap.appendChild(frameEl);
     });
     stage.appendChild(frameWrap);
 
-    // Sample caption strip so the caption treatment is visible in the preview.
     const caption = el(
       "div",
       { class: "preview-caption" },
       el("span", { class: "preview-caption-text" }, "Sample caption — this is how on-screen text will look."),
     );
-    caption.style.background = preset.accent;
+    caption.style.background = theme.accent;
     stage.appendChild(caption);
 
     if (!compact) {
+      const footParts = [`${pacing.label} pacing`, theme.captionStyle, STY.getLayout(layoutId).label];
+      if (theme.typeStyleLabel) {
+        footParts.unshift(theme.typeStyleLabel);
+      }
       const foot = el(
         "p",
         { class: "preview-foot" },
-        `${pacing.label} pacing · ${preset.captionStyle} · ${STY.getLayout(layoutId).label}`,
+        footParts.join(" · "),
       );
       const container = el("div", {}, stage, foot);
       return container;
@@ -2211,8 +2438,13 @@
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply style & continue →");
     applyButton.addEventListener("click", () => {
       appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
+      if (getActiveBrandKit() && BK) {
+        appliedStyle = BK.applyToStyleSummary(appliedStyle, getActiveBrandKit());
+      }
       if (!activeTemplateId) {
         canvasDoc = null;
+      } else if (canvasDoc && BK && getActiveBrandKit()) {
+        canvasDoc = BK.applyToCanvas(canvasDoc, getActiveBrandKit());
       }
       renderWorkspace(summary);
     });

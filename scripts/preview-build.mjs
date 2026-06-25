@@ -20,6 +20,7 @@ const required = [
   "app/publish-review.js",
   "app/episode-workspace.js",
   "app/show-library.js",
+  "app/show-brand-kit.js",
   "app/episode-setup.ui.js",
 ];
 
@@ -49,6 +50,7 @@ for (const file of [
   "app/publish-review.js",
   "app/episode-workspace.js",
   "app/show-library.js",
+  "app/show-brand-kit.js",
   "app/episode-setup.ui.js",
 ]) {
   if (!existsSync(file)) {
