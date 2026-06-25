@@ -10,6 +10,8 @@ const required = [
   "app/styles.css",
   "app/episode-setup.js",
   "app/episode-setup.ui.js",
+  "app/preset-styles.js",
+  "app/preset-styles.ui.js",
 ];
 
 let failed = false;
@@ -25,7 +27,12 @@ for (const file of required) {
 }
 
 // Parse-check every shipped script.
-for (const file of ["app/episode-setup.js", "app/episode-setup.ui.js"]) {
+for (const file of [
+  "app/episode-setup.js",
+  "app/episode-setup.ui.js",
+  "app/preset-styles.js",
+  "app/preset-styles.ui.js",
+]) {
   if (!existsSync(file)) {
     continue;
   }
@@ -38,7 +45,14 @@ for (const file of ["app/episode-setup.js", "app/episode-setup.ui.js"]) {
 // Confirm the entry HTML actually loads the app.
 if (existsSync("index.html")) {
   const html = readFileSync("index.html", "utf8");
-  for (const ref of ["app/styles.css", "app/episode-setup.js", "app/episode-setup.ui.js", 'id="app"']) {
+  for (const ref of [
+    "app/styles.css",
+    "app/episode-setup.js",
+    "app/preset-styles.js",
+    "app/episode-setup.ui.js",
+    "app/preset-styles.ui.js",
+    'id="app"',
+  ]) {
     if (!html.includes(ref)) {
       fail(`index.html does not reference ${ref}`);
     }

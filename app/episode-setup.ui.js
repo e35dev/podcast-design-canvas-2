@@ -13,6 +13,38 @@
   let state = ES.createDraft();
   let errors = {};
   let showErrors = false;
+  let appliedStyleSummary = null;
+
+  const stepPill = document.querySelector(".step-pill");
+  const intro = document.querySelector(".intro");
+
+  function setStepLabel(text) {
+    if (stepPill) {
+      stepPill.textContent = text;
+    }
+  }
+
+  function setIntro(title, body) {
+    if (!intro) {
+      return;
+    }
+    const h1 = intro.querySelector("h1");
+    const p = intro.querySelector("p");
+    if (h1) {
+      h1.textContent = title;
+    }
+    if (p) {
+      p.textContent = body;
+    }
+  }
+
+  function resetSetupChrome() {
+    setStepLabel("Step 1 of 6 · Set up episode");
+    setIntro(
+      "Start a new episode",
+      "Bring in your synced recording, tell us who is speaking, and add a few social links so the edit can get names and context right. You will land on an episode workspace next, ready for style and editing.",
+    );
+  }
 
   // Tiny DOM helper: el("div", {class:"x", onclick:fn}, child, child...).
   function el(tag, attrs) {
@@ -100,6 +132,7 @@
 
   function renderSetup() {
     root.innerHTML = "";
+    resetSetupChrome();
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
     const form = el("form", { class: "setup", novalidate: true });
@@ -370,6 +403,13 @@
 
   function renderWorkspace(summary) {
     root.innerHTML = "";
+    setStepLabel(appliedStyleSummary ? "Step 2 of 6 · Style applied" : "Step 1 of 6 · Episode workspace");
+    setIntro(
+      appliedStyleSummary ? "Your episode look is set" : "Episode workspace",
+      appliedStyleSummary
+        ? "Your preset style, layout, and pacing are applied. You can adjust them or continue when editing opens next."
+        : "Your sources and speaker roles are ready. Choose a visual style next to see how the episode will look.",
+    );
 
     const view = el("div", { class: "workspace" });
     view.appendChild(
@@ -433,24 +473,42 @@
     });
     view.appendChild(sources);
 
-    // Next step (honest placeholder — the next workflow is not built yet)
+    if (appliedStyleSummary) {
+      view.appendChild(renderAppliedStyle(appliedStyleSummary));
+    }
+
+    // Style step — opens the preset picker when available.
+    const styleActions = el("div", { class: "actions" });
+    const styleButton = el(
+      "button",
+      { type: "button", class: "primary" },
+      appliedStyleSummary ? "Adjust style →" : "Choose a style →",
+    );
+    styleButton.addEventListener("click", () => {
+      openStylePicker(summary);
+    });
+    styleActions.appendChild(styleButton);
+
+    const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
+    back.addEventListener("click", () => {
+      showErrors = false;
+      renderSetup();
+    });
+    styleActions.appendChild(back);
+
     view.appendChild(
       el(
         "section",
         { class: "card next-step" },
-        el("h3", {}, "Ready for the next step"),
-        el("p", {}, "Your sources, speaker roles, and context are saved. Style selection and editing come next."),
-        el("div", { class: "actions" },
-          el("button", { type: "button", class: "primary", disabled: true }, "Choose a style → (coming next)"),
-          (function () {
-            const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
-            back.addEventListener("click", () => {
-              showErrors = false;
-              renderSetup();
-            });
-            return back;
-          })(),
+        el("h3", {}, appliedStyleSummary ? "Style ready" : "Ready for the next step"),
+        el(
+          "p",
+          {},
+          appliedStyleSummary
+            ? "Your episode has a visual identity. Canvas editing and export come next."
+            : "Your sources, speaker roles, and context are saved. Choose a preset style to preview how the episode will look.",
         ),
+        styleActions,
       ),
     );
 
@@ -460,6 +518,87 @@
 
   function stat(value, label) {
     return el("div", { class: "stat" }, el("span", { class: "stat-value" }, value), el("span", { class: "stat-label" }, label));
+  }
+
+  function renderAppliedStyle(styleSummary) {
+    const card = el(
+      "section",
+      { class: "card applied-style" },
+      el("h3", {}, "Applied visual style"),
+      el(
+        "div",
+        { class: "stats" },
+        stat(styleSummary.presetLabel, "Preset"),
+        stat(styleSummary.layoutLabel, "Layout"),
+        stat(styleSummary.pacingLabel, "Pacing"),
+      ),
+      el("p", { class: "applied-style-desc" }, styleSummary.presetDescription),
+    );
+
+    if (window.PdcPresetStyles) {
+      const preview = window.PdcPresetStyles.buildPreview(
+        {
+          presetKey: styleSummary.presetKey,
+          layout: styleSummary.layout,
+          pacing: styleSummary.pacing,
+        },
+        { episodeName: styleSummary.episodeName, speakers: styleSummary.frames },
+      );
+      const mini = buildMiniPreview(preview);
+      if (mini) {
+        card.appendChild(mini);
+      }
+    }
+
+    return card;
+  }
+
+  function buildMiniPreview(preview) {
+    if (!preview.preset || !preview.frames.length) {
+      return null;
+    }
+    const wrap = el("div", {
+      class: `preview-stage preview-stage--compact preview-stage--${preview.preset.key} preview-stage--${preview.preset.frameStyle}`,
+      style: `--preview-accent: ${preview.preset.accent}; --preview-surface: ${preview.preset.surface};`,
+    });
+    const grid = el("div", { class: "preview-grid" });
+    preview.frames.forEach((frame) => {
+      grid.appendChild(
+        el(
+          "div",
+          {
+            class: `preview-frame preview-frame--${frame.emphasis}`,
+            style: `grid-column: ${frame.col} / span ${frame.colSpan}; grid-row: ${frame.row} / span ${frame.rowSpan};`,
+          },
+          el("span", { class: "preview-role" }, frame.role),
+          el("span", { class: "preview-name" }, frame.name),
+        ),
+      );
+    });
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  function openStylePicker(summary) {
+    const picker = window.PdcPresetStylesUI;
+    if (!picker || typeof picker.open !== "function") {
+      return;
+    }
+    const currentDraft = appliedStyleSummary
+      ? {
+          presetKey: appliedStyleSummary.presetKey,
+          layout: appliedStyleSummary.layout,
+          pacing: appliedStyleSummary.pacing,
+        }
+      : null;
+    picker.open(summary, currentDraft, (result) => {
+      if (result === null) {
+        renderWorkspace(summary);
+        return;
+      }
+      appliedStyleSummary = result.styleSummary;
+      renderWorkspace(summary);
+    });
   }
 
   renderSetup();
