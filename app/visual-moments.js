@@ -141,6 +141,7 @@
       episodeName: trim(episode.episodeName),
       transcript: buildTranscript(episode),
       moments: [],
+      suggestionState: {},
     };
   }
 
@@ -172,6 +173,199 @@
     };
     const moments = sortMoments((Array.isArray(base.moments) ? base.moments : []).concat(moment));
     return Object.assign({}, base, { seq, moments });
+  }
+
+  function ensureString(value) {
+    return trim(value);
+  }
+
+  // Build lightweight speaker context cards for suggestion ranking.
+  function buildContextHints(episodeSummary, contextReview) {
+    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
+      ? episodeSummary.speakers
+      : [];
+    const reviewEntries = contextReview && Array.isArray(contextReview.speakers)
+      ? contextReview.speakers
+      : [];
+    const map = {};
+    speakers.forEach((speaker) => {
+      const key = (speaker && speaker.role) || "All speakers";
+      map[key] = {
+        role: key,
+        name: ensureString(speaker && speaker.name) || key,
+        brand: "",
+        topics: ["topic", "example clip"],
+        approved: false,
+      };
+    });
+    reviewEntries.forEach((entry) => {
+      const matchRole = entry && entry.role && map[entry.role];
+      if (!matchRole) {
+        return;
+      }
+      matchRole.brand = ensureString(entry.brand) || matchRole.brand;
+      matchRole.topics = Array.isArray(entry.topics) && entry.topics.length ? entry.topics.slice(0, 3) : matchRole.topics;
+      matchRole.approved = Boolean(entry.approved);
+    });
+    return map;
+  }
+
+  function speakerTermScore(speaker, segment, index) {
+    const context = speaker || {};
+    const base = [
+      ensureString(context.name),
+      ensureString(context.brand),
+      ensureString(segment.speakerRole),
+    ].filter(Boolean).join(" ");
+    const topicList = Array.isArray(context.topics) && context.topics.length ? context.topics : ["episode moment"];
+    const topic = topicList[index % topicList.length];
+    const detail = base ? `${base} ${ensureString(topic)}` : ensureString(topic);
+    return {
+      text: `B-roll: ${detail || "Episode moment".trim()}`,
+      reason: `A visual moment tied to ${context.role || "speaker"} speaking here helps orient this part of the story.`,
+      term: ensureString(topic) || "episode concept",
+      time: segment.time,
+      speakerRole: segment.speakerRole,
+      speakerName: segment.speakerName,
+    };
+  }
+
+  function uniqueKeySuggestion(prefix, suggestion) {
+    return `${prefix}-${ensureString(suggestion.time)}-${ensureString(suggestion.speakerRole)}-${ensureString(suggestion.text)}`
+      .toLowerCase()
+      .replace(/[^\w\-:]+/g, "-")
+      .replace(/-+/g, "-");
+  }
+
+  // Uses the transcript scaffold + context review to make creator-facing, deterministic
+  // b-roll suggestions. Output is stable and auditable for tests and review.
+  function generateBrollSuggestions(episodeSummary, momentsBoard, contextReview, options) {
+    const board = momentsBoard && typeof momentsBoard === "object" ? momentsBoard : createBoard(episodeSummary);
+    const transcript = board.transcript || [];
+    const hints = buildContextHints(episodeSummary || {}, contextReview);
+    const maxItems = options && options.maxItems > 0 ? options.maxItems : 5;
+    const suggestions = [];
+    transcript.forEach((segment, index) => {
+      const hint = hints[segment.speakerRole] || {};
+      const seed = speakerTermScore(hint, segment, index);
+      const id = uniqueKeySuggestion("broll", seed);
+      const alreadyHandled = board && board.suggestionState && board.suggestionState[id] && board.suggestionState[id].status;
+      if (alreadyHandled) {
+        return;
+      }
+      const suggestion = {
+        id,
+        time: seed.time,
+        type: "broll",
+        speakerRole: seed.speakerRole,
+        speakerName: seed.speakerName,
+        text: seed.text,
+        reason: seed.reason,
+        relevance: hint.approved || false ? "social" : "transcript",
+        term: seed.term,
+      };
+      suggestions.push(suggestion);
+    });
+    return suggestions.slice(0, maxItems);
+  }
+
+  function suggestionExists(board, suggestion) {
+    return listMoments(board).some((moment) => (
+      moment.type === "broll"
+      && moment.metadata
+      && moment.metadata.suggestionId === suggestion.id
+    ));
+  }
+
+  function acceptBrollSuggestion(board, suggestion) {
+    const base = board && typeof board === "object" ? board : createBoard({});
+    const next = base.suggestionState && typeof base.suggestionState === "object"
+      ? clone(base.suggestionState)
+      : {};
+    const reason = suggestion && suggestion.id ? suggestion.id : uniqueKeySuggestion("broll", suggestion || {});
+    if (next[reason] && next[reason].status === "accepted") {
+      return {
+        board: base,
+        moment: null,
+        suggestionId: reason,
+      };
+    }
+    if (!suggestion) {
+      return {
+        board: base,
+        moment: null,
+        suggestionId: reason,
+      };
+    }
+    next[reason] = { status: "accepted", text: suggestion.text };
+    if (suggestionExists(base, suggestion)) {
+      return {
+        board: Object.assign({}, base, { suggestionState: next }),
+        moment: null,
+        suggestionId: reason,
+      };
+    }
+    const withMoments = addMoment(base, "broll", {
+      time: suggestion.time,
+      text: suggestion.text,
+      speakerRole: suggestion.speakerRole,
+      speakerName: suggestion.speakerName,
+      visible: true,
+    });
+    const moments = Array.isArray(withMoments.moments) ? withMoments.moments.slice() : [];
+    const added = moments
+      .filter((moment) => moment.type === "broll")
+      .sort((a, b) => (a.seconds - b.seconds) || (a.order - b.order))
+      .find((moment) => (moment.metadata && moment.metadata.suggestionId === reason))
+      || moments.find((moment) => moment.type === "broll" && moment.text === suggestion.text);
+    if (added) {
+      added.metadata = Object.assign({}, added.metadata, {
+        suggestionId: reason,
+        suggestionText: ensureString(suggestion.reason),
+        suggestionTerm: ensureString(suggestion.term),
+      });
+      const normalized = Object.assign({}, withMoments, {
+        moments: sortMoments(moments),
+        suggestionState: next,
+      });
+      return {
+        board: normalized,
+        moment: added,
+        suggestionId: reason,
+      };
+    }
+    const marked = Object.assign({}, withMoments, { suggestionState: next });
+    return {
+      board: marked,
+      moment: null,
+      suggestionId: reason,
+    };
+  }
+
+  function filterPendingSuggestions(board, suggestions) {
+    return Array.isArray(suggestions)
+      ? suggestions.filter((suggestion) => listSuggestionStatus(board, suggestion) === "pending")
+      : [];
+  }
+
+  function setSuggestionStatus(board, suggestion, status) {
+    const base = board && typeof board === "object" ? board : createBoard({});
+    const next = base.suggestionState && typeof base.suggestionState === "object"
+      ? clone(base.suggestionState)
+      : {};
+    const reason = suggestion && suggestion.id ? suggestion.id : uniqueKeySuggestion("broll", suggestion || {});
+    next[reason] = { status, text: suggestion && suggestion.text ? suggestion.text : "" };
+    return Object.assign({}, base, { suggestionState: next });
+  }
+
+  function skipBrollSuggestion(board, suggestion) {
+    return setSuggestionStatus(board, suggestion, "skipped");
+  }
+
+  function listSuggestionStatus(board, suggestion) {
+    const id = suggestion && suggestion.id ? suggestion.id : "";
+    const base = board && board.suggestionState && board.suggestionState[id];
+    return base ? base.status : "pending";
   }
 
   // Immutable edit of a single moment's timing, text, speaker, or visibility. Re-sorts when
@@ -300,6 +494,9 @@
       // Refresh the transcript scaffold from the current episode while keeping moments.
       const board = createBoard(episodeSummary || { episodeName: parsed.episodeName });
       board.seq = typeof parsed.seq === "number" ? parsed.seq : parsed.moments.length;
+      board.suggestionState = parsed.suggestionState && typeof parsed.suggestionState === "object"
+        ? parsed.suggestionState
+        : {};
       board.moments = sortMoments(parsed.moments.map((moment) => clone(moment)));
       return board;
     } catch (err) {
@@ -314,8 +511,14 @@
     parseTime,
     normalizeTime,
     buildTranscript,
+    buildContextHints,
     speakerOptions,
     createBoard,
+    generateBrollSuggestions,
+    acceptBrollSuggestion,
+    skipBrollSuggestion,
+    filterPendingSuggestions,
+    listSuggestionStatus,
     addMoment,
     updateMoment,
     toggleMoment,

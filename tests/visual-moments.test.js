@@ -9,6 +9,7 @@
 const assert = require("assert");
 const setup = require("../app/episode-setup.js");
 const moments = require("../app/visual-moments.js");
+const contextApi = require("../app/social-context.js");
 
 let passed = 0;
 function test(name, fn) {
@@ -26,6 +27,21 @@ function completeEpisode() {
     Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.mp4" }),
   ];
   return setup.summarize(draft);
+}
+
+function completeContext(episode) {
+  let review = contextApi.createReview(episode);
+  review = contextApi.updateSpeaker(review, 0, {
+    approved: true,
+    topics: ["product launch", "workflow systems", "design critique"],
+    brand: "Founders Unfiltered",
+  });
+  review = contextApi.updateSpeaker(review, 1, {
+    approved: true,
+    topics: ["industry insights", "strategy", "case study"],
+    brand: "Studio 7",
+  });
+  return contextApi.approveReview(review);
 }
 
 test("offers at least four moment types incl. caption, title, b-roll, callout", () => {
@@ -139,6 +155,57 @@ test("moments persist across a serialize/deserialize round trip (navigate away a
   const after = moments.addMoment(restored, "caption", {});
   const ids = moments.listMoments(after).map((m) => m.id);
   assert.strictEqual(new Set(ids).size, ids.length, "no id collisions after reload");
+});
+
+test("generates smart b-roll suggestions tied to social context", () => {
+  const episode = completeEpisode();
+  const board = moments.createBoard(episode);
+  const suggestions = moments.generateBrollSuggestions(episode, board, completeContext(episode), { maxItems: 3 });
+
+  assert.ok(Array.isArray(suggestions), "suggestions returned as array");
+  assert.ok(suggestions.length > 0, "at least one suggestion generated");
+  assert.ok(suggestions.length <= 3, "maxItems honored");
+  assert.ok(suggestions.every((s) => s.type === "broll"), "suggestions are b-roll");
+  assert.ok(/^B-roll:/.test(suggestions[0].text));
+});
+
+test("accepting a suggestion adds a visible b-roll moment and tracks status", () => {
+  const episode = completeEpisode();
+  let board = moments.createBoard(episode);
+  const suggestions = moments.generateBrollSuggestions(episode, board, completeContext(episode), { maxItems: 1 });
+  const first = suggestions[0];
+  const accepted = moments.acceptBrollSuggestion(board, first);
+
+  assert.ok(accepted.moment && accepted.moment.id, "a moment was created");
+  assert.strictEqual(accepted.moment.type, "broll");
+  assert.strictEqual(moments.getMoment(accepted.board, accepted.moment.id).visible, true);
+  assert.strictEqual(moments.listSuggestionStatus(accepted.board, first), "accepted");
+  assert.ok(moments.summarizeBoard(accepted.board).lines.some((line) => line.indexOf("B-roll overlay: 1") >= 0));
+});
+
+test("skipping a suggestion removes it from pending review", () => {
+  const episode = completeEpisode();
+  const board = moments.createBoard(episode);
+  const suggestions = moments.generateBrollSuggestions(episode, board, completeContext(episode), { maxItems: 1 });
+  const first = suggestions[0];
+  const skipped = moments.skipBrollSuggestion(board, first);
+  assert.strictEqual(moments.listSuggestionStatus(skipped, first), "skipped");
+  const nextPass = moments.generateBrollSuggestions(episode, skipped, completeContext(episode), { maxItems: 5 });
+  const pending = moments.filterPendingSuggestions(skipped, nextPass);
+  const stillPendingIds = pending.map((entry) => entry.id);
+  assert.ok(stillPendingIds.indexOf(first.id) < 0, "skipped suggestion is removed");
+});
+
+test("previewing an accepted suggestion keeps it in the export summary path", () => {
+  const episode = completeEpisode();
+  let board = moments.createBoard(episode);
+  const suggestions = moments.generateBrollSuggestions(episode, board, completeContext(episode), { maxItems: 1 });
+  const accepted = moments.acceptBrollSuggestion(board, suggestions[0]);
+  const preview = moments.previewMoment(accepted.board, accepted.moment.id);
+  assert.strictEqual(preview.type, "broll");
+  assert.ok(preview.effect.indexOf("B-roll fills the frame") >= 0);
+  assert.ok(preview.effect.indexOf(accepted.moment.time) >= 0);
+  assert.ok(moments.summarizeBoard(accepted.board).reviewLine.includes("B-roll overlay: 1"));
 });
 
 // End-to-end: a completed episode flows into the moments editor; the creator builds the

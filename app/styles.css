@@ -1115,6 +1115,27 @@ button:disabled {
   gap: 12px;
 }
 
+.broll-suggestions-card .broll-suggestion-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fcfcff;
+}
+
+.broll-suggestion-text {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.broll-suggestion-row .actions {
+  margin-top: 10px;
+}
+
+.broll-suggestions-card .moment-preview-meta {
+  margin-top: 8px;
+}
+
 .moment-preview-meta {
   font-size: 13px;
   font-weight: 600;
@@ -1884,4 +1905,3 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
-

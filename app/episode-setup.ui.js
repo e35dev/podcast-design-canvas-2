@@ -2628,6 +2628,8 @@
     setStep("Step 6 of 8 · Visual moments");
 
     const list = VM.listMoments(momentsBoard);
+    const generatedSuggestions = VM.generateBrollSuggestions(summary, momentsBoard, contextReview);
+    const suggestions = VM.filterPendingSuggestions(momentsBoard, generatedSuggestions);
     // Keep the selected moment valid; default to the first moment so a preview is shown.
     if (selectedMomentId && !VM.getMoment(momentsBoard, selectedMomentId)) {
       selectedMomentId = null;
@@ -2677,7 +2679,59 @@
       paletteRow.appendChild(button);
     });
     palette.appendChild(paletteRow);
+    const suggestionButton = el("button", { type: "button", class: "ghost", style: "margin-top: 12px;" }, "Generate b-roll suggestions");
+    suggestionButton.addEventListener("click", () => {
+      persistMoments();
+      renderVisualMoments(summary);
+    });
+    palette.appendChild(suggestionButton);
     view.appendChild(palette);
+
+    const suggestionCard = el("section", { class: "card broll-suggestions-card" }, el("h3", {}, "Smart b-roll suggestions"));
+    if (!suggestions.length) {
+      suggestionCard.appendChild(
+        el(
+          "p",
+          { class: "hint" },
+          "No pending b-roll suggestions yet. Click “Generate b-roll suggestions” after adding social context.",
+        ),
+      );
+    } else {
+      suggestionCard.appendChild(
+        el("p", { class: "hint" }, "Review the auto-detected moments and accept or skip each suggestion."),
+      );
+      suggestions.forEach((suggestion) => {
+        const row = el("div", { class: "broll-suggestion-row" });
+        row.appendChild(el("p", { class: "broll-suggestion-text" }, suggestion.text));
+        row.appendChild(el("p", { class: "hint" }, suggestion.reason));
+        row.appendChild(
+          el(
+            "p",
+            { class: "moment-preview-meta" },
+            `When: ${suggestion.time} · ${suggestion.speakerRole}`,
+          ),
+        );
+        const acceptButton = el("button", { type: "button", class: "primary" }, "Accept");
+        const skipButton = el("button", { type: "button", class: "ghost" }, "Skip");
+        acceptButton.addEventListener("click", () => {
+          const result = VM.acceptBrollSuggestion(momentsBoard, suggestion);
+          momentsBoard = result.board;
+          if (result.moment && result.moment.id) {
+            selectedMomentId = result.moment.id;
+          }
+          persistMoments();
+          renderVisualMoments(summary);
+        });
+        skipButton.addEventListener("click", () => {
+          momentsBoard = VM.skipBrollSuggestion(momentsBoard, suggestion);
+          persistMoments();
+          renderVisualMoments(summary);
+        });
+        row.appendChild(el("div", { class: "actions" }, acceptButton, skipButton));
+        suggestionCard.appendChild(row);
+      });
+    }
+    view.appendChild(suggestionCard);
 
     const grid = el("div", { class: "moments-layout" });
 
