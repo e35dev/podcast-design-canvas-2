@@ -136,6 +136,9 @@
     if (ctx.publishPackageSummary && ctx.publishPackageSummary.lines) {
       ctx.publishPackageSummary.lines.forEach((line) => lines.push(line));
     }
+    if (ctx.transcriptCorrectionSummary && ctx.transcriptCorrectionSummary.lines) {
+      ctx.transcriptCorrectionSummary.lines.forEach((line) => lines.push(line));
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);

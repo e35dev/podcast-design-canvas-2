@@ -20,6 +20,7 @@
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
   const PP = window.PdcPublishPackage;
+  const TC = window.PdcTranscriptCorrection;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -47,6 +48,8 @@
   let selectedMomentId = null;
   let exportJob = null;
   let publishPackage = null;
+  let transcriptCorrection = null;
+  let transcriptExportLines = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -642,6 +645,8 @@
     selectedMomentId = null;
     exportJob = null;
     publishPackage = null;
+    transcriptCorrection = null;
+    transcriptExportLines = null;
     contextReview = null;
     contextApproved = false;
     publishReview = null;
@@ -1149,6 +1154,17 @@
     return publishPackage;
   }
 
+  function ensureTranscriptCorrection(summary) {
+    if (!TC) {
+      return null;
+    }
+    ensureMomentsBoard(summary);
+    if (!transcriptCorrection) {
+      transcriptCorrection = TC.createReview(summary, contextReview, momentsBoard);
+    }
+    return transcriptCorrection;
+  }
+
   function buildExportContext(summary) {
     const templateName = activeTemplateId && TM
       ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
@@ -1168,6 +1184,9 @@
       contextSummary: contextSummary,
       brandKitSummary: brandKitSummary(),
       publishPackageSummary: publishPackage && PP ? PP.summarizePackage(publishPackage) : null,
+      transcriptCorrectionSummary: transcriptCorrection && transcriptCorrection.approved && transcriptExportLines
+        ? { lines: transcriptExportLines }
+        : null,
     };
   }
 
@@ -1264,6 +1283,26 @@
           ),
         );
       }
+    }
+
+    if (TC) {
+      ensureTranscriptCorrection(summary);
+      const tcSummary = TC.summarizeReview(transcriptCorrection);
+      const transcriptCard = el(
+        "section",
+        { class: "card transcript-correction-card" },
+        el("h3", {}, "Transcript & captions"),
+        el("p", { class: "hint" }, tcSummary.workspaceLine),
+        el("p", { class: "hint" }, tcSummary.summaryLine),
+      );
+      const transcriptBtn = el(
+        "button",
+        { type: "button", class: transcriptCorrection && transcriptCorrection.approved ? "ghost" : "primary" },
+        transcriptCorrection && transcriptCorrection.approved ? "Edit transcript corrections" : "Review transcript & captions →",
+      );
+      transcriptBtn.addEventListener("click", () => renderTranscriptCorrection(summary));
+      transcriptCard.appendChild(el("div", { class: "transcript-correction-actions" }, transcriptBtn));
+      view.appendChild(transcriptCard);
     }
 
     const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
@@ -2085,6 +2124,91 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Transcript & caption correction (#63) ----------------------------------
+
+  function renderTranscriptCorrection(summary) {
+    if (!TC) {
+      renderWorkspace(summary);
+      return;
+    }
+    ensureTranscriptCorrection(summary);
+    root.innerHTML = "";
+    setStep("Transcript review · Fix names and captions");
+
+    const view = el("div", { class: "transcript-correction-step" });
+    view.appendChild(
+      el("div", { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Transcript & captions"),
+        el("h2", {}, `Correct wording for ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "Fix speaker names, brand spellings, and on-screen caption text once — your corrections carry through captions, visual moments, export metadata, and the publish package.",
+        ),
+      ),
+    );
+
+    const list = el("div", { class: "transcript-line-list" });
+    transcriptCorrection.lines.forEach((line) => {
+      const row = el("section", { class: "card transcript-line-card" });
+      row.appendChild(
+        el("p", { class: "transcript-line-meta" }, `${line.time} · ${line.kind} · ${line.speakerRole}`),
+      );
+
+      const nameInput = el("input", {
+        id: `tc-name-${line.id}`,
+        type: "text",
+        value: line.speakerName || "",
+      });
+      nameInput.addEventListener("change", (e) => {
+        transcriptCorrection = TC.updateLine(transcriptCorrection, line.id, { speakerName: e.target.value });
+      });
+      row.appendChild(field("Speaker label", nameInput));
+
+      const textInput = el("textarea", { id: `tc-text-${line.id}`, rows: "2" }, line.text || "");
+      textInput.addEventListener("change", (e) => {
+        transcriptCorrection = TC.updateLine(transcriptCorrection, line.id, { text: e.target.value });
+      });
+      row.appendChild(field("Line text", textInput));
+
+      list.appendChild(row);
+    });
+    view.appendChild(list);
+
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply corrections →");
+    applyButton.addEventListener("click", () => {
+      transcriptCorrection = TC.approveReview(transcriptCorrection);
+      ensurePublishPackage(summary);
+      const result = TC.applyCorrections(transcriptCorrection, {
+        episodeSummary: summary,
+        momentsBoard: momentsBoard,
+        publishPackage: publishPackage,
+        canvasDoc: canvasDoc,
+      });
+      momentsBoard = result.momentsBoard;
+      publishPackage = result.publishPackage;
+      if (result.canvasDoc) {
+        canvasDoc = result.canvasDoc;
+      }
+      (result.episodeSummary.speakers || []).forEach((speaker) => {
+        const match = state.speakers.find((item) => item.role === speaker.role);
+        if (match && speaker.name) {
+          match.name = speaker.name;
+        }
+      });
+      transcriptExportLines = result.exportLines;
+      persistMoments();
+      renderWorkspace(ES.summarize(state));
+    });
+
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
