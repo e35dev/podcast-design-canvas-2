@@ -14,6 +14,7 @@
   const SC = window.PdcSocialContext;
   const EXP = window.PdcEpisodeExport;
   const PR = window.PdcPublishReview;
+  const WS = window.PdcEpisodeWorkspace;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -571,6 +572,102 @@
     };
   }
 
+  // Aggregate the state of every tool into the guided-workspace context (#40).
+  function buildWorkspaceContext(summary) {
+    let momentCount = 0;
+    if (VM && momentsBoard) {
+      const board = VM.summarizeBoard(momentsBoard);
+      momentCount = typeof board.visibleCount === "number" ? board.visibleCount : (board.total || 0);
+    }
+    const templateName = activeTemplateId && TM
+      ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
+      : "";
+    let reviewBlocked = false;
+    let reviewBlockingCount = 0;
+    if (PR && publishReview && !publishReviewApproved) {
+      const blocking = (publishReview.checks || []).filter((c) => c.tone === "blocked");
+      reviewBlocked = blocking.length > 0;
+      reviewBlockingCount = blocking.length;
+    }
+    return {
+      setupComplete: true, // reaching the workspace means setup validated
+      speakerCount: summary.speakerCount,
+      sourceModeLabel: summary.sourceModeLabel,
+      styleName: appliedStyle ? appliedStyle.presetName : "",
+      layoutLabel: appliedStyle ? appliedStyle.layoutLabel : "",
+      audioName: appliedAudioPolish ? appliedAudioPolish.presetName : "",
+      momentCount: momentCount,
+      templateName: templateName || "",
+      reviewApproved: Boolean(publishReviewApproved),
+      reviewBlocked: reviewBlocked,
+      reviewBlockingCount: reviewBlockingCount,
+      exportReady: Boolean(exportJob && exportJob.status === "ready"),
+      exportFileName: exportJob ? exportJob.downloadName : "",
+    };
+  }
+
+  // Route a stage's action button to the existing tool for that stage.
+  function openStage(stageId, summary) {
+    switch (stageId) {
+      case "setup":
+        showErrors = false;
+        return renderSetup();
+      case "style":
+        return renderStyle(summary);
+      case "audio":
+        if (AP && !audioPolish) { audioPolish = AP.createPolish(summary); }
+        return renderAudioPolish(summary);
+      case "moments":
+        return renderVisualMoments(summary);
+      case "template":
+        return openCanvasEditor(summary);
+      case "review":
+        return renderPublishReview(summary);
+      case "export":
+        return renderExport(summary);
+      default:
+        return null;
+    }
+  }
+
+  // The guided stage rail: ordered stages with plain-language status, a short summary, and
+  // an action to open the matching tool (#40).
+  function renderStageRail(summary) {
+    if (!WS) {
+      return null;
+    }
+    const built = WS.buildWorkspace(buildWorkspaceContext(summary));
+    const card = el("section", { class: "card stage-rail" });
+    card.appendChild(el("h3", {}, "Production stages"));
+    card.appendChild(el("p", { class: "stage-progress-headline" }, built.progress.headline));
+
+    const bar = el("div", { class: "stage-progress" });
+    const fill = el("div", { class: "stage-progress-fill" });
+    fill.style.width = `${built.progress.percent}%`;
+    bar.appendChild(fill);
+    card.appendChild(bar);
+
+    const list = el("div", { class: "stage-list" });
+    built.stages.forEach((stage) => {
+      const isNext = stage.id === built.progress.nextStageId;
+      const row = el("div", { class: `stage-row stage-${stage.status}${isNext ? " stage-next" : ""}` });
+      row.appendChild(el("span", { class: `stage-badge stage-badge-${stage.status}` },
+        stage.status === "done" ? "✓" : stage.status === "blocked" ? "!" : "•"));
+      row.appendChild(
+        el("div", { class: "stage-main" },
+          el("span", { class: "stage-label" }, stage.label),
+          el("span", { class: "stage-summary" }, stage.summary),
+        )
+      );
+      const btn = el("button", { type: "button", class: isNext ? "primary stage-action" : "ghost stage-action" }, `${stage.action} →`);
+      btn.addEventListener("click", () => openStage(stage.id, summary));
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+    return card;
+  }
+
   function renderWorkspace(summary) {
     root.innerHTML = "";
     setStep("Step 1 of 8 · Episode workspace");
@@ -584,6 +681,12 @@
         el("h2", {}, summary.episodeName),
       ),
     );
+
+    // Guided production stages overview (#40)
+    const stageRail = renderStageRail(summary);
+    if (stageRail) {
+      view.appendChild(stageRail);
+    }
 
     // Captured context
     const context = el(

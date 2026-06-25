@@ -18,6 +18,7 @@ const required = [
   "app/social-context.js",
   "app/episode-export.js",
   "app/publish-review.js",
+  "app/episode-workspace.js",
   "app/episode-setup.ui.js",
 ];
 
@@ -45,6 +46,7 @@ for (const file of [
   "app/social-context.js",
   "app/episode-export.js",
   "app/publish-review.js",
+  "app/episode-workspace.js",
   "app/episode-setup.ui.js",
 ]) {
   if (!existsSync(file)) {

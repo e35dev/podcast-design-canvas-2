@@ -1406,3 +1406,87 @@ button:disabled {
     grid-column: 2;
   }
 }
+
+/* ---- Guided production stages (#40) ---- */
+.stage-rail .stage-progress-headline {
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.stage-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.stage-progress-fill {
+  height: 100%;
+  background: linear-gradient(135deg, var(--brand), var(--accent));
+  width: 0;
+  transition: width 0.4s ease;
+}
+
+.stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stage-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fcfcff;
+}
+
+.stage-row.stage-next {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(108, 76, 255, 0.18);
+}
+
+.stage-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+  color: #fff;
+  background: var(--ink-soft);
+}
+
+.stage-badge-done { background: var(--ok); }
+.stage-badge-blocked { background: var(--warn); }
+.stage-badge-ready { background: var(--brand); }
+.stage-badge-todo { background: #c9c9d6; }
+
+.stage-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.stage-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.stage-summary {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.stage-action {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
