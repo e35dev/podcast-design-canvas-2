@@ -2,7 +2,7 @@
 
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
-// publish review (#37), guided workspace (#40), and export (#30).
+// publish review (#37), guided workspace (#40), show library (#47), and export (#30).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -15,6 +15,7 @@
   const EXP = window.PdcEpisodeExport;
   const PR = window.PdcPublishReview;
   const WS = window.PdcEpisodeWorkspace;
+  const SL = window.PdcShowLibrary;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -46,6 +47,107 @@
   let contextApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  const LIBRARY_STORAGE_KEY = "pdc-show-library";
+  let showLibrary = SL ? SL.deserializeLibrary(safeLoadLibrary()) : { shows: [], episodes: [] };
+  let activeShowId = null;
+  let activeEpisodeId = null;
+  let pendingShowTemplateId = "";
+
+  function safeLoadLibrary() {
+    try {
+      return typeof localStorage !== "undefined" ? localStorage.getItem(LIBRARY_STORAGE_KEY) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function persistLibrary() {
+    if (!SL || typeof localStorage === "undefined") {
+      return;
+    }
+    try {
+      localStorage.setItem(LIBRARY_STORAGE_KEY, SL.serializeLibrary(showLibrary));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  function setIntroVisible(visible) {
+    const intro = document.getElementById("intro");
+    if (intro) {
+      intro.style.display = visible ? "" : "none";
+    }
+  }
+
+  function templateMetaForShow(show) {
+    if (!TM || !show || !show.templateId) {
+      return null;
+    }
+    const template = TM.getTemplate(templateStore, show.templateId);
+    if (!template) {
+      return null;
+    }
+    return {
+      name: template.name,
+      presetName: template.canvas && template.canvas.presetName,
+      titleText: template.canvas && template.canvas.titleText,
+    };
+  }
+
+  function resetEpisodeWorkflow() {
+    state = ES.createDraft();
+    errors = {};
+    showErrors = false;
+    styleSelection = STY ? STY.createSelection() : null;
+    appliedStyle = null;
+    layoutCustomized = false;
+    audioPolish = null;
+    appliedAudioPolish = null;
+    activeTemplateId = null;
+    canvasDoc = null;
+    momentsBoard = null;
+    selectedMomentId = null;
+    exportJob = null;
+    contextReview = null;
+    contextApproved = false;
+    publishReview = null;
+    publishReviewApproved = false;
+    workspaceSummaryCache = null;
+  }
+
+  function applyPendingShowTemplate(summary) {
+    if (!pendingShowTemplateId || !TM || activeTemplateId) {
+      pendingShowTemplateId = "";
+      return;
+    }
+    const template = TM.getTemplate(templateStore, pendingShowTemplateId);
+    if (!template) {
+      pendingShowTemplateId = "";
+      return;
+    }
+    const fromCanvas = TM.styleSelectionFromCanvas(template.canvas);
+    styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
+    layoutCustomized = Boolean(styleSelection && styleSelection.layout && styleSelection.layout !== "auto");
+    canvasDoc = TM.applyTemplateForEpisode(template, summary, styleSelection);
+    activeTemplateId = template.id;
+    if (STY && styleSelection) {
+      appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
+    }
+    pendingShowTemplateId = "";
+  }
+
+  function syncActiveEpisode(summary) {
+    if (!SL || !activeEpisodeId || !summary) {
+      return;
+    }
+    showLibrary = SL.syncEpisodeProgress(
+      showLibrary,
+      activeEpisodeId,
+      summary.episodeName,
+      buildWorkspaceContext(summary),
+    );
+    persistLibrary();
+  }
 
   function safeLoadMoments() {
     try {
@@ -187,10 +289,195 @@
     return free || `Guest ${state.speakers.length}`;
   }
 
+  // ---- Show library dashboard (#47) -------------------------------------------
+
+  function renderShowLibrary() {
+    root.innerHTML = "";
+    setIntroVisible(true);
+    setStep("Show library");
+    if (!SL) {
+      renderSetup();
+      return;
+    }
+
+    const view = el("div", { class: "show-library" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Show library"),
+        el("h2", {}, "Your podcast shows"),
+        el("p", { class: "hint" }, "Keep multiple show identities separate. Start a new episode from a saved template and track production status."),
+      ),
+    );
+
+    const shows = SL.listShows(showLibrary);
+    if (shows.length) {
+      const listCard = el("section", { class: "card" }, el("h3", {}, "Shows"));
+      const list = el("div", { class: "show-list" });
+      shows.forEach((item) => {
+        const meta = templateMetaForShow(SL.getShow(showLibrary, item.id));
+        const row = el(
+          "button",
+          { type: "button", class: "show-row" },
+          el("span", { class: "show-row-name" }, item.name),
+          el(
+            "span",
+            { class: "show-row-meta" },
+            `${item.episodeCount} episode${item.episodeCount === 1 ? "" : "s"}${meta && meta.presetName ? ` · ${meta.presetName}` : ""}`,
+          ),
+        );
+        row.addEventListener("click", () => renderShowDetail(item.id));
+        list.appendChild(row);
+      });
+      listCard.appendChild(list);
+      view.appendChild(listCard);
+    } else {
+      view.appendChild(
+        el(
+          "section",
+          { class: "card" },
+          el("h3", {}, "No shows yet"),
+          el("p", { class: "hint" }, "Create your first show to start tracking episodes and reusing a saved template."),
+        ),
+      );
+    }
+
+    const createCard = el("section", { class: "card" }, el("h3", {}, "Create a show"));
+    const nameInput = el("input", { id: "f-show-name", type: "text", placeholder: "e.g. Founders Unfiltered" });
+    const createError = el("p", { class: "field-error", role: "alert", style: "display:none" });
+    const templateSelect = el("select", { id: "f-show-template" });
+    templateSelect.appendChild(el("option", { value: "" }, "No template yet"));
+    if (TM) {
+      TM.listTemplates(templateStore).forEach((item) => {
+        templateSelect.appendChild(el("option", { value: item.id }, item.name));
+      });
+    }
+    createCard.appendChild(field("Show name", nameInput, null, "Each show keeps its own episodes and visual identity."));
+    createCard.appendChild(field("Saved template (optional)", templateSelect, null, "New episodes can start from this show layout."));
+    createCard.appendChild(createError);
+    const createButton = el("button", { type: "button", class: "primary" }, "Create show");
+    createButton.addEventListener("click", () => {
+      const check = SL.validateShowName(showLibrary, nameInput.value);
+      if (!check.ok) {
+        createError.textContent = check.error;
+        createError.style.display = "";
+        return;
+      }
+      createError.style.display = "none";
+      const show = SL.createShow(check.name, { templateId: templateSelect.value });
+      showLibrary = SL.saveShow(showLibrary, show);
+      persistLibrary();
+      renderShowDetail(show.id);
+    });
+    createCard.appendChild(createButton);
+    view.appendChild(createCard);
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  function renderShowDetail(showId) {
+    root.innerHTML = "";
+    setIntroVisible(false);
+    if (!SL) {
+      renderShowLibrary();
+      return;
+    }
+    const show = SL.getShow(showLibrary, showId);
+    if (!show) {
+      renderShowLibrary();
+      return;
+    }
+    activeShowId = showId;
+    const meta = templateMetaForShow(show);
+    const summary = SL.summarizeShow(showLibrary, showId, meta);
+    setStep(summary.name);
+
+    const view = el("div", { class: "show-detail" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Show"),
+        el("h2", {}, summary.name),
+        el("p", { class: "hint" }, summary.identityLine),
+      ),
+    );
+
+    const identityCard = el("section", { class: "card" }, el("h3", {}, "Show identity"));
+    identityCard.appendChild(
+      el(
+        "p",
+        { class: "show-identity-line" },
+        meta
+          ? `Template: ${meta.name} · ${meta.presetName || "Custom"} · ${meta.titleText || "Untitled layout"}`
+          : "No saved template linked — customize a layout in the canvas editor during production.",
+      ),
+    );
+    identityCard.appendChild(
+      el("p", { class: "hint" }, `${summary.exportedCount} exported · ${summary.episodeCount} total episode${summary.episodeCount === 1 ? "" : "s"}`),
+    );
+    view.appendChild(identityCard);
+
+    const episodesCard = el("section", { class: "card" }, el("h3", {}, "Episodes"));
+    if (!summary.episodes.length) {
+      episodesCard.appendChild(el("p", { class: "hint" }, "No episodes yet. Start your first one below."));
+    } else {
+      const table = el("div", { class: "episode-list" });
+      summary.episodes.forEach((episode) => {
+        const row = el(
+          "div",
+          { class: `episode-row episode-row-${episode.status}` },
+          el("span", { class: "episode-row-name" }, episode.episodeName),
+          el("span", { class: `episode-status episode-status-${episode.status}` }, episode.statusLabel),
+          episode.exportFileName
+            ? el("span", { class: "episode-row-meta" }, episode.exportFileName)
+            : null,
+        );
+        table.appendChild(row);
+      });
+      episodesCard.appendChild(table);
+    }
+    view.appendChild(episodesCard);
+
+    const actions = el("div", { class: "actions" });
+    const newEpisode = el("button", { type: "button", class: "primary" }, "Start new episode →");
+    newEpisode.addEventListener("click", () => beginEpisodeForShow(showId));
+    const back = el("button", { type: "button", class: "ghost" }, "← All shows");
+    back.addEventListener("click", () => renderShowLibrary());
+    actions.appendChild(newEpisode);
+    actions.appendChild(back);
+    view.appendChild(actions);
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  function beginEpisodeForShow(showId) {
+    if (!SL) {
+      renderSetup();
+      return;
+    }
+    const started = SL.startEpisodeForShow(showLibrary, showId, "");
+    if (!started.ok) {
+      return;
+    }
+    showLibrary = started.library;
+    persistLibrary();
+    activeShowId = showId;
+    activeEpisodeId = started.episode.id;
+    pendingShowTemplateId = started.templateId || "";
+    resetEpisodeWorkflow();
+    setIntroVisible(false);
+    renderSetup();
+  }
+
   // ---- Setup view -------------------------------------------------------------
 
   function renderSetup() {
     root.innerHTML = "";
+    setIntroVisible(false);
     setStep("Step 1 of 8 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
@@ -445,6 +732,8 @@
     showErrors = true;
     if (result.ok) {
       const summary = ES.summarize(state);
+      applyPendingShowTemplate(summary);
+      syncActiveEpisode(summary);
       if (SC && !contextApproved) {
         contextReview = SC.createReview(summary);
         renderContextReview(summary);
@@ -518,6 +807,9 @@
       contextApproved: contextApproved,
       exportReady: exportReady,
       publishReviewApproved: publishReviewApproved,
+      hasStyle: Boolean(appliedStyle),
+      hasAudio: Boolean(appliedAudioPolish),
+      hasMoments: Boolean(momentsBoard && VM && VM.listMoments(momentsBoard).length),
       exportStatus: exportJob ? exportJob.status : "draft",
       exportDownloadName: exportJob && exportJob.downloadName ? exportJob.downloadName : "",
     };
@@ -633,6 +925,8 @@
 
   function renderWorkspace(summary) {
     workspaceSummaryCache = summary;
+    applyPendingShowTemplate(summary);
+    syncActiveEpisode(summary);
     root.innerHTML = "";
     setStep("Episode workspace · Import to publish");
 
@@ -703,7 +997,16 @@
       publishReview = null;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
+    const workspaceActions = el("div", { class: "actions workspace-actions" }, editSetup);
+    if (SL && activeShowId) {
+      const backShow = el("button", { type: "button", class: "ghost" }, "← Back to show");
+      backShow.addEventListener("click", function () {
+        syncActiveEpisode(summary);
+        renderShowDetail(activeShowId);
+      });
+      workspaceActions.appendChild(backShow);
+    }
+    view.appendChild(workspaceActions);
 
     if (TM) {
       const saved = TM.listTemplates(templateStore);
@@ -1009,6 +1312,7 @@
           return;
         }
         exportJob = result.state;
+        syncActiveEpisode(summary);
         renderExport(summary);
       });
       actions.appendChild(startButton);
@@ -1016,6 +1320,14 @@
       const doneButton = el("button", { type: "button", class: "primary" }, "Done — back to workspace");
       doneButton.addEventListener("click", () => renderWorkspace(summary));
       actions.appendChild(doneButton);
+      if (SL && activeShowId) {
+        const backShow = el("button", { type: "button", class: "ghost" }, "← Back to show");
+        backShow.addEventListener("click", () => {
+          syncActiveEpisode(summary);
+          renderShowDetail(activeShowId);
+        });
+        actions.appendChild(backShow);
+      }
     }
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
@@ -1966,5 +2278,5 @@
     return el("div", { class: "stat" }, el("span", { class: "stat-value" }, value), el("span", { class: "stat-label" }, label));
   }
 
-  renderSetup();
+  renderShowLibrary();
 }());
