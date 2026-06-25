@@ -579,3 +579,237 @@ button:disabled {
   color: var(--ink-soft);
   margin: 10px 0 0;
 }
+
+/* ---- Visual moments editor (#19) ---- */
+.moments-card .chips {
+  margin: 0 0 16px;
+}
+
+.moments-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 820px) {
+  .moments-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.moment-add-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.moment-add-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.moment-add {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+/* Timeline track */
+.moment-track {
+  position: relative;
+  height: 34px;
+  margin: 6px 4px 2px;
+}
+
+.moment-track-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--line);
+  transform: translateY(-50%);
+}
+
+.moment-marker {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--brand);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 6px rgba(20, 16, 60, 0.25);
+}
+
+.moment-marker.type-caption { background: var(--brand); }
+.moment-marker.type-title { background: #1f9d6b; }
+.moment-marker.type-broll { background: #ff7a59; }
+.moment-marker.type-callout { background: #c8324a; }
+
+.moment-marker.selected {
+  box-shadow: 0 0 0 3px rgba(108, 76, 255, 0.3);
+}
+
+.moment-marker.is-hidden {
+  opacity: 0.4;
+}
+
+.moment-track-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin: 0 2px 16px;
+}
+
+/* Moment list */
+.moment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.moment-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fcfcff;
+  cursor: pointer;
+}
+
+.moment-row.selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(108, 76, 255, 0.22);
+  background: rgba(108, 76, 255, 0.05);
+}
+
+.moment-row.is-hidden {
+  opacity: 0.6;
+}
+
+.moment-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.moment-type-pill {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--brand-ink);
+  background: var(--brand);
+}
+
+.moment-type-pill.type-title { background: #1f9d6b; }
+.moment-type-pill.type-broll { background: #ff7a59; }
+.moment-type-pill.type-callout { background: #c8324a; }
+
+.moment-time {
+  width: 84px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.moment-row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.moment-text {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.moment-speaker {
+  width: 100%;
+}
+
+/* Moment preview overlays */
+.moment-stage {
+  position: relative;
+  min-height: 180px;
+}
+
+.moment-stage.is-hidden {
+  opacity: 0.5;
+}
+
+.moment-overlay {
+  position: absolute;
+  font-weight: 700;
+}
+
+.moment-overlay-kicker {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.caption-overlay {
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  border-radius: 8px;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.title-overlay {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  padding: 14px 20px;
+}
+
+.moment-overlay-title {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.broll-overlay {
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  bottom: 16px;
+  border: 2px dashed;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.callout-overlay {
+  right: 16px;
+  top: 16px;
+  max-width: 60%;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.moment-preview-body .preview-foot {
+  margin-top: 12px;
+}

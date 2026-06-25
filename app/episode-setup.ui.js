@@ -7,6 +7,7 @@
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
+  const MO = window.PdcEpisodeMoments;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -19,6 +20,10 @@
   // Style step state, kept across navigation so choices survive Edit setup / Back.
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
+  // Visual moments state (#19). Held at module scope so the timeline and every edit
+  // persist when the creator leaves the moments editor and comes back.
+  let momentsState = MO ? MO.createMomentsState() : null;
+  let selectedMomentId = null;
 
   function setStep(label) {
     if (stepPill) {
@@ -473,6 +478,42 @@
       view.appendChild(styleCard);
     }
 
+    // Visual moments — the contextual editing layer (#19). Available once the episode
+    // exists; summarizes what has been added and opens the moments editor.
+    if (MO && momentsState) {
+      const mo = MO.summarizeMoments(momentsState);
+      const momentsCard = el(
+        "section",
+        { class: "card moments-card" },
+        el("h3", {}, "Visual moments"),
+        el(
+          "p",
+          { class: "hint" },
+          mo.total
+            ? `${mo.total} moment${mo.total === 1 ? "" : "s"} placed${mo.hidden ? ` · ${mo.hidden} hidden` : ""}. Captions, titles, b-roll, and callouts make the episode feel produced.`
+            : "Add captions, title moments, b-roll, and callouts at key points so a long episode feels deliberately edited.",
+        ),
+      );
+      if (mo.total) {
+        const tags = el("div", { class: "chips" });
+        MO.MOMENT_TYPES.forEach((type) => {
+          const count = mo.byType[type.key] || 0;
+          if (count) {
+            tags.appendChild(el("span", { class: "chip" }, `${type.label} · ${count}`));
+          }
+        });
+        momentsCard.appendChild(tags);
+      }
+      const momentsButton = el(
+        "button",
+        { type: "button", class: "primary" },
+        mo.total ? "Edit visual moments →" : "Add visual moments →",
+      );
+      momentsButton.addEventListener("click", () => renderMoments(summary));
+      momentsCard.appendChild(el("div", { class: "actions" }, momentsButton));
+      view.appendChild(momentsCard);
+    }
+
     // Next step — choose or change the visual style
     const styleAvailable = Boolean(STY);
     const styleButton = el(
@@ -663,6 +704,297 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Visual moments editor (#19) --------------------------------------------
+
+  // The preset look the moment preview borrows. Uses the applied style if one is set,
+  // otherwise the currently selected preset, so the preview stays consistent with the show.
+  function activePreset() {
+    if (STY) {
+      return STY.getPreset(styleSelection && styleSelection.presetId);
+    }
+    return { background: "#10131f", accent: "#ffb347", textColor: "#f6f7fb", captionStyle: "Lower-third" };
+  }
+
+  function currentCaptionStyle() {
+    if (appliedStyle && appliedStyle.captionStyle) {
+      return appliedStyle.captionStyle;
+    }
+    return activePreset().captionStyle;
+  }
+
+  // The on-screen overlay for a moment type, drawn over the preview stage.
+  function buildOverlay(typeKey, text, preset) {
+    if (typeKey === "title") {
+      return el(
+        "div",
+        { class: "moment-overlay title-overlay" },
+        el("span", { class: "moment-overlay-kicker" }, "Title"),
+        el("span", { class: "moment-overlay-title" }, text),
+      );
+    }
+    if (typeKey === "broll") {
+      const overlay = el(
+        "div",
+        { class: "moment-overlay broll-overlay" },
+        el("span", { class: "moment-overlay-kicker" }, "B-roll"),
+        el("span", {}, text),
+      );
+      overlay.style.borderColor = preset.accent;
+      return overlay;
+    }
+    if (typeKey === "callout") {
+      const overlay = el("div", { class: "moment-overlay callout-overlay" }, text);
+      overlay.style.background = preset.accent;
+      overlay.style.color = "#10131f";
+      return overlay;
+    }
+    const caption = el("div", { class: "moment-overlay caption-overlay" }, el("span", { class: "preview-caption-text" }, text));
+    caption.style.background = preset.accent;
+    caption.style.color = "#10131f";
+    return caption;
+  }
+
+  // A preview stage showing the real speaker frames with the selected moment overlaid.
+  function buildMomentStage(summary, moment) {
+    const preset = activePreset();
+    const type = MO.getMomentType(moment.type);
+    const layoutId = STY ? STY.resolveLayout(styleSelection, summary.speakerCount) : "grid";
+    const stage = el("div", {
+      class: `preview-stage stage-${layoutId} moment-stage${moment.visible === false ? " is-hidden" : ""}`,
+    });
+    stage.style.background = preset.background;
+    stage.style.color = preset.textColor;
+
+    const frameWrap = el("div", { class: "preview-frames" });
+    const frames = STY ? STY.buildPreviewFrames(summary.speakers, styleSelection, summary.speakerCount) : [];
+    frames.forEach((frame) => {
+      const frameEl = el(
+        "div",
+        { class: `preview-frame${frame.active ? " active" : ""}` },
+        el("span", { class: "preview-role" }, frame.role),
+        el("span", { class: "preview-name" }, frame.name),
+      );
+      frameEl.style.borderColor = preset.accent;
+      frameWrap.appendChild(frameEl);
+    });
+    stage.appendChild(frameWrap);
+
+    const text = (moment.text && moment.text.trim()) || type.defaultText;
+    stage.appendChild(buildOverlay(type.key, text, preset));
+    return stage;
+  }
+
+  // Repaint just the preview pane for the selected moment, without re-rendering the whole
+  // editor — so typing in a moment's text never loses focus while the preview updates live.
+  function paintPreview(summary, previewBody) {
+    previewBody.innerHTML = "";
+    const moment = selectedMomentId ? MO.findMoment(momentsState, selectedMomentId) : null;
+    if (!moment) {
+      previewBody.appendChild(
+        el("p", { class: "hint" }, "Select a moment from the timeline to preview how it lands on screen."),
+      );
+      return;
+    }
+    const preview = MO.previewMoment(momentsState, moment.id, {
+      speakers: summary.speakers,
+      captionStyle: currentCaptionStyle(),
+    });
+    previewBody.appendChild(buildMomentStage(summary, moment));
+    previewBody.appendChild(
+      el(
+        "p",
+        { class: "preview-foot" },
+        `${preview.treatment} · ${preview.timecode}` +
+          (preview.speakerName ? ` · ${preview.speakerName}` : "") +
+          (preview.visible ? "" : " · hidden"),
+      ),
+    );
+  }
+
+  function addMomentOfType(summary, typeKey) {
+    const list = momentsState.moments;
+    const last = list.length ? list[list.length - 1].atSeconds : -30;
+    const at = MO.clampTime(last + 30, momentsState.durationSeconds);
+    const type = MO.getMomentType(typeKey);
+    const overrides = {};
+    if (type.speakerAware) {
+      overrides.speakerRole = (summary.roles && summary.roles[0]) || "";
+    }
+    const moment = MO.addMoment(momentsState, typeKey, at, overrides);
+    selectedMomentId = moment.id;
+    renderMoments(summary);
+  }
+
+  function renderMomentRow(summary, entry, previewBody) {
+    const type = MO.getMomentType(entry.type);
+    const row = el("div", {
+      class: `moment-row${entry.id === selectedMomentId ? " selected" : ""}${entry.visible ? "" : " is-hidden"}`,
+    });
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("input, select, button")) {
+        return;
+      }
+      selectedMomentId = entry.id;
+      Array.from(row.parentNode.children).forEach((sibling) => {
+        if (sibling.classList) {
+          sibling.classList.remove("selected");
+        }
+      });
+      row.classList.add("selected");
+      paintPreview(summary, previewBody);
+    });
+
+    // Header: type, editable timecode, show/hide, remove.
+    const timeInput = el("input", { class: "moment-time", type: "text", value: entry.timecode, "aria-label": "Moment time" });
+    timeInput.addEventListener("change", (event) => {
+      const seconds = MO.parseTimecode(event.target.value);
+      if (seconds != null) {
+        MO.updateMoment(momentsState, entry.id, { atSeconds: seconds });
+      }
+      renderMoments(summary);
+    });
+    const visButton = el("button", { type: "button", class: "link-button" }, entry.visible ? "Hide" : "Show");
+    visButton.addEventListener("click", () => {
+      MO.toggleVisible(momentsState, entry.id);
+      renderMoments(summary);
+    });
+    const removeButton = el("button", { type: "button", class: "link-button" }, "Remove");
+    removeButton.addEventListener("click", () => {
+      MO.removeMoment(momentsState, entry.id);
+      if (selectedMomentId === entry.id) {
+        selectedMomentId = null;
+      }
+      renderMoments(summary);
+    });
+    row.appendChild(
+      el(
+        "div",
+        { class: "moment-row-head" },
+        el("span", { class: `moment-type-pill type-${entry.type}` }, entry.typeLabel),
+        timeInput,
+        el("div", { class: "moment-row-actions" }, visButton, removeButton),
+      ),
+    );
+
+    // Text editor — live-updates the preview when this moment is selected.
+    const textInput = el("input", { class: "moment-text", type: "text", value: entry.text, placeholder: type.defaultText });
+    textInput.addEventListener("input", (event) => {
+      MO.updateMoment(momentsState, entry.id, { text: event.target.value });
+      if (entry.id === selectedMomentId) {
+        paintPreview(summary, previewBody);
+      }
+    });
+    row.appendChild(textInput);
+
+    // Speaker assignment for speaker-aware moments (captions, callouts).
+    if (type.speakerAware && summary.roles.length) {
+      const select = el("select", { class: "moment-speaker", "aria-label": "Speaker for this moment" });
+      select.appendChild(el("option", { value: "" }, "No speaker"));
+      summary.roles.forEach((role) => {
+        select.appendChild(el("option", { value: role, selected: entry.speakerRole === role ? true : null }, role));
+      });
+      select.addEventListener("change", (event) => {
+        MO.updateMoment(momentsState, entry.id, { speakerRole: event.target.value });
+        selectedMomentId = entry.id;
+        paintPreview(summary, previewBody);
+        row.classList.add("selected");
+      });
+      row.appendChild(select);
+    }
+
+    return row;
+  }
+
+  function renderMoments(summary) {
+    root.innerHTML = "";
+    setStep("Step 3 of 6 · Visual moments");
+    if (!momentsState) {
+      momentsState = MO.createMomentsState();
+    }
+
+    const view = el("div", { class: "moments-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Visual moments"),
+        el("h2", {}, `Add visual moments to ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "Place captions, title moments, b-roll, and callouts at key points so a long episode feels deliberately produced. The preview uses your real speakers and style.",
+        ),
+      ),
+    );
+
+    const previewBody = el("div", { class: "moment-preview-body" });
+
+    // Add bar — one button per moment type.
+    const addBar = el("div", { class: "moment-add-bar" });
+    addBar.appendChild(el("span", { class: "moment-add-label" }, "Add a moment:"));
+    MO.MOMENT_TYPES.forEach((type) => {
+      const button = el("button", { type: "button", class: "ghost moment-add" }, `+ ${type.label}`);
+      button.addEventListener("click", () => addMomentOfType(summary, type.key));
+      addBar.appendChild(button);
+    });
+
+    // Timeline track with a marker per moment, positioned by time.
+    const timeline = MO.buildTimeline(momentsState, summary.speakers);
+    const track = el("div", { class: "moment-track" }, el("div", { class: "moment-track-line" }));
+    timeline.forEach((entry) => {
+      const marker = el("button", {
+        type: "button",
+        class: `moment-marker type-${entry.type}${entry.id === selectedMomentId ? " selected" : ""}${entry.visible ? "" : " is-hidden"}`,
+        title: `${entry.typeLabel} · ${entry.timecode}`,
+        "aria-label": `${entry.typeLabel} at ${entry.timecode}`,
+      });
+      marker.style.left = `${Math.round(entry.position * 100)}%`;
+      marker.addEventListener("click", () => {
+        selectedMomentId = entry.id;
+        renderMoments(summary);
+      });
+      track.appendChild(marker);
+    });
+    const scale = el(
+      "div",
+      { class: "moment-track-scale" },
+      el("span", {}, "0:00"),
+      el("span", {}, MO.formatTimecode(momentsState.durationSeconds)),
+    );
+
+    // The editable list of moments.
+    const list = el("div", { class: "moment-list" });
+    if (!timeline.length) {
+      list.appendChild(
+        el("p", { class: "hint" }, "No moments yet — add a caption, title, b-roll, or callout to begin."),
+      );
+    } else {
+      timeline.forEach((entry) => list.appendChild(renderMomentRow(summary, entry, previewBody)));
+    }
+
+    const editorCard = el(
+      "section",
+      { class: "card moments-editor" },
+      el("h3", {}, "Episode timeline"),
+      addBar,
+      track,
+      scale,
+      list,
+    );
+
+    const previewCard = el("section", { class: "card preview-card" }, el("h3", {}, "Moment preview"), previewBody);
+    paintPreview(summary, previewBody);
+
+    view.appendChild(el("div", { class: "moments-layout" }, editorCard, previewCard));
+
+    const doneButton = el("button", { type: "button", class: "primary" }, "Done — back to workspace");
+    doneButton.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, doneButton));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
