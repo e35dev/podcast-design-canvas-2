@@ -4,7 +4,8 @@
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
-// and transcript correction (#63), and episode import before brand setup (#73).
+// and transcript correction (#63), episode import before brand setup (#73),
+// and episode import polish (#77).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -23,10 +24,39 @@
   const ONB = window.PdcShowOnboarding;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const POL = window.PdcEpisodeImportPolish;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
     return;
+  }
+
+  function setupUiClasses() {
+    if (POL) {
+      return POL.setupClasses();
+    }
+    return {
+      form: "setup",
+      section: "card",
+      speakersStack: "speakers-stack",
+      speakerCard: "speaker",
+      actions: "actions setup-actions",
+    };
+  }
+
+  function primaryCtaClass() {
+    return POL ? POL.primaryCtaClass() : "primary";
+  }
+
+  function secondaryCtaClass() {
+    return POL ? POL.secondaryCtaClass() : "ghost";
+  }
+
+  function primaryImportLabel(key, fallback) {
+    if (POL && POL.consistentPrimaryLabels()[key]) {
+      return POL.consistentPrimaryLabels()[key];
+    }
+    return fallback;
   }
 
   let state = ES.createDraft();
@@ -343,13 +373,13 @@
       el("p", { class: "hint" }, summary.libraryLine),
     );
 
-    const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
+    const startEpisodeBtn = el("button", { class: primaryCtaClass(), type: "button" }, primaryImportLabel("startBlankEpisode", "Start episode →"));
+    startEpisodeBtn.addEventListener("click", () => startBlankEpisode());
+
+    const newShowBtn = el("button", { class: secondaryCtaClass(), type: "button" }, "+ New show");
     newShowBtn.addEventListener("click", () => renderNewShowForm());
 
-    const blankEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start blank episode");
-    blankEpisodeBtn.addEventListener("click", () => startBlankEpisode());
-
-    const actions = el("div", { class: "workspace-actions" }, newShowBtn, blankEpisodeBtn);
+    const actions = el("div", { class: "workspace-actions" }, startEpisodeBtn, newShowBtn);
 
     const listEl = el("div", { class: "show-library-list" });
 
@@ -379,13 +409,13 @@
           ? el("span", { class: "show-latest" }, `Latest: ${show.latestEpisode.name} — ${LIB.episodeStatusLabel(show.latestEpisode.status)}`)
           : null;
 
-        const openBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "Open");
+        const openBtn = el("button", { class: `${secondaryCtaClass()} btn-sm`, type: "button" }, "Open");
         openBtn.addEventListener("click", () => {
           activeShowId = show.id;
           renderShowDetail(show.id);
         });
 
-        const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
+        const newEpBtn = el("button", { class: `${primaryCtaClass()} btn-sm`, type: "button" }, primaryImportLabel("newEpisode", "New episode →"));
         newEpBtn.addEventListener("click", () => {
           activeShowId = show.id;
           startEpisodeFromShow(show.id);
@@ -459,10 +489,10 @@
       ),
     );
 
-    const cancelBtn = el("button", { class: "btn-secondary", type: "button" }, "Cancel");
+    const cancelBtn = el("button", { class: secondaryCtaClass(), type: "button" }, "Cancel");
     cancelBtn.addEventListener("click", () => renderShowLibrary());
 
-    const saveBtn = el("button", { class: "btn-primary", type: "button" }, "Create show & import episode →");
+    const saveBtn = el("button", { class: primaryCtaClass(), type: "button" }, primaryImportLabel("createShow", "Create show & import episode →"));
     saveBtn.addEventListener("click", () => {
       const name = nameInput.value;
       const check = LIB.validateShowName(showLibrary, name);
@@ -502,7 +532,7 @@
     if (show.templateName) metaParts.push(`Template: ${show.templateName}`);
     if (show.presetName) metaParts.push(`Style: ${show.presetName}`);
 
-    const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Library");
+    const backBtn = el("button", { class: `${secondaryCtaClass()} btn-sm`, type: "button" }, "← Library");
     backBtn.addEventListener("click", () => renderShowLibrary());
 
     const header = el(
@@ -515,7 +545,7 @@
 
     const primaryCard = el("section", { class: "card show-primary-step-card" }, el("h2", {}, sections.primary.title));
     primaryCard.appendChild(el("p", { class: "hint" }, sections.primary.hint));
-    const primaryBtn = el("button", { class: "btn-primary", type: "button" }, sections.primary.actionLabel);
+    const primaryBtn = el("button", { class: primaryCtaClass(), type: "button" }, sections.primary.actionLabel);
     primaryBtn.addEventListener("click", () => startEpisodeFromShow(showId));
     primaryCard.appendChild(el("div", { class: "show-primary-step-actions" }, primaryBtn));
 
@@ -554,7 +584,7 @@
         brandCard.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
       }
     }
-    const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, sections.secondary.actionLabel);
+    const editBrandBtn = el("button", { class: `${secondaryCtaClass()} btn-sm`, type: "button" }, sections.secondary.actionLabel);
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
     brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
 
@@ -578,7 +608,7 @@
     root.innerHTML = "";
     setStep(`Show Library · ${show.name} · Brand kit`);
 
-    const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Back to show");
+    const backBtn = el("button", { class: `${secondaryCtaClass()} btn-sm`, type: "button" }, "← Back to show");
     backBtn.addEventListener("click", () => renderShowDetail(showId));
 
     const view = el("div", { class: "workspace-root brand-kit-editor" });
@@ -802,7 +832,8 @@
     setStep("Step 1 of 8 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
-    const form = el("form", { class: "setup", novalidate: true });
+    const setupUi = setupUiClasses();
+    const form = el("form", { class: setupUi.form, novalidate: true });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       onContinue();
@@ -854,8 +885,9 @@
 
     const detailsCard = el(
       "section",
-      { class: "card" },
+      { class: setupUi.section },
       el("h2", {}, "Episode details"),
+      el("p", { class: "hint" }, "Name this episode, then choose how you are importing the recording below."),
       field("Episode name", nameInput, "episodeName"),
     );
     form.appendChild(detailsCard);
@@ -879,7 +911,7 @@
 
     const sourceCard = el(
       "section",
-      { class: "card" },
+      { class: setupUi.section },
       el("h2", {}, "Recording source"),
       el("p", { class: "hint" }, "Bring in your recording, then assign each track to a speaker below."),
       el("div", { class: "mode-row" }, modeButtons),
@@ -907,12 +939,19 @@
     form.appendChild(sourceCard);
 
     // Speakers & sources
-    const speakersCard = el("section", { class: "card" }, el("h2", {}, "Speakers & sources"));
+    const speakersCard = el(
+      "section",
+      { class: setupUi.section },
+      el("h2", {}, "Speakers & sources"),
+      el("p", { class: "hint" }, "Each card is one speaker source. Assign a role, add a file or channel label, and optional social links."),
+    );
+    const speakersStack = el("div", { class: setupUi.speakersStack });
     state.speakers.forEach((speaker, index) => {
-      speakersCard.appendChild(renderSpeaker(speaker, index));
+      speakersStack.appendChild(renderSpeaker(speaker, index));
     });
+    speakersCard.appendChild(speakersStack);
 
-    const addButton = el("button", { type: "button", class: "ghost" }, "+ Add speaker source");
+    const addButton = el("button", { type: "button", class: secondaryCtaClass() }, "+ Add speaker source");
     addButton.addEventListener("click", () => {
       state.speakers.push(ES.createSpeaker(nextRole()));
       renderSetup();
@@ -930,11 +969,11 @@
     form.appendChild(
       el(
         "div",
-        { class: "actions setup-actions" },
+        { class: setupUi.actions },
         activeShowId
-          ? el("button", { type: "button", class: "ghost", id: "setup-back-show" }, "← Back to show")
+          ? el("button", { type: "button", class: secondaryCtaClass(), id: "setup-back-show" }, "← Back to show")
           : null,
-        el("button", { type: "submit", class: "primary" }, "Continue to audio polish →"),
+        el("button", { type: "submit", class: primaryCtaClass() }, primaryImportLabel("continueImport", "Continue to audio polish →")),
       ),
     );
 
@@ -950,7 +989,8 @@
   }
 
   function renderSpeaker(speaker, index) {
-    const card = el("div", { class: "speaker" });
+    const setupUi = setupUiClasses();
+    const card = el("div", { class: setupUi.speakerCard });
     const header = el(
       "div",
       { class: "speaker-head" },
@@ -1033,7 +1073,7 @@
     }
 
     // Optional social links
-    const social = el("details", { class: "social" });
+    const social = el("details", { class: "social", open: true });
     social.appendChild(el("summary", {}, "Social links (optional)"));
     const socialHint = el(
       "p",

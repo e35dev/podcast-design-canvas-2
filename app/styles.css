@@ -1661,6 +1661,98 @@ button:disabled {
   align-items: center;
 }
 
+/* ---- Episode import polish (#77) ---- */
+.setup-import {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.setup-import .setup-section {
+  margin-bottom: 0;
+}
+
+.speakers-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 16px 0 18px;
+}
+
+.speaker-source-card {
+  padding: 22px 24px;
+  margin-bottom: 0;
+}
+
+.speaker-source-card .field {
+  margin-bottom: 18px;
+}
+
+.speaker-source-card .field:last-child {
+  margin-bottom: 0;
+}
+
+.speaker-source-card .social {
+  margin-top: 14px;
+  padding-top: 16px;
+}
+
+.setup-import .setup-actions {
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.workspace-actions .primary,
+.workspace-actions .ghost,
+.setup-actions .primary,
+.setup-actions .ghost {
+  min-height: 44px;
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 8px 16px 48px;
+  }
+
+  .topbar {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .card {
+    padding: 18px 16px;
+  }
+
+  .speaker-source-card {
+    padding: 18px 16px;
+  }
+
+  .mode-row {
+    flex-direction: column;
+  }
+
+  .mode-option {
+    width: 100%;
+  }
+
+  .workspace-actions,
+  .setup-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workspace-actions button,
+  .setup-actions button {
+    width: 100%;
+  }
+
+  .show-primary-step-actions button {
+    width: 100%;
+  }
+}
+
 .brand-kit-line {
   font-weight: 600;
   margin: 0 0 8px;
