@@ -1642,6 +1642,36 @@ button:disabled {
   margin-top: 12px;
 }
 
+.show-library-import-hint {
+  margin-top: 4px;
+}
+
+.show-episode-hero {
+  margin-bottom: 16px;
+}
+
+.show-episode-hero-actions {
+  margin-top: 12px;
+}
+
+.show-episode-import-steps {
+  margin: 10px 0 0;
+  padding-left: 1.2rem;
+}
+
+.show-episode-import-steps li {
+  margin-bottom: 4px;
+}
+
+.brand-kit-collapsed summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.brand-kit-collapsed .brand-kit-actions {
+  margin-top: 12px;
+}
+
 .brand-color-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
