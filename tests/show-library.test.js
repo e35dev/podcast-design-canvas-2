@@ -240,4 +240,29 @@ test("ACCEPTANCE: create show, add episodes with statuses, list, and start new e
   assert.strictEqual(library.listEpisodes(restored, show.id).length, 2);
 });
 
+test("ids stay unique after a serialize/deserialize reload (#121 regression)", () => {
+  library._resetCounters();
+  let lib = library.createLibrary();
+  lib = makeShow(lib, "Show A").lib;
+  lib = makeShow(lib, "Show B").lib;
+  const before = library.listShows(lib).map((s) => s.id);
+  assert.deepStrictEqual(before.slice().sort(), ["show-1", "show-2"]);
+  lib = makeEpisode(lib, "show-1", "Ep 1").lib;
+
+  // Simulate a page reload: the module re-evaluates with counters reset to 0.
+  library._resetCounters();
+  let restored = library.deserializeLibrary(library.serializeLibrary(lib));
+
+  // A new show created after reload must not reuse an existing id, and must be addressable.
+  const newShow = library.createShow("Show C");
+  assert.ok(before.indexOf(newShow.id) < 0, `new show id ${newShow.id} collides with an existing id`);
+  restored = library.addShow(restored, newShow);
+  assert.strictEqual(library.listShows(restored).length, 3, "all three shows are addressable");
+  assert.strictEqual(library.getShow(restored, newShow.id).name, "Show C", "the new show is reachable by its id");
+
+  // The episode counter is restored too.
+  const newEp = library.createEpisode("show-1", "Ep 2");
+  assert.notStrictEqual(newEp.id, "ep-1", "new episode id does not collide with the restored one");
+});
+
 console.log(`\nshow library: ${passed} assertions passed`);

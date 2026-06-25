@@ -210,11 +210,32 @@
     return JSON.stringify(library || createLibrary());
   }
 
+  // Advance the id counters past any ids already used in a restored library, so shows and
+  // episodes created after a reload never reuse an existing id. Mirrors how show-brand-kit
+  // restores its overlay counter on deserialize.
+  function restoreCounters(library) {
+    const shows = library && Array.isArray(library.shows) ? library.shows : [];
+    shows.forEach(function (show) {
+      const showMatch = /^show-(\d+)$/.exec((show && show.id) || "");
+      if (showMatch) {
+        showCounter = Math.max(showCounter, Number(showMatch[1]));
+      }
+      const episodes = show && Array.isArray(show.episodes) ? show.episodes : [];
+      episodes.forEach(function (ep) {
+        const epMatch = /^ep-(\d+)$/.exec((ep && ep.id) || "");
+        if (epMatch) {
+          episodeCounter = Math.max(episodeCounter, Number(epMatch[1]));
+        }
+      });
+    });
+  }
+
   function deserializeLibrary(json) {
     if (!json) return createLibrary();
     try {
       const parsed = JSON.parse(json);
       if (!parsed || !Array.isArray(parsed.shows)) return createLibrary();
+      restoreCounters(parsed);
       return parsed;
     } catch (err) {
       return createLibrary();
