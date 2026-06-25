@@ -139,6 +139,9 @@
     if (ctx.correctionSummary && ctx.correctionSummary.lines) {
       ctx.correctionSummary.lines.forEach((line) => lines.push(line));
     }
+    if (ctx.brollSuggestionsSummary && ctx.brollSuggestionsSummary.lines) {
+      ctx.brollSuggestionsSummary.lines.forEach((line) => lines.push(line));
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);

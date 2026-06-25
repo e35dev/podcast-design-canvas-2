@@ -1796,6 +1796,79 @@ button:disabled {
   margin-bottom: 8px;
 }
 
+/* ---- Smart b-roll suggestions (#67) ---- */
+.broll-suggestions-step .workspace-head .hint {
+  max-width: 62ch;
+}
+
+.broll-suggestion-list {
+  display: grid;
+  gap: 14px;
+}
+
+.broll-suggestion-row h4 {
+  margin-top: 0;
+}
+
+.broll-suggestion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.broll-suggestion-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.broll-suggestion-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.broll-suggestion-rationale {
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+
+.broll-suggestion-text {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+}
+
+.broll-suggestion-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.broll-suggestion-accepted {
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--line));
+}
+
+.broll-suggestion-dismissed {
+  opacity: 0.72;
+}
+
+.broll-suggestions-line {
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.broll-suggestions-actions,
+.broll-suggestions-inline .actions {
+  margin-top: 8px;
+}
+
+.broll-suggestions-banner .hint {
+  margin-bottom: 8px;
+}
+
 /* ---- Publish package (#60) ---- */
 .publish-package-layout {
   display: grid;

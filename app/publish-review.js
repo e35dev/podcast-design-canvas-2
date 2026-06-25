@@ -218,6 +218,19 @@
       ));
     }
 
+    if (context.brollSuggestionsSummary && context.brollSuggestionsSummary.approved) {
+      if (context.brollSuggestionsSummary.acceptedCount > 0) {
+        checks.push(check(
+          "broll-suggestions-applied",
+          "moments",
+          "ok",
+          "Smart b-roll applied",
+          context.brollSuggestionsSummary.reviewLine || "Accepted b-roll overlays are on the timeline.",
+          null,
+        ));
+      }
+    }
+
     const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
