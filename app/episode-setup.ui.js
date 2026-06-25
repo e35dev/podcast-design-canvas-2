@@ -4080,7 +4080,16 @@
     }
     const previewSize = size || "hero";
     const preview = el("div", {
-      class: `episode-look-preview episode-look-${previewSize} stage-${look.layoutId} preset-${look.presetId}`,
+      class: [
+        "episode-look-preview",
+        `episode-look-${previewSize}`,
+        `stage-${look.layoutId}`,
+        `preset-${look.presetId}`,
+        `frame-${look.frameMode}`,
+        `caption-${look.captionVariant}`,
+        `title-${look.titleVariant}`,
+        `pacing-${look.pacingId}`,
+      ].join(" "),
     });
 
     preview.appendChild(
@@ -4101,7 +4110,7 @@
       const frameEl = el("div", { class: `episode-look-frame${frame.active ? " active" : ""}` });
       const video = el("div", {
         class: "episode-look-video",
-        style: `background:linear-gradient(160deg, ${frame.tile}, ${look.theme.surface});`,
+        style: `background:linear-gradient(160deg, ${frame.tile}, ${look.theme.surface});border-color:${look.theme.accent};`,
       });
       video.appendChild(el("span", { class: "episode-look-initials" }, frame.initials));
       frameEl.appendChild(video);
@@ -4112,14 +4121,20 @@
     stage.appendChild(
       el(
         "div",
-        { class: "episode-look-caption", style: `background:${look.theme.accent};` },
+        { class: `episode-look-caption caption-${look.captionVariant}` },
         look.captionText,
       ),
     );
+    const pacingDots = el("div", { class: "episode-look-pacing-meter", "aria-hidden": "true" });
+    const dotCount = look.pacingId === "punchy" ? 1 : look.pacingId === "relaxed" ? 3 : 2;
+    for (let i = 0; i < dotCount; i += 1) {
+      pacingDots.appendChild(el("span", { class: "episode-look-pacing-dot" }));
+    }
     stage.appendChild(
       el(
         "div",
         { class: "episode-look-meta" },
+        pacingDots,
         el("span", { class: "episode-look-pacing" }, look.pacingLabel),
         el("span", { class: "episode-look-format" }, look.captionStyle),
       ),

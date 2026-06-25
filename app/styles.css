@@ -949,6 +949,171 @@ button.ghost:hover,
   border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
+.episode-look-pacing-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.episode-look-pacing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.pacing-punchy .episode-look-pacing-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.pacing-relaxed .episode-look-pacing-dot {
+  opacity: 0.55;
+}
+
+.frame-panel-row .episode-look-frames {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.frame-duo .episode-look-frames {
+  grid-template-columns: 1fr 1fr;
+  min-height: 92px;
+}
+
+.frame-duo .episode-look-video {
+  min-height: 72px;
+}
+
+.frame-broadcast-spotlight .episode-look-frame.active .episode-look-video {
+  border-width: 2px;
+  box-shadow: 0 0 0 2px rgba(255, 93, 143, 0.35), 0 10px 24px rgba(255, 93, 143, 0.25);
+}
+
+/* Preset-specific preview identity (#120) */
+.preset-studio-spotlight .episode-look-overlay {
+  background: #ffb347;
+  color: #10131f;
+  border-color: transparent;
+}
+
+.preset-studio-spotlight .episode-look-caption.caption-lower-third {
+  width: 72%;
+  margin-top: 10px;
+  background: #ffb347;
+  color: #10131f;
+  border-left: 4px solid #fff;
+  border-radius: 0 10px 10px 0;
+}
+
+.preset-split-stage .episode-look-stage {
+  border: 2px solid rgba(224, 86, 59, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+}
+
+.preset-split-stage .episode-look-overlay {
+  background: #e0563b;
+  color: #fff;
+  border-color: transparent;
+}
+
+.preset-split-stage.title-show-serif .episode-look-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 13px;
+}
+
+.preset-split-stage .episode-look-caption.caption-clean-bar {
+  width: 100%;
+  margin-top: 12px;
+  background: #e0563b;
+  color: #fff;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.preset-panel-grid .episode-look-overlay {
+  background: #4dd0e1;
+  color: #0f1a2b;
+  border-color: transparent;
+}
+
+.preset-panel-grid .episode-look-video {
+  border-radius: 6px;
+  min-height: 64px;
+}
+
+.preset-panel-grid .episode-look-caption.caption-minimal-tag {
+  display: inline-block;
+  width: auto;
+  max-width: 78%;
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: rgba(77, 208, 225, 0.18);
+  color: #eaf6fb;
+  border: 1px solid rgba(77, 208, 225, 0.45);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.preset-bold-broadcast .episode-look-overlay {
+  background: #ff5d8f;
+  color: #1a0f2b;
+  border-color: transparent;
+  letter-spacing: 0.12em;
+}
+
+.preset-bold-broadcast.title-broadcast-ticker .episode-look-title {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+}
+
+.preset-bold-broadcast .episode-look-caption.caption-broadcast {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(90deg, #ff5d8f, #ff8f5d);
+  color: #1a0f2b;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.preset-bold-broadcast.pacing-punchy .episode-look-pacing {
+  background: rgba(255, 93, 143, 0.22);
+  border-color: rgba(255, 93, 143, 0.45);
+}
+
+.preset-split-stage.pacing-relaxed .episode-look-pacing {
+  background: rgba(224, 86, 59, 0.14);
+  border-color: rgba(224, 86, 59, 0.35);
+}
+
+.create-show-preset-card.selected.preset-studio-spotlight,
+.create-show-preset-card:has(.preset-studio-spotlight).selected {
+  border-color: #ffb347;
+  box-shadow: 0 0 0 2px rgba(255, 179, 71, 0.35);
+}
+
+.create-show-preset-card:has(.preset-split-stage).selected {
+  border-color: #e0563b;
+  box-shadow: 0 0 0 2px rgba(224, 86, 59, 0.28);
+}
+
+.create-show-preset-card:has(.preset-panel-grid).selected {
+  border-color: #4dd0e1;
+  box-shadow: 0 0 0 2px rgba(77, 208, 225, 0.35);
+}
+
+.create-show-preset-card:has(.preset-bold-broadcast).selected {
+  border-color: #ff5d8f;
+  box-shadow: 0 0 0 2px rgba(255, 93, 143, 0.35);
+}
+
 .episode-look-foot {
   margin: 0;
   font-size: 12px;

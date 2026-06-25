@@ -20,12 +20,16 @@ const ui = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "
 const styles = fs.readFileSync(path.join(__dirname, "../app/styles.css"), "utf8");
 
 test("buildEpisodeLook returns realistic multi-speaker frames with overlay and caption cues", () => {
-  const look = preview.buildEpisodeLook("split-stage", { showName: "Founders Unfiltered" });
-  assert.strictEqual(look.frames.length, 3);
-  assert.ok(look.frames.every((frame) => frame.name && frame.initials));
-  assert.ok(look.overlayLabel);
-  assert.ok(look.captionText);
-  assert.ok(look.episodeTitle.includes("Founders Unfiltered"));
+  const spotlight = preview.buildEpisodeLook("studio-spotlight", { showName: "Founders Unfiltered" });
+  assert.strictEqual(spotlight.frames.length, 3);
+  assert.ok(spotlight.frames.every((frame) => frame.name && frame.initials));
+  assert.strictEqual(spotlight.overlayLabel, "LIVE");
+
+  const split = preview.buildEpisodeLook("split-stage", { showName: "Founders Unfiltered" });
+  assert.strictEqual(split.frames.length, 2);
+  assert.strictEqual(split.overlayLabel, "Founders");
+  assert.ok(split.captionText);
+  assert.ok(split.episodeTitle.includes("Founders Unfiltered"));
 });
 
 test("buildEpisodeLookFromEpisode uses episode speakers when provided", () => {
@@ -58,14 +62,18 @@ test("new-show setup uses rich episode look previews instead of abstract layout 
 
 test("ACCEPTANCE: every named preset produces a distinct publish-ready look model", () => {
   const layouts = new Set();
+  const captions = new Set();
   style.STYLE_PRESETS.forEach((preset) => {
     const look = preview.buildEpisodeLook(preset.id, { showName: "Demo Show" });
     assert.ok(look.presetName);
     assert.ok(look.captionStyle);
     assert.ok(look.formatCue);
+    assert.ok(look.captionVariant);
     layouts.add(look.layoutId);
+    captions.add(look.captionVariant);
   });
   assert.ok(layouts.size >= 3);
+  assert.strictEqual(captions.size, style.STYLE_PRESETS.length);
 });
 
 console.log(`\nstyle look preview: ${passed} assertions passed`);

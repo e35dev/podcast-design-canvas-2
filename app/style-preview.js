@@ -26,6 +26,102 @@
     "bold-broadcast": "ON AIR",
   };
 
+  const PRESET_VISUAL_PROFILE = {
+    "studio-spotlight": {
+      pacing: "balanced",
+      captionVariant: "lower-third",
+      titleVariant: "episode-bar",
+      captionText: "The host leads in the hero frame while guests stay in the filmstrip.",
+      frameMode: "spotlight",
+    },
+    "split-stage": {
+      pacing: "relaxed",
+      captionVariant: "clean-bar",
+      titleVariant: "show-serif",
+      captionText: "Equal side-by-side frames with a calm, full-width caption bar.",
+      frameMode: "duo",
+    },
+    "panel-grid": {
+      pacing: "balanced",
+      captionVariant: "minimal-tag",
+      titleVariant: "compact",
+      captionText: "Every guest stays on screen in a balanced panel row.",
+      frameMode: "panel-row",
+    },
+    "bold-broadcast": {
+      pacing: "punchy",
+      captionVariant: "broadcast",
+      titleVariant: "broadcast-ticker",
+      captionText: "HIGH-ENERGY CUTS WITH BIG ON-AIR CAPTIONS.",
+      frameMode: "broadcast-spotlight",
+    },
+  };
+
+  function getVisualProfile(presetId) {
+    return PRESET_VISUAL_PROFILE[presetId] || PRESET_VISUAL_PROFILE["studio-spotlight"];
+  }
+
+  function buildFramesForMode(summary, layoutId, frameMode) {
+    const speakers = summary.speakers.slice();
+    let activeIndex = speakers.findIndex((speaker) => /host/i.test(speaker.role));
+    if (activeIndex < 0) {
+      activeIndex = 0;
+    }
+
+    let visible = speakers;
+    if (frameMode === "duo") {
+      visible = speakers.slice(0, 2);
+    }
+
+    return visible.map((speaker, index) => ({
+      role: speaker.role,
+      name: speaker.name,
+      initials: speaker.initials,
+      tile: speaker.tile,
+      active: layoutId === "spotlight" || frameMode === "broadcast-spotlight"
+        ? index === activeIndex
+        : true,
+    }));
+  }
+
+  function lookFromPreset(preset, summary, selection, frameMode) {
+    const STY = styleApi();
+    const profile = getVisualProfile(preset.id);
+    const mergedSelection = Object.assign({}, selection || {}, {
+      presetId: preset.id,
+      layout: (selection && selection.layout) || preset.defaultLayout,
+      pacing: (selection && selection.pacing) || profile.pacing,
+    });
+    const layoutId = STY.resolveLayout(mergedSelection, summary.speakerCount);
+    const pacing = STY.getPacing(mergedSelection.pacing);
+    const frames = buildFramesForMode(summary, layoutId, frameMode || profile.frameMode);
+    return {
+      presetId: preset.id,
+      presetName: preset.name,
+      tagline: preset.tagline,
+      layoutId: layoutId,
+      layoutLabel: STY.getLayout(layoutId).label,
+      pacingId: pacing.id,
+      pacingLabel: pacing.label,
+      captionStyle: preset.captionStyle,
+      captionVariant: profile.captionVariant,
+      titleVariant: profile.titleVariant,
+      frameMode: frameMode || profile.frameMode,
+      formatCue: STY.presetCardSummary(preset).formatCue,
+      episodeTitle: summary.episodeName,
+      showName: summary.showName,
+      captionText: profile.captionText,
+      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
+      theme: {
+        background: preset.background,
+        surface: preset.surface,
+        accent: preset.accent,
+        textColor: preset.textColor,
+      },
+      frames: frames,
+    };
+  }
+
   function trim(value) {
     return typeof value === "string" ? value.trim() : "";
   }
@@ -62,106 +158,53 @@
     const selection = {
       presetId: preset.id,
       layout: preset.defaultLayout,
-      pacing: opts.pacing || "balanced",
+      pacing: opts.pacing || getVisualProfile(preset.id).pacing,
     };
-    const layoutId = STY.resolveLayout(selection, summary.speakerCount);
-    let activeIndex = summary.speakers.findIndex((speaker) => /host/i.test(speaker.role));
-    if (activeIndex < 0) {
-      activeIndex = 0;
-    }
-    const frames = summary.speakers.map((speaker, index) => ({
-      role: speaker.role,
-      name: speaker.name,
-      initials: speaker.initials,
-      tile: speaker.tile,
-      active: layoutId === "spotlight" ? index === activeIndex : true,
-    }));
-    const pacing = STY.getPacing(selection.pacing);
-    return {
-      presetId: preset.id,
-      presetName: preset.name,
-      tagline: preset.tagline,
-      layoutId: layoutId,
-      layoutLabel: STY.getLayout(layoutId).label,
-      pacingLabel: pacing.label,
-      captionStyle: preset.captionStyle,
-      formatCue: STY.presetCardSummary(preset).formatCue,
-      episodeTitle: summary.episodeName,
-      showName: summary.showName,
-      captionText: "Building in public means shipping the story before the polish is perfect.",
-      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
-      theme: {
-        background: preset.background,
-        surface: preset.surface,
-        accent: preset.accent,
-        textColor: preset.textColor,
-      },
-      frames: frames,
-    };
+    return lookFromPreset(preset, summary, selection, getVisualProfile(preset.id).frameMode);
   }
 
-  function buildEpisodeLookFromEpisode(presetId, summary, selection) {
+  function buildEpisodeLookFromEpisode(presetId, episodeSummary, selection) {
     const STY = styleApi();
-    const episode = summary || {};
+    const episode = episodeSummary || {};
     const sel = selection || {};
     const preset = STY ? STY.getPreset(presetId || sel.presetId) : null;
     if (!preset) {
       return null;
     }
+    const speakers = Array.isArray(episode.speakers) && episode.speakers.length
+      ? episode.speakers.map((speaker, index) => {
+        const sample = SAMPLE_SPEAKERS[index] || SAMPLE_SPEAKERS[0];
+        const name = trim(speaker && speaker.name) || sample.name;
+        return {
+          role: (speaker && speaker.role) || sample.role,
+          name: name,
+          initials: initialsForName(name),
+          tile: sample.tile,
+        };
+      })
+      : SAMPLE_SPEAKERS;
+    const speakerCount = episode.speakerCount || speakers.length;
+    const showName = trim(episode.episodeName).split("·")[0].trim() || "Your show";
+    const previewSummary = {
+      episodeName: trim(episode.episodeName) || `${showName} · Episode 1`,
+      showName: showName,
+      speakers: speakers,
+      speakerCount: speakerCount,
+    };
     const mergedSelection = {
       presetId: preset.id,
       layout: sel.layout || preset.defaultLayout,
-      pacing: sel.pacing || "balanced",
+      pacing: sel.pacing || getVisualProfile(preset.id).pacing,
     };
-    const speakers = Array.isArray(episode.speakers) && episode.speakers.length
-      ? episode.speakers
-      : SAMPLE_SPEAKERS;
-    const speakerCount = episode.speakerCount || speakers.length;
-    const layoutId = STY.resolveLayout(mergedSelection, speakerCount);
-    let activeIndex = speakers.findIndex((speaker) => /host/i.test((speaker && speaker.role) || ""));
-    if (activeIndex < 0 && speakers.length) {
-      activeIndex = 0;
-    }
-    const frames = speakers.map((speaker, index) => {
-      const sample = SAMPLE_SPEAKERS[index] || SAMPLE_SPEAKERS[0];
-      const name = trim(speaker && speaker.name) || sample.name;
-      return {
-        role: (speaker && speaker.role) || sample.role,
-        name: name,
-        initials: initialsForName(name),
-        tile: sample.tile,
-        active: layoutId === "spotlight" ? index === activeIndex : true,
-      };
-    });
-    const pacing = STY.getPacing(mergedSelection.pacing);
-    const showName = trim(episode.episodeName).split("·")[0].trim() || "Your show";
-    return {
-      presetId: preset.id,
-      presetName: preset.name,
-      tagline: preset.tagline,
-      layoutId: layoutId,
-      layoutLabel: STY.getLayout(layoutId).label,
-      pacingLabel: pacing.label,
-      captionStyle: preset.captionStyle,
-      formatCue: STY.presetCardSummary(preset).formatCue,
-      episodeTitle: trim(episode.episodeName) || `${showName} · Episode 1`,
-      showName: showName,
-      captionText: "Building in public means shipping the story before the polish is perfect.",
-      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
-      theme: {
-        background: preset.background,
-        surface: preset.surface,
-        accent: preset.accent,
-        textColor: preset.textColor,
-      },
-      frames: frames,
-    };
+    return lookFromPreset(preset, previewSummary, mergedSelection, getVisualProfile(preset.id).frameMode);
   }
 
   const api = {
     SAMPLE_SPEAKERS,
     PRESET_OVERLAY,
+    PRESET_VISUAL_PROFILE,
     sampleEpisodeSummary,
+    getVisualProfile,
     buildEpisodeLook,
     buildEpisodeLookFromEpisode,
   };
