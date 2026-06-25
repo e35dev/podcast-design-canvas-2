@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 const required = [
   "index.html",
   "app/styles.css",
+  "app/show-library.js",
   "app/episode-setup.js",
   "app/episode-style.js",
   "app/audio-polish.js",
@@ -36,6 +37,7 @@ for (const file of required) {
 
 // Parse-check every shipped script.
 for (const file of [
+  "app/show-library.js",
   "app/episode-setup.js",
   "app/episode-style.js",
   "app/audio-polish.js",
@@ -63,6 +65,7 @@ if (existsSync("index.html")) {
   const html = readFileSync("index.html", "utf8");
   for (const ref of [
     "app/styles.css",
+    "app/show-library.js",
     "app/episode-setup.js",
     "app/episode-style.js",
     "app/audio-polish.js",
