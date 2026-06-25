@@ -12,6 +12,7 @@
   const VM = window.PdcVisualMoments;
   const SC = window.PdcSocialContext;
   const EXP = window.PdcEpisodeExport;
+  const RV = window.PdcEpisodeReview;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -38,6 +39,10 @@
   let momentsBoard = null;
   let selectedMomentId = null;
   let exportJob = null;
+  // Full-episode review/approval (#37): the last quality gate before export. Holds the
+  // approved review so the gate stays closed until every required check passes, and
+  // re-locks whenever the creator changes a choice that the review depends on.
+  let approvedReview = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -752,6 +757,17 @@
     if (exportAvailable) {
       exportButton.addEventListener("click", () => renderExport(summary));
     }
+    const reviewAvailable = Boolean(RV);
+    const reviewReady = reviewAvailable && RV.buildReview(summary, buildExportContext(summary)).canApprove;
+    const episodeApproved = isEpisodeApproved(summary);
+    const reviewButton = el(
+      "button",
+      { type: "button", class: reviewReady && !episodeApproved ? "primary" : "ghost", disabled: reviewAvailable ? null : true },
+      episodeApproved ? "View approval →" : "Review & approve →",
+    );
+    if (reviewAvailable) {
+      reviewButton.addEventListener("click", () => renderReview(summary));
+    }
     const nextTitle = exportJob && exportJob.status === "ready"
       ? "Export complete"
       : activeTemplateId
@@ -787,7 +803,12 @@
     if (visualAvailable) {
       actions.appendChild(visualButton);
     }
-    if (exportAvailable && exportReady) {
+    // The review gate sits between the workspace and export: once the episode is
+    // export-ready, the creator reviews and approves it, then exports.
+    if (reviewAvailable && reviewReady) {
+      actions.appendChild(reviewButton);
+    }
+    if (exportAvailable && exportReady && (!reviewAvailable || episodeApproved)) {
       actions.appendChild(exportButton);
     }
     actions.appendChild(
@@ -818,6 +839,193 @@
         view.appendChild(renderSavedTemplatesCard(saved, summary));
       }
     }
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Full-episode review & approval (#37) -----------------------------------
+
+  // True only when the creator has approved AND the episode still passes every
+  // required check. Any later change that breaks a required check re-locks the gate.
+  function isEpisodeApproved(summary) {
+    if (!RV || !approvedReview || !approvedReview.approved) {
+      return false;
+    }
+    const fresh = RV.buildReview(summary, buildExportContext(summary));
+    return fresh.canApprove;
+  }
+
+  // Route a review item's resolve action to the screen that fixes it.
+  function goToReviewStep(step, summary) {
+    if (!RV) {
+      renderWorkspace(summary);
+      return;
+    }
+    switch (step) {
+      case RV.STEPS.SETUP:
+        showErrors = false;
+        contextApproved = false;
+        contextReview = null;
+        renderSetup();
+        return;
+      case RV.STEPS.CONTEXT:
+        if (SC) {
+          if (!contextReview) {
+            contextReview = SC.createReview(summary);
+          }
+          renderContextReview(summary);
+          return;
+        }
+        break;
+      case RV.STEPS.AUDIO:
+        if (AP) {
+          if (!audioPolish) {
+            audioPolish = AP.createPolish(summary);
+          }
+          renderAudioPolish(summary);
+          return;
+        }
+        break;
+      case RV.STEPS.STYLE:
+        if (STY) {
+          renderStyle(summary);
+          return;
+        }
+        break;
+      case RV.STEPS.CANVAS:
+        if (CL && CE && appliedStyle) {
+          openCanvasEditor(summary);
+          return;
+        }
+        if (STY) {
+          renderStyle(summary);
+          return;
+        }
+        break;
+      case RV.STEPS.MOMENTS:
+        if (VM) {
+          renderVisualMoments(summary);
+          return;
+        }
+        break;
+      case RV.STEPS.EXPORT:
+        renderExport(summary);
+        return;
+      default:
+        break;
+    }
+    renderWorkspace(summary);
+  }
+
+  function reviewStatusBadge(status) {
+    if (!RV) {
+      return el("span", { class: "review-badge" }, status);
+    }
+    if (status === RV.STATUS.READY) {
+      return el("span", { class: "review-badge ready", "aria-label": "Ready" }, "Ready");
+    }
+    if (status === RV.STATUS.BLOCKED) {
+      return el("span", { class: "review-badge blocked", "aria-label": "Needs attention" }, "Required");
+    }
+    return el("span", { class: "review-badge attention", "aria-label": "Recommended" }, "Optional");
+  }
+
+  function renderReview(summary) {
+    root.innerHTML = "";
+    setStep("Step 7 of 7 · Review & approve");
+    if (!RV) {
+      renderWorkspace(summary);
+      return;
+    }
+
+    const review = RV.buildReview(summary, buildExportContext(summary));
+    const overview = RV.summarizeReview(approvedReview && approvedReview.approved && review.canApprove ? approvedReview : review);
+    const approvedNow = isEpisodeApproved(summary);
+
+    const view = el("div", { class: "review-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Review & approve"),
+        el("h2", {}, `Review ${summary.episodeName || "this episode"}`),
+        el(
+          "p",
+          { class: "hint" },
+          "Check the full episode end to end. Required items must pass before you can approve; optional items are suggestions to make it shine.",
+        ),
+      ),
+    );
+
+    const statusCard = el(
+      "section",
+      { class: `card review-status${approvedNow ? " approved" : review.canApprove ? " ready" : " blocked"}` },
+      el("h3", {}, approvedNow ? "Episode approved" : review.canApprove ? "Ready to approve" : "Not ready to approve yet"),
+      el("p", { class: approvedNow || review.canApprove ? "review-ready" : "field-error" }, overview.headline),
+      el(
+        "p",
+        { class: "hint" },
+        `${overview.readyCount} ready · ${overview.blockedCount} required outstanding · ${overview.warningCount} optional`,
+      ),
+    );
+    view.appendChild(statusCard);
+
+    const checklist = el("section", { class: "card review-checklist" }, el("h3", {}, "Episode checklist"));
+    review.items.forEach((item) => {
+      const row = el(
+        "div",
+        { class: `review-item ${item.status}` },
+        el(
+          "div",
+          { class: "review-item-head" },
+          reviewStatusBadge(item.status),
+          el("span", { class: "review-item-label" }, item.label),
+        ),
+        el("p", { class: "review-item-message" }, item.message),
+      );
+      if (item.action && item.status !== RV.STATUS.READY) {
+        const fix = el("button", { type: "button", class: "ghost review-fix" }, item.action.label + " →");
+        fix.addEventListener("click", () => goToReviewStep(item.action.step, summary));
+        row.appendChild(fix);
+      }
+      checklist.appendChild(row);
+    });
+    view.appendChild(checklist);
+
+    const actions = el("div", { class: "actions" });
+
+    if (!approvedNow) {
+      const approveButton = el(
+        "button",
+        { type: "button", class: review.canApprove ? "primary" : "ghost", disabled: review.canApprove ? null : true },
+        "Approve episode",
+      );
+      if (review.canApprove) {
+        approveButton.addEventListener("click", () => {
+          approvedReview = RV.approveReview(review);
+          renderReview(summary);
+        });
+      }
+      actions.appendChild(approveButton);
+    } else {
+      const exportButton = el("button", { type: "button", class: "primary" }, "Continue to export →");
+      exportButton.addEventListener("click", () => renderExport(summary));
+      actions.appendChild(exportButton);
+
+      const reopen = el("button", { type: "button", class: "ghost" }, "Reopen for edits");
+      reopen.addEventListener("click", () => {
+        approvedReview = RV.revokeApproval(approvedReview);
+        renderReview(summary);
+      });
+      actions.appendChild(reopen);
+    }
+
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    actions.appendChild(back);
+
+    view.appendChild(el("section", { class: "card next-step" }, actions));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -864,6 +1072,30 @@
       const backBlocked = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
       backBlocked.addEventListener("click", () => renderWorkspace(summary));
       view.appendChild(el("div", { class: "actions" }, backBlocked));
+      root.appendChild(view);
+      view.scrollIntoView({ block: "start" });
+      return;
+    }
+
+    // Review gate (#37): an episode must be approved in review before it can export.
+    if (RV && !isEpisodeApproved(summary)) {
+      view.appendChild(
+        el(
+          "section",
+          { class: "card export-blocked" },
+          el("h3", {}, "Approve this episode before exporting"),
+          el(
+            "p",
+            { class: "hint" },
+            "Run the full-episode review and approve it. Approval confirms speakers, audio, style, captions, and export readiness all pass.",
+          ),
+        ),
+      );
+      const toReview = el("button", { type: "button", class: "primary" }, "Review & approve →");
+      toReview.addEventListener("click", () => renderReview(summary));
+      const backToWorkspace = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+      backToWorkspace.addEventListener("click", () => renderWorkspace(summary));
+      view.appendChild(el("div", { class: "actions" }, toReview, backToWorkspace));
       root.appendChild(view);
       view.scrollIntoView({ block: "start" });
       return;

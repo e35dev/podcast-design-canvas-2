@@ -1283,3 +1283,77 @@ button:disabled {
   font-weight: 600;
   margin: 0 0 4px;
 }
+
+/* ---- Full-episode review & approval (#37) ---- */
+.review-status.ready {
+  border-color: var(--ok);
+}
+
+.review-status.blocked {
+  border-color: var(--warn);
+}
+
+.review-status.approved {
+  border-color: var(--ok);
+  background: rgba(31, 157, 107, 0.06);
+}
+
+.review-checklist .review-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 10px 0 0;
+}
+
+.review-checklist .review-item.blocked {
+  border-color: var(--warn);
+  background: rgba(200, 50, 74, 0.04);
+}
+
+.review-checklist .review-item.attention {
+  border-color: #d8a13a;
+  background: rgba(216, 161, 58, 0.05);
+}
+
+.review-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-item-label {
+  font-weight: 700;
+}
+
+.review-item-message {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.review-fix {
+  margin: 10px 0 0;
+}
+
+.review-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--brand-ink);
+  background: var(--ink-soft);
+}
+
+.review-badge.ready {
+  background: var(--ok);
+}
+
+.review-badge.blocked {
+  background: var(--warn);
+}
+
+.review-badge.attention {
+  background: #d8a13a;
+}
