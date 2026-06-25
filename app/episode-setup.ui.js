@@ -5,7 +5,7 @@
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
 // transcript correction (#63), episode import before brand setup (#73),
-// and episode import polish (#77).
+// episode import polish (#77), and episode import scan layout (#86).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -24,6 +24,7 @@
   const ONB = window.PdcShowOnboarding;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const SCAN = window.PdcEpisodeImportScan;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -873,6 +874,45 @@
     return typeof value === "string" ? value.trim() : "";
   }
 
+  function setupSectionTitle(sectionId, fallback) {
+    return SCAN ? SCAN.sectionTitle(sectionId) : fallback;
+  }
+
+  function renderSetupDraftReview() {
+    if (!SCAN) {
+      return null;
+    }
+    const episode = ES.summarize(state);
+    const summary = SCAN.buildDraftSummary(state, episode);
+    const card = el(
+      "section",
+      { class: "card setup-section setup-draft-review" },
+      el("h2", {}, "Review your draft episode"),
+      el("p", { class: "hint setup-section-lead" }, "Check names, Host/Guest roles, and sources before you continue."),
+      el("p", { class: "setup-draft-review-line" }, summary.reviewLine),
+    );
+    const list = el("ul", { class: "setup-draft-speaker-list" });
+    summary.speakerLines.forEach((line) => {
+      list.appendChild(
+        el(
+          "li",
+          { class: "setup-draft-speaker-item" },
+          el("span", { class: "setup-draft-role" }, line.role),
+          el("span", { class: "setup-draft-name" }, line.name),
+          el("span", { class: "setup-draft-source" }, line.source),
+          line.socialCount
+            ? el("span", { class: "setup-draft-social" }, `${line.socialCount} social link${line.socialCount === 1 ? "" : "s"}`)
+            : null,
+        ),
+      );
+    });
+    card.appendChild(list);
+    if (summary.sourceMode === "riverside" && summary.riversideLink) {
+      card.appendChild(el("p", { class: "hint setup-draft-riverside" }, `Riverside link: ${summary.riversideLink}`));
+    }
+    return card;
+  }
+
   function renderSetup() {
     sanitizeSetupState();
     setPageIntro("episode-setup");
@@ -947,8 +987,8 @@
 
     const detailsCard = el(
       "section",
-      { class: "card setup-section" },
-      el("h2", {}, "Episode details"),
+      { class: "card setup-section setup-section-details" },
+      el("h2", {}, setupSectionTitle("details", "Episode details")),
       el("p", { class: "hint setup-section-lead" }, "Name this episode so it is easy to find in your show library."),
       field("Episode name", nameInput, "episodeName"),
     );
@@ -973,8 +1013,8 @@
 
     const sourceCard = el(
       "section",
-      { class: "card setup-section" },
-      el("h2", {}, "Recording source"),
+      { class: "card setup-section setup-section-source" },
+      el("h2", {}, setupSectionTitle("source", "Recording source")),
       el("p", { class: "hint setup-section-lead" }, "Choose how you recorded — Riverside link or separate synced speaker files."),
       el("div", { class: "mode-row" }, modeButtons),
     );
@@ -1009,7 +1049,7 @@
     const speakersCard = el(
       "section",
       { class: "card setup-section setup-speakers-card" },
-      el("h2", {}, "Speakers & sources"),
+      el("h2", {}, setupSectionTitle("speakers", "Speakers & sources")),
       el(
         "p",
         { class: "hint setup-section-lead" },
@@ -1033,6 +1073,11 @@
       if (saved.length) {
         form.appendChild(renderSavedTemplatesCard(saved, null));
       }
+    }
+
+    const draftReview = renderSetupDraftReview();
+    if (draftReview) {
+      form.appendChild(draftReview);
     }
 
     form.appendChild(
@@ -1063,7 +1108,12 @@
     const header = el(
       "div",
       { class: "speaker-head" },
-      el("span", { class: "speaker-tag" }, `Source ${index + 1}`),
+      el(
+        "div",
+        { class: "speaker-head-main" },
+        el("span", { class: "speaker-role-pill" }, speaker.role),
+        el("span", { class: "speaker-tag" }, `Source ${index + 1}`),
+      ),
     );
     const removeButton = el("button", {
       type: "button",
@@ -1113,7 +1163,13 @@
       speaker.role = e.target.value;
     });
     core.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
-    body.appendChild(core);
+
+    const identityGroup = el("div", { class: "speaker-group speaker-group-identity" });
+    if (SCAN) {
+      identityGroup.appendChild(el("h3", { class: "speaker-group-label" }, SCAN.speakerGroupLabel("identity")));
+    }
+    identityGroup.appendChild(core);
+    body.appendChild(identityGroup);
 
     // Source: file (upload) or optional channel label (riverside)
     const sourceBlock = el("div", { class: "speaker-source-block" });
@@ -1151,10 +1207,20 @@
       });
       sourceBlock.appendChild(field("Channel label", trackInput, null, "Optional — name this speaker's channel in the recording."));
     }
-    body.appendChild(sourceBlock);
+
+    const recordingGroup = el("div", { class: "speaker-group speaker-group-recording" });
+    if (SCAN) {
+      recordingGroup.appendChild(el("h3", { class: "speaker-group-label" }, SCAN.speakerGroupLabel("recording")));
+    }
+    recordingGroup.appendChild(sourceBlock);
+    body.appendChild(recordingGroup);
 
     // Optional social links
-    const social = el("details", { class: "social" });
+    const socialGroup = el("div", { class: "speaker-group speaker-group-social" });
+    if (SCAN) {
+      socialGroup.appendChild(el("h3", { class: "speaker-group-label" }, SCAN.speakerGroupLabel("social")));
+    }
+    const social = el("details", { class: "social", open: true });
     social.appendChild(el("summary", {}, "Social links (optional)"));
     const socialHint = el(
       "p",
@@ -1175,7 +1241,8 @@
       });
       social.appendChild(field(net.label, input, `speaker:${index}:social:${net.key}`));
     });
-    body.appendChild(social);
+    socialGroup.appendChild(social);
+    body.appendChild(socialGroup);
     card.appendChild(body);
 
     return card;

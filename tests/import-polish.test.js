@@ -39,6 +39,8 @@ test("ACCEPTANCE: library → create show → import path keeps polished setup s
   assert.ok(ui.includes('class: "setup setup-import"'));
   assert.ok(ui.includes("setup-speakers-card"));
   assert.ok(ui.includes("speaker-card"));
+  assert.ok(ui.includes("setup-draft-review"));
+  assert.ok(ui.includes("speaker-group-identity"));
   assert.ok(styles.includes(".setup-cta-bar"));
 });
 
