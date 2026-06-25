@@ -6,7 +6,7 @@
 // creator-facing production flow with plain-language stage status and summaries.
 // DOM-free so the workspace screen and tests share one source of truth.
 (function (global) {
-  const STAGE_ORDER = ["setup", "style", "audio", "moments", "template", "review", "export"];
+  const STAGE_ORDER = ["setup", "style", "audio", "moments", "template", "transcript", "review", "package", "export"];
 
   const ACTION_TARGETS = {
     setup: "setup",
@@ -14,7 +14,9 @@
     audio: "audio",
     moments: "moments",
     template: "canvas",
+    transcript: "transcript",
     review: "review",
+    package: "package",
     export: "export",
   };
 
@@ -122,13 +124,35 @@
       ACTION_TARGETS.template,
     ));
 
+    // Transcript & caption review (#63) --------------------------------------
+    const transcriptApproved = Boolean(context.transcriptReviewApproved);
+    let transcriptStatus = STATUS.PENDING;
+    if (transcriptApproved) {
+      transcriptStatus = STATUS.COMPLETE;
+    } else if (templateName || styleApplied) {
+      transcriptStatus = styleApplied && audioApplied ? STATUS.ACTIVE : STATUS.PENDING;
+    }
+    stages.push(stage(
+      "transcript",
+      "Transcript review",
+      transcriptStatus,
+      transcriptApproved
+        ? "Corrections reviewed and ready for publish review."
+        : styleApplied && audioApplied
+          ? "Fix names, brands, topics, and caption text before publishing."
+          : "Complete audio, style, and template steps first.",
+      transcriptApproved ? "View corrections" : "Review transcript",
+      ACTION_TARGETS.transcript,
+    ));
+
     // Publish review ----------------------------------------------------------
     const exportReady = Boolean(context.exportReady);
+    const transcriptReviewApproved = Boolean(context.transcriptReviewApproved);
     const reviewApproved = Boolean(context.publishReviewApproved);
     let reviewStatus = STATUS.PENDING;
     if (reviewApproved) {
       reviewStatus = STATUS.COMPLETE;
-    } else if (exportReady) {
+    } else if (exportReady && transcriptReviewApproved) {
       reviewStatus = STATUS.ACTIVE;
     }
     stages.push(stage(
@@ -137,11 +161,32 @@
       reviewStatus,
       reviewApproved
         ? "Episode approved — ready to export."
-        : exportReady
+        : exportReady && transcriptReviewApproved
           ? "Run the full-episode confidence check before exporting."
-          : "Complete audio and style before reviewing.",
+          : "Complete transcript review and core prep before reviewing.",
       reviewApproved ? "View review" : "Review episode",
       ACTION_TARGETS.review,
+    ));
+
+    // Publish package -------------------------------------------------------
+    const packageReady = Boolean(context.publishPackageReady);
+    let packageStatus = STATUS.PENDING;
+    if (packageReady) {
+      packageStatus = STATUS.COMPLETE;
+    } else if (reviewApproved) {
+      packageStatus = STATUS.ACTIVE;
+    }
+    stages.push(stage(
+      "package",
+      "Publish package",
+      packageStatus,
+      packageReady
+        ? "Episode package is editable and export-ready."
+        : reviewApproved
+          ? "Build package metadata, chapter list, credits, and thumbnail options."
+          : "Approve the publish review to unlock package building.",
+      packageReady ? "View package" : "Build package",
+      ACTION_TARGETS.package,
     ));
 
     // Export ------------------------------------------------------------------
@@ -158,9 +203,11 @@
       exportStatus,
       exportDone
         ? `Ready to download${context.exportDownloadName ? `: ${context.exportDownloadName}` : ""}`
-        : reviewApproved
+        : reviewApproved && packageReady
           ? "Choose platform, resolution, and caption options."
-          : "Approve the publish review to unlock export.",
+          : reviewApproved
+            ? "Build the publish package to unlock export."
+            : "Approve the publish review to unlock export.",
       exportDone ? "View export" : "Export episode",
       ACTION_TARGETS.export,
     ));

@@ -12,6 +12,7 @@
     audio: "audio",
     style: "style",
     canvas: "canvas",
+    transcript: "transcript",
     moments: "moments",
     workspace: "workspace",
     export: "export",
@@ -218,6 +219,28 @@
       ));
     }
 
+    if (ctx.transcriptReview && ctx.transcriptReview.approved) {
+      checks.push(check(
+        "transcript-ok",
+        "transcript",
+        "ok",
+        "Transcript review complete",
+        ctx.transcriptSummary && ctx.transcriptSummary.reviewLine
+          ? ctx.transcriptSummary.reviewLine
+          : "Speaker and caption corrections were reviewed and applied.",
+        null,
+      ));
+    } else {
+      checks.push(check(
+        "transcript-missing",
+        "transcript",
+        "blocker",
+        "Transcript review missing",
+        "Review and approve transcript and caption corrections before exporting.",
+        { label: "Review transcript", target: FIX_TARGETS.transcript },
+      ));
+    }
+
     const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
@@ -311,6 +334,15 @@
           ? `${context.momentsSummary.total} moments`
           : "None placed",
         status: sectionStatus("moments"),
+      },
+      {
+        id: "transcript",
+        label: "Transcript & caption review",
+        time: "55:00",
+        summary: context.transcriptSummary && context.transcriptSummary.approved
+          ? `Transcript corrections applied${context.transcriptSummary.speakerCorrectionCount ? ` · ${context.transcriptSummary.speakerCorrectionCount} speaker fixes` : ""}`
+          : "Approve transcript and caption corrections.",
+        status: sectionStatus("transcript"),
       },
       {
         id: "export",

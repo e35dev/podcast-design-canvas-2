@@ -22,6 +22,12 @@
     { id: "sidecar", label: "Separate caption file", tagline: "Video plus .srt for flexible uploads" },
   ];
 
+  const PACKAGE_THUMBNAILS = [
+    { id: "title-card", label: "Episode title card", summary: "Episode title and show identity" },
+    { id: "speaker-grid", label: "Speaker grid", summary: "Speaker credits in a branded card stack" },
+    { id: "moment-highlights", label: "Chapter highlights", summary: "Top moments with large title treatment" },
+  ];
+
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -36,6 +42,192 @@
 
   function getCaptionMode(id) {
     return CAPTION_MODES.find((item) => item.id === id) || CAPTION_MODES[0];
+  }
+
+  function safeText(value, fallback) {
+    const text = typeof value === "string" ? value.trim() : "";
+    return text || fallback;
+  }
+
+  function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function applyReviewReplacements(value, replacements) {
+    let next = safeText(value, "");
+    if (!next) {
+      return next;
+    }
+    (replacements || []).forEach((entry) => {
+      if (!entry || !entry.from || !entry.to) {
+        return;
+      }
+      const pattern = new RegExp(escapeRegExp(entry.from), "gi");
+      next = next.replace(pattern, entry.to);
+    });
+    return next;
+  }
+
+  function transcriptReviewReplacements(review) {
+    if (!review || !review.approved || !Array.isArray(review.speakers)) {
+      return [];
+    }
+    const pairs = [];
+    review.speakers.forEach((speaker) => {
+      if (speaker.speakerNameCorrected && speaker.speakerNameCorrected !== speaker.speakerName) {
+        pairs.push({ from: speaker.speakerName, to: speaker.speakerNameCorrected });
+      }
+      if (speaker.brandCorrected && speaker.brandCorrected !== speaker.brand) {
+        pairs.push({ from: speaker.brand, to: speaker.brandCorrected });
+      }
+      const topics = Array.isArray(speaker.topics) ? speaker.topics : [];
+      const correctedTopics = Array.isArray(speaker.topicsCorrected) ? speaker.topicsCorrected : [];
+      const max = Math.max(topics.length, correctedTopics.length);
+      for (let index = 0; index < max; index += 1) {
+        const from = safeText(topics[index], "");
+        const to = safeText(correctedTopics[index], "");
+        if (from && to && from !== to) {
+          pairs.push({ from, to });
+        }
+      }
+    });
+    return pairs;
+  }
+
+  function applyTranscriptReviewLine(review, text) {
+    return applyReviewReplacements(text, transcriptReviewReplacements(review));
+  }
+
+  function defaultDescription(episode) {
+    return `${safeText(episode.episodeName, "The episode")} was prepared with a publish-ready long-form package.`;
+  }
+
+  function defaultChapters(episode) {
+    const speakerCount = (episode.speakers || []).length;
+    const extra = Math.min(Math.max(speakerCount, 1), 2);
+    const items = [
+      { time: "0:00", title: safeText(episode.episodeName, "Episode") + " · Opening" },
+    ];
+    for (let index = 0; index < extra; index++) {
+      items.push({
+        time: `${index + 1}:00`,
+        title: `Segment ${index + 2}`,
+      });
+    }
+    return items;
+  }
+
+  function defaultCredits(episode) {
+    const speakers = Array.isArray(episode.speakers) ? episode.speakers : [];
+    if (!speakers.length) {
+      return "";
+    }
+    return speakers.map((speaker) => `${speaker.name || "Speaker"} — ${speaker.role || "Guest"}`).join("\n");
+  }
+
+  function buildPublishPackage(episodeSummary, context) {
+    const episode = episodeSummary || {};
+    const kitLine = (context && context.brandKitSummary && context.brandKitSummary.reviewLine) || "";
+    const thumbs = PACKAGE_THUMBNAILS.map((item) => ({
+      id: item.id,
+      label: item.label,
+      summary: `${item.summary}${kitLine ? ` (${kitLine})` : ""}`,
+    }));
+    return {
+      episodeName: safeText(episode.episodeName, ""),
+      title: safeText(episode.episodeName, "Episode publish package"),
+      description: defaultDescription(episode),
+      chapters: defaultChapters(episode),
+      credits: defaultCredits(episode),
+      thumbnails: thumbs,
+      selectedThumbnailId: thumbs[0] ? thumbs[0].id : "",
+    };
+  }
+
+  function validatePublishPackage(pkg) {
+    const packageState = pkg || {};
+    if (!safeText(packageState.title, "")) {
+      return { ok: false, error: "Add a publish package title before exporting." };
+    }
+    if (!safeText(packageState.description, "")) {
+      return { ok: false, error: "Add a publish package description before exporting." };
+    }
+    if (!Array.isArray(packageState.chapters) || packageState.chapters.length === 0) {
+      return { ok: false, error: "Add at least one chapter marker before exporting." };
+    }
+    if (!Array.isArray(packageState.thumbnails) || packageState.thumbnails.length < 3) {
+      return { ok: false, error: "Publish package requires at least three thumbnail options." };
+    }
+    if (!packageState.selectedThumbnailId) {
+      return { ok: false, error: "Select a thumbnail option before exporting." };
+    }
+    return { ok: true };
+  }
+
+  function updateChapterTime(chapterId, value) {
+    return {
+      chapterId: safeText(chapterId, ""),
+      time: safeText(value, "0:00"),
+    };
+  }
+
+  function updateChapterTitle(chapterId, value) {
+    return {
+      chapterId: safeText(chapterId, ""),
+      title: safeText(value, "Chapter"),
+    };
+  }
+
+  function normalizePublishPackage(pkg) {
+    const base = clone(pkg || buildPublishPackage({}, {}));
+    if (!Array.isArray(base.thumbnails) || base.thumbnails.length === 0) {
+      base.thumbnails = PACKAGE_THUMBNAILS.map((item) => ({ id: item.id, label: item.label, summary: item.summary }));
+    }
+    if (!base.thumbnails.find((item) => item.id === base.selectedThumbnailId)) {
+      base.selectedThumbnailId = base.thumbnails[0] ? base.thumbnails[0].id : "";
+    }
+    return base;
+  }
+
+  function updatePublishPackage(state, key, value) {
+    const next = normalizePublishPackage(state);
+    if (key === "title") {
+      next.title = safeText(value, next.title);
+      return next;
+    }
+    if (key === "description") {
+      next.description = safeText(value, next.description);
+      return next;
+    }
+    if (key === "credits") {
+      next.credits = safeText(value, next.credits);
+      return next;
+    }
+    if (key === "selectedThumbnailId") {
+      next.selectedThumbnailId = String(value || "");
+      return next;
+    }
+    if (key === "chapter-time") {
+      const chapter = updateChapterTime(value.chapterId, value.time);
+      next.chapters = (next.chapters || []).map((item, index) => {
+        if (String(index) === chapter.chapterId || String(item.id) === chapter.chapterId) {
+          return Object.assign({}, item, { time: chapter.time });
+        }
+        return item;
+      });
+      return next;
+    }
+    if (key === "chapter-title") {
+      const chapter = updateChapterTitle(value.chapterId, value.title);
+      next.chapters = (next.chapters || []).map((item, index) => {
+        if (String(index) === chapter.chapterId || String(item.id) === chapter.chapterId) {
+          return Object.assign({}, item, { title: chapter.title });
+        }
+        return item;
+      });
+      return next;
+    }
+    return next;
   }
 
   function createExport(episodeSummary, options) {
@@ -108,6 +300,8 @@
     const episode = episodeSummary || {};
     const ctx = context || {};
     const job = exportState || {};
+    const pkg = ctx.package || ctx.publishPackage || null;
+    const transcriptReview = ctx.transcriptReview || null;
     const lines = [];
 
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
@@ -132,6 +326,29 @@
     }
     if (ctx.brandKitSummary && ctx.brandKitSummary.reviewLine) {
       lines.push(ctx.brandKitSummary.reviewLine);
+    }
+    if (pkg && pkg.title) {
+      const packageTitle = transcriptReview && transcriptReview.approved ? applyTranscriptReviewLine(transcriptReview, pkg.title) : pkg.title;
+      lines.push(`Publish package: ${packageTitle}`);
+    }
+    if (pkg && pkg.description) {
+      const description = transcriptReview && transcriptReview.approved
+        ? applyTranscriptReviewLine(transcriptReview, pkg.description)
+        : pkg.description;
+      lines.push(`Package description: ${description}`);
+    }
+    if (pkg && Array.isArray(pkg.chapters) && pkg.chapters.length) {
+      lines.push(`Publish chapters: ${pkg.chapters.length}`);
+    }
+    if (pkg && pkg.credits) {
+      const credits = transcriptReview && transcriptReview.approved
+        ? applyTranscriptReviewLine(transcriptReview, pkg.credits)
+        : pkg.credits;
+      lines.push(`Speaker credits: ${credits}`);
+    }
+    if (pkg && pkg.selectedThumbnailId) {
+      const selected = (pkg.thumbnails || []).find((item) => item.id === pkg.selectedThumbnailId);
+      lines.push(`Thumbnail selected: ${selected ? selected.label : pkg.selectedThumbnailId}`);
     }
 
     const platform = getPlatform(job.platform);
@@ -212,6 +429,9 @@
     getResolution,
     getCaptionMode,
     createExport,
+    buildPublishPackage,
+    validatePublishPackage,
+    updatePublishPackage,
     validateReadiness,
     updateOption,
     buildFinalSummary,

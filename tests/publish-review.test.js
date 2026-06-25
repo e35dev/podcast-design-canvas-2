@@ -53,6 +53,8 @@ function fullContext(episode, options) {
     momentsSummary: moments.summarizeBoard(board),
     momentsBoard: board,
     captionCount: review.countVisibleCaptions(board),
+    transcriptReview: { approved: true, reviewLine: "Transcript and captions reviewed" },
+    transcriptSummary: { approved: true, reviewLine: "Transcript and captions reviewed", speakerCorrectionCount: 0 },
   };
 }
 
@@ -64,7 +66,7 @@ test("blocked review lists required fixes when audio and style are missing", () 
   assert.ok(review.blockers(result).some((item) => item.id === "audio-missing"));
   assert.ok(review.blockers(result).some((item) => item.id === "style-missing"));
   assert.ok(review.warnings(result).some((item) => item.id === "captions-missing"));
-  assert.strictEqual(result.timeline.length, 7);
+  assert.strictEqual(result.timeline.length, 8);
 });
 
 test("social context is a blocker when links exist but context is not approved", () => {
@@ -107,7 +109,9 @@ test("approveReview is rejected while blockers remain", () => {
 test("validateExportGate blocks export until review is approved", () => {
   const episode = setup.summarize(completeDraft());
   const ctx = fullContext(episode);
-  const publishReview = review.createReview(episode, ctx);
+  const publishReview = review.createReview(episode, Object.assign({}, ctx, {
+    transcriptReview: { approved: true },
+  }));
 
   assert.strictEqual(review.canApprove(publishReview), true);
   assert.strictEqual(review.validateExportGate(publishReview).ok, false);

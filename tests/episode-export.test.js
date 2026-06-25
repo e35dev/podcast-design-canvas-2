@@ -62,6 +62,42 @@ test("validateReadiness requires audio polish and visual style", () => {
   assert.strictEqual(exportApi.validateReadiness(ctx).ok, true);
 });
 
+test("publish package builder defaults and validates required fields", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const ctx = completeContext(episode);
+  const pkg = exportApi.buildPublishPackage(episode, ctx);
+
+  assert.ok(Array.isArray(pkg.thumbnails));
+  assert.ok(pkg.thumbnails.length >= 3);
+  assert.ok(pkg.title);
+  assert.ok(pkg.description);
+  assert.ok(Array.isArray(pkg.chapters));
+  assert.ok(pkg.chapters.length > 0);
+  assert.ok(pkg.selectedThumbnailId);
+
+  const missing = exportApi.validatePublishPackage(Object.assign({}, pkg, { title: "" }));
+  assert.strictEqual(missing.ok, false);
+  assert.ok(missing.error.includes("title"));
+
+  const updated = exportApi.updatePublishPackage(pkg, "chapter-title", { chapterId: "0", title: "Welcome" });
+  assert.strictEqual(updated.chapters[0].title, "Welcome");
+  const ready = exportApi.validatePublishPackage(updated);
+  assert.strictEqual(ready.ok, true);
+});
+
+test("buildFinalSummary includes publish package metadata", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const pkgCtx = completeContext(episode);
+  const packageState = exportApi.buildPublishPackage(episode, pkgCtx);
+  const job = exportApi.createExport(episode, { templateName: "Founders Unfiltered" });
+  const summary = exportApi.buildFinalSummary(episode, Object.assign({}, pkgCtx, { publishPackage: packageState }), job);
+
+  assert.ok(summary.lines.some((line) => line.indexOf("Publish package:") === 0));
+  assert.ok(summary.lines.some((line) => line.indexOf("Publish chapters:") === 0));
+  assert.ok(summary.lines.some((line) => line.indexOf("Speaker credits:") === 0));
+  assert.ok(summary.lines.some((line) => line.indexOf("Thumbnail selected:") === 0));
+});
+
 test("updateOption changes platform, resolution, caption mode, and template", () => {
   let job = exportApi.createExport({ episodeName: "Demo" });
   job = exportApi.updateOption(job, "platform", "download");

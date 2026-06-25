@@ -13,6 +13,7 @@
   const TM = window.PdcShowTemplates;
   const VM = window.PdcVisualMoments;
   const SC = window.PdcSocialContext;
+  const TC = window.PdcTranscriptCorrections;
   const EXP = window.PdcEpisodeExport;
   const PR = window.PdcPublishReview;
   const WS = window.PdcEpisodeWorkspace;
@@ -47,8 +48,11 @@
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
+  let transcriptReview = null;
+  let transcriptReviewApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  let publishPackage = null;
   const LIB_STORAGE_KEY = "pdc-show-library";
   let showLibrary = { shows: [] };
   let activeShowId = null;
@@ -625,6 +629,7 @@
     contextApproved = false;
     publishReview = null;
     publishReviewApproved = false;
+    publishPackage = null;
 
     // Apply show prefill.
     if (prefill.templateId && TM) {
@@ -944,6 +949,7 @@
       hasCanvas: Boolean(canvasDoc),
       momentsBoard: momentsBoard,
       captionCount: PR ? PR.countVisibleCaptions(momentsBoard) : 0,
+      transcriptReviewApproved: transcriptReviewApproved,
     });
   }
 
@@ -969,14 +975,18 @@
     const exportCtx = buildExportContext(summary);
     refreshPublishReview(summary);
     const exportReady = EXP ? EXP.validateReadiness(exportCtx).ok : false;
+    const packageReady = !!(publishPackage && publishPackage.title && publishPackage.description);
+    const transcriptReady = !!(transcriptReview && transcriptReview.approved);
     return {
       appliedStyle: exportCtx.appliedStyle,
       audioPolish: exportCtx.audioPolish,
       templateName: exportCtx.templateName,
       momentsSummary: exportCtx.momentsSummary,
       contextApproved: contextApproved,
+      transcriptReviewApproved: transcriptReady,
       exportReady: exportReady,
       publishReviewApproved: publishReviewApproved,
+      publishPackageReady: packageReady,
       exportStatus: exportJob ? exportJob.status : "draft",
       exportDownloadName: exportJob && exportJob.downloadName ? exportJob.downloadName : "",
     };
@@ -1017,6 +1027,14 @@
       renderPublishReview(summary);
       return;
     }
+    if (target === "transcript") {
+      renderTranscriptReview(summary);
+      return;
+    }
+    if (target === "package") {
+      renderPublishPackage(summary);
+      return;
+    }
     if (target === "export") {
       renderExport(summary);
       return;
@@ -1027,6 +1045,13 @@
   function navigateReviewFix(target, summary) {
     if (target === "setup") {
       renderSetup();
+      return;
+    }
+    if (target === "transcript") {
+      if (!transcriptReview) {
+        transcriptReview = TC.createReview(summary, momentsBoard);
+      }
+      renderTranscriptReview(summary);
       return;
     }
     if (target === "context") {
@@ -1059,14 +1084,33 @@
   }
 
   function applyContextEffects() {
-    if (!SC || !contextReview || !contextReview.approved) {
+    if (SC && contextReview && contextReview.approved) {
+      if (momentsBoard) {
+        momentsBoard = SC.applyReviewToMoments(momentsBoard, contextReview);
+      }
+      if (canvasDoc) {
+        canvasDoc = SC.applyReviewToCanvas(canvasDoc, contextReview);
+      }
+    }
+    if (TC && transcriptReview && transcriptReview.approved) {
+      momentsBoard = TC.applyReviewToMoments(momentsBoard, transcriptReview);
+      momentsBoard = TC.applyReviewToTranscript(momentsBoard, transcriptReview);
+    }
+    if (publishPackage && TC && transcriptReview && transcriptReview.approved) {
+      publishPackage = TC.applyReviewToPackage(transcriptReview, publishPackage);
+    }
+  }
+
+  function applyTranscriptEffects() {
+    if (!TC || !transcriptReview || !transcriptReview.approved) {
       return;
     }
     if (momentsBoard) {
-      momentsBoard = SC.applyReviewToMoments(momentsBoard, contextReview);
+      momentsBoard = TC.applyReviewToTranscript(momentsBoard, transcriptReview);
+      momentsBoard = TC.applyReviewToMoments(momentsBoard, transcriptReview);
     }
-    if (canvasDoc) {
-      canvasDoc = SC.applyReviewToCanvas(canvasDoc, contextReview);
+    if (publishPackage) {
+      publishPackage = TC.applyReviewToPackage(transcriptReview, publishPackage);
     }
   }
 
@@ -1078,17 +1122,33 @@
     if (VM && momentsBoard) {
       momentsSummary = VM.summarizeBoard(momentsBoard);
     }
+    const transcriptSummary = TC && transcriptReview && transcriptReview.approved
+      ? TC.summarizeReview(transcriptReview)
+      : null;
     const contextSummary = SC && contextReview && contextReview.approved
       ? SC.summarizeReview(contextReview)
       : null;
     return {
       audioPolish: appliedAudioPolish,
       appliedStyle: brandedAppliedStyle(summary),
+      publishPackage: publishPackage,
+      transcriptReview: transcriptReview && transcriptReview.approved ? transcriptReview : null,
+      transcriptSummary: transcriptSummary,
       templateName: templateName || "",
       momentsSummary: momentsSummary,
       contextSummary: contextSummary,
       brandKitSummary: brandKitSummary(),
     };
+  }
+
+  function buildPackageContext(summary) {
+    const next = buildExportContext(summary);
+    if (TC && next.transcriptReview && publishPackage) {
+      publishPackage = TC.applyReviewToPackage(next.transcriptReview, publishPackage);
+    }
+    return Object.assign({}, next, {
+      publishPackage: publishPackage,
+    });
   }
 
   function renderWorkspace(summary) {
@@ -1172,8 +1232,12 @@
       showErrors = false;
       contextApproved = false;
       contextReview = null;
+      transcriptReview = null;
+      transcriptReviewApproved = false;
       publishReviewApproved = false;
       publishReview = null;
+      exportJob = null;
+      publishPackage = null;
       renderSetup();
     });
     view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
@@ -1189,6 +1253,116 @@
     view.scrollIntoView({ block: "start" });
   }
 
+  // ---- Transcript & caption review (#63) -----------------------------------
+
+  function renderTranscriptReview(summary) {
+    if (!TC) {
+      renderWorkspace(summary);
+      return;
+    }
+    ensureMomentsBoard(summary);
+    if (!transcriptReview) {
+      transcriptReview = TC.createReview(summary, momentsBoard);
+    }
+
+    root.innerHTML = "";
+    setStep("Step 7 of 10 · Transcript & caption review");
+
+    const view = el("div", { class: "transcript-review-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Transcript review"),
+        el("h2", {}, `Review transcript and captions for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Correct names, brands, topic terms, and caption/title wording before approval."),
+      ),
+    );
+
+    const grid = el("div", { class: "transcript-review-layout" });
+
+    const speakerCard = el("section", { class: "card" }, el("h3", {}, "Speaker corrections"));
+    transcriptReview.speakers.forEach((speaker, index) => {
+      const card = el("div", { class: "context-speaker-card" });
+      card.appendChild(el("h4", {}, `${speaker.role} (${speaker.speakerName})`));
+      const nameInput = el("input", { id: `tr-sp-${index}`, type: "text", value: speaker.speakerNameCorrected || "" });
+      nameInput.addEventListener("input", (e) => {
+        transcriptReview = TC.updateSpeaker(transcriptReview, index, { speakerNameCorrected: e.target.value });
+      });
+      const brandInput = el("input", { id: `tr-sp-brand-${index}`, type: "text", value: speaker.brandCorrected || "" });
+      brandInput.addEventListener("input", (e) => {
+        transcriptReview = TC.updateSpeaker(transcriptReview, index, { brandCorrected: e.target.value });
+      });
+      const topicsInput = el("input", {
+        id: `tr-sp-topics-${index}`,
+        type: "text",
+        value: (speaker.topicsCorrected || speaker.topics || []).join(", "),
+      });
+      topicsInput.addEventListener("input", (e) => {
+        transcriptReview = TC.updateSpeaker(transcriptReview, index, { topicsCorrected: e.target.value });
+      });
+      card.appendChild(field("Corrected speaker name", nameInput, null));
+      card.appendChild(field("Brand spelling", brandInput, null, "How this name should appear in on-screen overlays and titles."));
+      card.appendChild(field("Corrected topics", topicsInput, null, "Comma-separated topic terms to replace across captions and package copy."));
+      grid.appendChild(card);
+      speakerCard.appendChild(card);
+    });
+    const summaryText = TC.summarizeReview(transcriptReview);
+    const summaryCard = el("section", { class: "card" }, el("h3", {}, "Review state"));
+    summaryCard.appendChild(el("p", { class: "publish-review-meta" }, summaryText.reviewLine || "Not approved yet"));
+    grid.appendChild(speakerCard);
+    grid.appendChild(summaryCard);
+
+    const momentCard = el("section", { class: "card" }, el("h3", {}, "Caption and title text"));
+    const momentsList = el("div", { class: "moment-review-list" });
+    (transcriptReview.correctedMoments || []).forEach((entry) => {
+      const row = el("article", { class: "moment-review-row" });
+      row.appendChild(
+        el("p", { class: "moment-review-meta" }, `${entry.momentType || "moment"} · ${entry.time || "0:00"} · ${entry.speakerName || "All speakers"}`),
+      );
+      const textInput = el("textarea", {
+        class: "moment-review-text",
+        rows: "3",
+        value: entry.correctedText || "",
+      });
+      textInput.addEventListener("change", (event) => {
+        transcriptReview = TC.updateMomentText(transcriptReview, entry.id, event.target.value);
+        renderTranscriptReview(summary);
+      });
+      row.appendChild(textInput);
+      momentsList.appendChild(row);
+    });
+    if (!transcriptReview.correctedMoments.length) {
+      momentsList.appendChild(el("p", { class: "hint" }, "No caption/title moments yet."));
+    }
+    momentCard.appendChild(momentsList);
+    grid.appendChild(momentCard);
+
+    const approveButton = el(
+      "button",
+      { type: "button", class: "primary", disabled: transcriptReviewApproved ? true : null },
+      transcriptReviewApproved ? "Transcript review approved" : "Approve transcript corrections →",
+    );
+    approveButton.addEventListener("click", () => {
+      transcriptReview = TC.approveReview(transcriptReview);
+      transcriptReviewApproved = true;
+      applyTranscriptEffects();
+      persistMoments();
+      renderPublishReview(summary);
+    });
+
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    const continueToReview = el("button", { type: "button", class: "ghost" }, "Continue → publish review");
+    continueToReview.addEventListener("click", () => renderPublishReview(summary));
+
+    view.appendChild(grid);
+    view.appendChild(el("div", { class: "actions" }, approveButton, continueToReview, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
   // ---- Publish review (#37) -------------------------------------------------
 
   function renderPublishReview(summary) {
@@ -1196,9 +1370,13 @@
       renderWorkspace(summary);
       return;
     }
+    if (!transcriptReview || !transcriptReview.approved) {
+      renderTranscriptReview(summary);
+      return;
+    }
     refreshPublishReview(summary);
     root.innerHTML = "";
-    setStep("Step 7 of 8 · Publish review");
+    setStep("Step 8 of 10 · Publish review");
 
     const view = el("div", { class: "publish-review-step" });
     view.appendChild(
@@ -1292,9 +1470,9 @@
     const exportButton = el(
       "button",
       { type: "button", class: "ghost", disabled: publishReviewApproved ? null : true },
-      "Continue to export →",
+      "Continue to publish package →",
     );
-    exportButton.addEventListener("click", () => renderExport(summary));
+    exportButton.addEventListener("click", () => renderPublishPackage(summary));
 
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
@@ -1305,12 +1483,182 @@
     view.scrollIntoView({ block: "start" });
   }
 
+  // ---- Publish package builder (#60) ----------------------------------------
+
+  function renderPublishPackage(summary) {
+    if (!EXP) {
+      renderWorkspace(summary);
+      return;
+    }
+
+    refreshPublishReview(summary);
+    const reviewGate = PR ? PR.validateExportGate(publishReview) : { ok: true };
+    if (!reviewGate.ok) {
+      renderPublishReview(summary);
+      return;
+    }
+
+    if (!publishPackage) {
+      publishPackage = EXP.buildPublishPackage(summary, buildPackageContext(summary));
+    }
+
+    const pkg = EXP.validatePublishPackage(publishPackage);
+
+    root.innerHTML = "";
+    setStep("Step 9 of 10 · Publish package");
+
+    const view = el("div", { class: "publish-package-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Publish package"),
+        el("h2", {}, `Publish package for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Build metadata, chapters, credits, and thumbnail options before export."),
+      ),
+    );
+
+    const detailsCard = el("section", { class: "card" }, el("h3", {}, "Package metadata"));
+    const titleInput = el("input", { id: "package-title", type: "text", value: publishPackage.title || "" });
+    titleInput.addEventListener("input", (event) => {
+      publishPackage = EXP.updatePublishPackage(publishPackage, "title", event.target.value);
+    });
+    const descriptionInput = el("textarea", {
+      id: "package-description",
+      rows: "4",
+      value: publishPackage.description || "",
+    });
+    descriptionInput.addEventListener("input", (event) => {
+      publishPackage = EXP.updatePublishPackage(publishPackage, "description", event.target.value);
+    });
+    const creditsInput = el("textarea", {
+      id: "package-credits",
+      rows: "6",
+      value: publishPackage.credits || "",
+    });
+    creditsInput.addEventListener("input", (event) => {
+      publishPackage = EXP.updatePublishPackage(publishPackage, "credits", event.target.value);
+    });
+
+    const updateAndRerender = () => {
+      renderPublishPackage(summary);
+    };
+    titleInput.addEventListener("input", updateAndRerender);
+    descriptionInput.addEventListener("input", updateAndRerender);
+    creditsInput.addEventListener("input", updateAndRerender);
+
+    detailsCard.appendChild(field("Package title", titleInput, null));
+    detailsCard.appendChild(field("Description", descriptionInput, null));
+    detailsCard.appendChild(field("Speaker credits", creditsInput, null));
+
+    const chapterCard = el("section", { class: "card" }, el("h3", {}, "Chapter markers"));
+    const chapterList = el("div", { class: "package-chapter-list" });
+    (publishPackage.chapters || []).forEach((chapter, index) => {
+      const timeInput = el("input", { type: "text", value: chapter.time || "0:00" });
+      const title = el("input", { type: "text", value: chapter.title || "" });
+      timeInput.addEventListener("input", (event) => {
+        publishPackage = EXP.updatePublishPackage(publishPackage, "chapter-time", {
+          chapterId: String(index),
+          time: event.target.value,
+        });
+        renderPublishPackage(summary);
+      });
+      title.addEventListener("input", (event) => {
+        publishPackage = EXP.updatePublishPackage(publishPackage, "chapter-title", {
+          chapterId: String(index),
+          title: event.target.value,
+        });
+        renderPublishPackage(summary);
+      });
+      chapterList.appendChild(el("div", { class: "card" }, field(`Chapter ${index + 1}`, el("input", { type: "hidden", value: String(index + 1) }), null), field("Time", timeInput, null), field("Title", title, null)));
+    });
+    chapterCard.appendChild(chapterList);
+
+    const thumbnailCard = el("section", { class: "card" }, el("h3", {}, "Thumbnail options"));
+    const thumbGrid = el("div", { class: "publish-thumbnail-grid" });
+    (publishPackage.thumbnails || []).forEach((item) => {
+      const selected = publishPackage.selectedThumbnailId === item.id;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          class: `export-option-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        el("span", { class: "export-option-name" }, item.label),
+        el("span", { class: "export-option-tagline" }, item.summary),
+      );
+      card.addEventListener("click", () => {
+        publishPackage = EXP.updatePublishPackage(publishPackage, "selectedThumbnailId", item.id);
+        renderPublishPackage(summary);
+      });
+      thumbGrid.appendChild(card);
+    });
+    thumbnailCard.appendChild(thumbGrid);
+
+    const statusLine = pkg.ok ? `Publish package complete: ${publishPackage.chapters ? publishPackage.chapters.length : 0} chapters.` : pkg.error;
+    const statusCard = el(
+      "section",
+      { class: "card publish-package-status" },
+      el("h3", {}, "Package status"),
+      el("p", { class: pkg.ok ? "export-ready" : "field-error" }, statusLine),
+    );
+
+    const actions = el("div", { class: "actions" });
+    const proceed = el("button", { type: "button", class: "primary", disabled: pkg.ok ? null : true }, "Continue to export →");
+    proceed.addEventListener("click", () => {
+      renderExport(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to publish review");
+    back.addEventListener("click", () => renderPublishReview(summary));
+
+    const layout = el("div", { class: "package-layout" }, detailsCard, chapterCard, thumbnailCard, statusCard);
+    view.appendChild(layout);
+    actions.appendChild(proceed);
+    actions.appendChild(back);
+    view.appendChild(actions);
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
   // ---- Export & publish (#30) -------------------------------------------------
 
   function renderExport(summary) {
     root.innerHTML = "";
-    setStep("Step 8 of 8 · Export & publish");
+    setStep("Step 10 of 10 · Export & publish");
     if (!EXP) {
+      return;
+    }
+
+    const packageCheck = EXP.validatePublishPackage(publishPackage || {});
+    if (!packageCheck.ok) {
+      const blocked = el(
+        "section",
+        { class: "card export-blocked" },
+        el("h3", {}, "Publish package required"),
+        el("p", { class: "field-error" }, packageCheck.error),
+      );
+      const toPackage = el("button", { type: "button", class: "primary" }, "Open publish package →");
+      toPackage.addEventListener("click", () => renderPublishPackage(summary));
+      const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+      back.addEventListener("click", () => renderWorkspace(summary));
+      const actions = el("div", { class: "actions" }, toPackage, back);
+
+      const reviewView = el("div", { class: "export-step" });
+      reviewView.appendChild(
+        el(
+          "div",
+          { class: "workspace-head" },
+          el("p", { class: "eyebrow" }, "Export & publish"),
+          el("h2", {}, `Publish ${summary.episodeName}`),
+          el("p", { class: "hint" }, "Build publish package details before exporting."),
+        ),
+      );
+      reviewView.appendChild(blocked);
+      reviewView.appendChild(actions);
+      root.appendChild(reviewView);
+      reviewView.scrollIntoView({ block: "start" });
       return;
     }
 

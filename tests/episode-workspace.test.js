@@ -51,7 +51,7 @@ test("buildWorkspace lists ordered stages for setup through export", () => {
   const episode = setup.summarize(completeDraft());
   const ws = workspace.buildWorkspace(episode, {});
   assert.deepStrictEqual(ws.stages.map((s) => s.id), workspace.STAGE_ORDER);
-  assert.strictEqual(ws.totalStages, 7);
+    assert.strictEqual(ws.totalStages, 9);
   const setupStage = workspace.getStage(ws, "setup");
   assert.strictEqual(setupStage.status, workspace.STATUS.COMPLETE);
 });
@@ -75,17 +75,21 @@ test("workspace reflects style progress when a preset is applied", () => {
 
 test("workspace reflects publish review and export readiness", () => {
   const episode = setup.summarize(completeDraft());
-  const ctx = baseCtx(episode);
+  const ctx = baseCtx(episode, { transcriptReviewApproved: true });
   let ws = workspace.buildWorkspace(episode, ctx);
   assert.strictEqual(workspace.getStage(ws, "review").status, workspace.STATUS.ACTIVE);
+  assert.strictEqual(workspace.getStage(ws, "transcript").status, workspace.STATUS.COMPLETE);
   assert.strictEqual(workspace.getStage(ws, "export").status, workspace.STATUS.PENDING);
 
   ws = workspace.buildWorkspace(episode, Object.assign({}, ctx, {
     publishReviewApproved: true,
+    publishPackageReady: true,
     exportStatus: "ready",
     exportDownloadName: "Founders-Unfiltered-7-1080p.mp4",
   }));
   assert.strictEqual(workspace.getStage(ws, "review").status, workspace.STATUS.COMPLETE);
+  assert.strictEqual(workspace.getStage(ws, "transcript").status, workspace.STATUS.COMPLETE);
+  assert.strictEqual(workspace.getStage(ws, "package").status, workspace.STATUS.COMPLETE);
   assert.strictEqual(workspace.getStage(ws, "export").status, workspace.STATUS.COMPLETE);
   assert.ok(workspace.getStage(ws, "export").summary.indexOf(".mp4") >= 0);
 });
@@ -123,6 +127,8 @@ test("ACCEPTANCE: workspace tracks setup, style, review, and export progress", (
   const publishReview = review.createReview(episode, {
     audioPolish: ctx.audioPolish,
     appliedStyle: ctx.appliedStyle,
+    transcriptReview: { approved: true },
+    transcriptReviewApproved: true,
     contextApproved: true,
     hasCanvas: false,
     momentsSummary: { total: 0 },
