@@ -857,12 +857,35 @@ button.ghost:hover,
   grid-row: span 2;
 }
 
+.stage-spotlight .episode-look-frame.inactive .episode-look-video {
+  min-height: 42px;
+  opacity: 0.72;
+}
+
 .stage-split .episode-look-frames {
   grid-template-columns: 1fr 1fr;
 }
 
+.stage-split .episode-look-frame:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
 .stage-grid .episode-look-frames {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.stage-broadcast .episode-look-frames {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.stage-broadcast .episode-look-frame.active .episode-look-video {
+  box-shadow: 0 0 0 2px currentColor, 0 10px 24px rgba(0, 0, 0, 0.28);
+  transform: translateY(-2px);
+}
+
+.stage-broadcast .episode-look-frame.inactive .episode-look-video {
+  opacity: 0.78;
 }
 
 .episode-look-frame {
@@ -880,6 +903,7 @@ button.ghost:hover,
   padding: 8px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
 }
 
 .episode-look-card .episode-look-video {
@@ -892,6 +916,133 @@ button.ghost:hover,
 
 .stage-spotlight.episode-look-hero .episode-look-frame.active .episode-look-video {
   min-height: 150px;
+}
+
+.stage-split.episode-look-hero .episode-look-video {
+  min-height: 88px;
+}
+
+.stage-grid.episode-look-hero .episode-look-video {
+  min-height: 64px;
+}
+
+.stage-broadcast.episode-look-hero .episode-look-video {
+  min-height: 70px;
+}
+
+.preset-split-stage .episode-look-stage {
+  border-color: rgba(35, 32, 28, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.preset-split-stage .episode-look-nameplate {
+  color: #23201c;
+}
+
+.preset-split-stage .episode-look-overlay {
+  background: #e0563b;
+  color: #fff7f4;
+  border-color: rgba(224, 86, 59, 0.35);
+}
+
+.preset-studio-spotlight .episode-look-overlay {
+  background: #e74c3c;
+  color: #fff;
+  border-color: rgba(231, 76, 60, 0.45);
+}
+
+.preset-panel-grid .episode-look-overlay {
+  background: #4dd0e1;
+  color: #0f1a2b;
+  border-color: rgba(77, 208, 225, 0.45);
+}
+
+.preset-bold-broadcast .episode-look-overlay {
+  background: #ff5d8f;
+  color: #fff;
+  border-color: rgba(255, 93, 143, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 14px rgba(255, 93, 143, 0.45);
+}
+
+.caption-lower-third .episode-look-caption {
+  width: 72%;
+  margin-top: 10px;
+  border-radius: 0 10px 10px 10px;
+}
+
+.caption-caption-bar .episode-look-caption {
+  width: 100%;
+  margin-top: 12px;
+  border-radius: 10px;
+  background: #ffffff !important;
+  color: #23201c;
+  border: 1px solid rgba(35, 32, 28, 0.12);
+  box-shadow: 0 6px 16px rgba(35, 32, 28, 0.08);
+}
+
+.caption-minimal-tag .episode-look-caption {
+  width: auto;
+  display: inline-block;
+  margin-top: 10px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  background: rgba(77, 208, 225, 0.18) !important;
+  color: #eaf6fb;
+  border: 1px solid rgba(77, 208, 225, 0.35);
+}
+
+.caption-broadcast-banner .episode-look-caption {
+  width: 100%;
+  margin-top: 8px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.episode-look-card.caption-broadcast-banner .episode-look-caption {
+  font-size: 11px;
+}
+
+.title-broadcast-ticker .episode-look-title {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+}
+
+.title-editorial .episode-look-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 600;
+}
+
+.title-panel-header .episode-look-chrome {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 6px;
+}
+
+.episode-look-pacing-cues {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+.pacing-punchy .episode-look-pacing {
+  background: rgba(255, 93, 143, 0.22);
+  border-color: rgba(255, 93, 143, 0.45);
+}
+
+.pacing-relaxed .episode-look-pacing {
+  background: rgba(255, 179, 71, 0.18);
+  border-color: rgba(255, 179, 71, 0.35);
 }
 
 .episode-look-initials {

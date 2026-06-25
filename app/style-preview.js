@@ -1,9 +1,10 @@
 "use strict";
 
-// Rich episode look previews for Podcast Design Canvas (#102).
+// Rich episode look previews for Podcast Design Canvas (#102, #120).
 //
 // Builds demo-quality preset previews with realistic multi-speaker framing, captions,
-// title treatment, overlays, and pacing cues. DOM-free so UI and tests share one model.
+// title treatment, overlays, and pacing cues. Each preset uses a distinct visual profile
+// so creators can tell styles apart at a glance. DOM-free so UI and tests share one model.
 (function (global) {
   function styleApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
@@ -26,8 +27,51 @@
     "bold-broadcast": "ON AIR",
   };
 
+  const PRESET_VISUAL_PROFILE = {
+    "studio-spotlight": {
+      previewLayout: "spotlight",
+      pacing: "relaxed",
+      captionTreatment: "lower-third",
+      captionText: "The host holds the room while guests react in the filmstrip.",
+      overlayTone: "live",
+      titleStyle: "studio-bar",
+      frameTiles: ["#ffb347", "#3d4460", "#3d4460"],
+    },
+    "split-stage": {
+      previewLayout: "split",
+      pacing: "balanced",
+      captionTreatment: "caption-bar",
+      captionText: "Two voices stay equal — the conversation stays side by side.",
+      overlayTone: "founders",
+      titleStyle: "editorial",
+      frameTiles: ["#e0563b", "#c9c2b8", "#e0563b"],
+    },
+    "panel-grid": {
+      previewLayout: "grid",
+      pacing: "balanced",
+      captionTreatment: "minimal-tag",
+      captionText: "Every panelist stays on screen with clean name tags.",
+      overlayTone: "panel",
+      titleStyle: "panel-header",
+      frameTiles: ["#4dd0e1", "#243652", "#4dd0e1"],
+    },
+    "bold-broadcast": {
+      previewLayout: "broadcast",
+      pacing: "punchy",
+      captionTreatment: "broadcast-banner",
+      captionText: "ON AIR energy — captions land big on every beat.",
+      overlayTone: "on-air",
+      titleStyle: "broadcast-ticker",
+      frameTiles: ["#ff5d8f", "#7c3aed", "#f0a030"],
+    },
+  };
+
   function trim(value) {
     return typeof value === "string" ? value.trim() : "";
+  }
+
+  function getVisualProfile(presetId) {
+    return PRESET_VISUAL_PROFILE[presetId] || PRESET_VISUAL_PROFILE["studio-spotlight"];
   }
 
   function sampleEpisodeSummary(showName) {
@@ -51,6 +95,88 @@
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
+  function buildFrames(speakers, layoutId, profile) {
+    let activeIndex = speakers.findIndex((speaker) => /host/i.test((speaker && speaker.role) || ""));
+    if (activeIndex < 0 && speakers.length) {
+      activeIndex = 0;
+    }
+    const tiles = profile && profile.frameTiles ? profile.frameTiles : [];
+    return speakers.map((speaker, index) => {
+      const sample = SAMPLE_SPEAKERS[index] || SAMPLE_SPEAKERS[0];
+      const name = trim(speaker && speaker.name) || sample.name;
+      const isSpotlight = layoutId === "spotlight";
+      const isBroadcast = layoutId === "broadcast";
+      return {
+        role: (speaker && speaker.role) || sample.role,
+        name: name,
+        initials: speaker && speaker.initials ? speaker.initials : initialsForName(name),
+        tile: tiles[index] || sample.tile,
+        active: isSpotlight || isBroadcast ? index === activeIndex : true,
+      };
+    });
+  }
+
+  function previewVisualSignature(look) {
+    if (!look) {
+      return "";
+    }
+    return [
+      look.presetId,
+      look.layoutId,
+      look.captionTreatment,
+      look.overlayTone,
+      look.titleStyle,
+      look.theme && look.theme.background,
+      look.pacingId,
+    ].join("|");
+  }
+
+  function assembleLook(preset, summary, selection, profile, options) {
+    const STY = styleApi();
+    const opts = options || {};
+    const episode = summary || sampleEpisodeSummary();
+    const sel = selection || {};
+    const mergedSelection = {
+      presetId: preset.id,
+      layout: sel.layout || profile.previewLayout || preset.defaultLayout,
+      pacing: sel.pacing || profile.pacing || "balanced",
+    };
+    const speakers = Array.isArray(episode.speakers) && episode.speakers.length
+      ? episode.speakers
+      : SAMPLE_SPEAKERS;
+    const speakerCount = episode.speakerCount || speakers.length;
+    const layoutId = opts.useProfileLayout
+      ? (profile.previewLayout || STY.resolveLayout(mergedSelection, speakerCount))
+      : STY.resolveLayout(mergedSelection, speakerCount);
+    const pacing = STY.getPacing(mergedSelection.pacing);
+    const showName = trim(episode.showName) || trim(episode.episodeName).split("·")[0].trim() || "Your show";
+    return {
+      presetId: preset.id,
+      presetName: preset.name,
+      tagline: preset.tagline,
+      layoutId: layoutId,
+      layoutLabel: STY.getLayout(layoutId === "broadcast" ? "spotlight" : layoutId).label,
+      pacingId: pacing.id,
+      pacingLabel: pacing.label,
+      captionStyle: preset.captionStyle,
+      captionTreatment: profile.captionTreatment,
+      captionText: profile.captionText,
+      titleStyle: profile.titleStyle,
+      overlayTone: profile.overlayTone,
+      formatCue: STY.presetCardSummary(preset).formatCue,
+      episodeTitle: trim(episode.episodeName) || `${showName} · Episode 12`,
+      showName: showName,
+      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
+      theme: {
+        background: preset.background,
+        surface: preset.surface,
+        accent: preset.accent,
+        textColor: preset.textColor,
+      },
+      frames: buildFrames(speakers, layoutId, profile),
+    };
+  }
+
   function buildEpisodeLook(presetId, options) {
     const STY = styleApi();
     const opts = options || {};
@@ -58,110 +184,34 @@
     if (!preset) {
       return null;
     }
+    const profile = getVisualProfile(preset.id);
     const summary = sampleEpisodeSummary(opts.showName);
     const selection = {
       presetId: preset.id,
-      layout: preset.defaultLayout,
-      pacing: opts.pacing || "balanced",
+      layout: profile.previewLayout,
+      pacing: opts.pacing || profile.pacing,
     };
-    const layoutId = STY.resolveLayout(selection, summary.speakerCount);
-    let activeIndex = summary.speakers.findIndex((speaker) => /host/i.test(speaker.role));
-    if (activeIndex < 0) {
-      activeIndex = 0;
-    }
-    const frames = summary.speakers.map((speaker, index) => ({
-      role: speaker.role,
-      name: speaker.name,
-      initials: speaker.initials,
-      tile: speaker.tile,
-      active: layoutId === "spotlight" ? index === activeIndex : true,
-    }));
-    const pacing = STY.getPacing(selection.pacing);
-    return {
-      presetId: preset.id,
-      presetName: preset.name,
-      tagline: preset.tagline,
-      layoutId: layoutId,
-      layoutLabel: STY.getLayout(layoutId).label,
-      pacingLabel: pacing.label,
-      captionStyle: preset.captionStyle,
-      formatCue: STY.presetCardSummary(preset).formatCue,
-      episodeTitle: summary.episodeName,
-      showName: summary.showName,
-      captionText: "Building in public means shipping the story before the polish is perfect.",
-      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
-      theme: {
-        background: preset.background,
-        surface: preset.surface,
-        accent: preset.accent,
-        textColor: preset.textColor,
-      },
-      frames: frames,
-    };
+    return assembleLook(preset, summary, selection, profile, { useProfileLayout: true });
   }
 
   function buildEpisodeLookFromEpisode(presetId, summary, selection) {
     const STY = styleApi();
-    const episode = summary || {};
     const sel = selection || {};
     const preset = STY ? STY.getPreset(presetId || sel.presetId) : null;
     if (!preset) {
       return null;
     }
-    const mergedSelection = {
-      presetId: preset.id,
-      layout: sel.layout || preset.defaultLayout,
-      pacing: sel.pacing || "balanced",
-    };
-    const speakers = Array.isArray(episode.speakers) && episode.speakers.length
-      ? episode.speakers
-      : SAMPLE_SPEAKERS;
-    const speakerCount = episode.speakerCount || speakers.length;
-    const layoutId = STY.resolveLayout(mergedSelection, speakerCount);
-    let activeIndex = speakers.findIndex((speaker) => /host/i.test((speaker && speaker.role) || ""));
-    if (activeIndex < 0 && speakers.length) {
-      activeIndex = 0;
-    }
-    const frames = speakers.map((speaker, index) => {
-      const sample = SAMPLE_SPEAKERS[index] || SAMPLE_SPEAKERS[0];
-      const name = trim(speaker && speaker.name) || sample.name;
-      return {
-        role: (speaker && speaker.role) || sample.role,
-        name: name,
-        initials: initialsForName(name),
-        tile: sample.tile,
-        active: layoutId === "spotlight" ? index === activeIndex : true,
-      };
-    });
-    const pacing = STY.getPacing(mergedSelection.pacing);
-    const showName = trim(episode.episodeName).split("·")[0].trim() || "Your show";
-    return {
-      presetId: preset.id,
-      presetName: preset.name,
-      tagline: preset.tagline,
-      layoutId: layoutId,
-      layoutLabel: STY.getLayout(layoutId).label,
-      pacingLabel: pacing.label,
-      captionStyle: preset.captionStyle,
-      formatCue: STY.presetCardSummary(preset).formatCue,
-      episodeTitle: trim(episode.episodeName) || `${showName} · Episode 1`,
-      showName: showName,
-      captionText: "Building in public means shipping the story before the polish is perfect.",
-      overlayLabel: PRESET_OVERLAY[preset.id] || preset.name.split(" ")[0].toUpperCase(),
-      theme: {
-        background: preset.background,
-        surface: preset.surface,
-        accent: preset.accent,
-        textColor: preset.textColor,
-      },
-      frames: frames,
-    };
+    const profile = getVisualProfile(preset.id);
+    return assembleLook(preset, summary, sel, profile, { useProfileLayout: false });
   }
 
   const api = {
     SAMPLE_SPEAKERS,
     PRESET_OVERLAY,
+    PRESET_VISUAL_PROFILE,
     sampleEpisodeSummary,
+    getVisualProfile,
+    previewVisualSignature,
     buildEpisodeLook,
     buildEpisodeLookFromEpisode,
   };

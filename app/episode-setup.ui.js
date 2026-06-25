@@ -4080,7 +4080,16 @@
     }
     const previewSize = size || "hero";
     const preview = el("div", {
-      class: `episode-look-preview episode-look-${previewSize} stage-${look.layoutId} preset-${look.presetId}`,
+      class: [
+        "episode-look-preview",
+        `episode-look-${previewSize}`,
+        `stage-${look.layoutId}`,
+        `preset-${look.presetId}`,
+        look.captionTreatment ? `caption-${look.captionTreatment}` : "",
+        look.titleStyle ? `title-${look.titleStyle}` : "",
+        look.overlayTone ? `overlay-${look.overlayTone}` : "",
+        look.pacingId ? `pacing-${look.pacingId}` : "",
+      ].filter(Boolean).join(" "),
     });
 
     preview.appendChild(
@@ -4098,7 +4107,7 @@
     });
     const framesWrap = el("div", { class: "episode-look-frames" });
     look.frames.forEach((frame) => {
-      const frameEl = el("div", { class: `episode-look-frame${frame.active ? " active" : ""}` });
+      const frameEl = el("div", { class: `episode-look-frame${frame.active ? " active" : ""}${frame.active ? "" : " inactive"}` });
       const video = el("div", {
         class: "episode-look-video",
         style: `background:linear-gradient(160deg, ${frame.tile}, ${look.theme.surface});`,
@@ -4112,7 +4121,10 @@
     stage.appendChild(
       el(
         "div",
-        { class: "episode-look-caption", style: `background:${look.theme.accent};` },
+        {
+          class: `episode-look-caption episode-look-caption-${look.captionTreatment || "default"}`,
+          style: `background:${look.theme.accent};`,
+        },
         look.captionText,
       ),
     );
@@ -4122,6 +4134,11 @@
         { class: "episode-look-meta" },
         el("span", { class: "episode-look-pacing" }, look.pacingLabel),
         el("span", { class: "episode-look-format" }, look.captionStyle),
+        look.pacingId === "punchy"
+          ? el("span", { class: "episode-look-pacing-cues", "aria-hidden": "true" }, "|||")
+          : look.pacingId === "relaxed"
+            ? el("span", { class: "episode-look-pacing-cues", "aria-hidden": "true" }, "—")
+            : el("span", { class: "episode-look-pacing-cues", "aria-hidden": "true" }, "••"),
       ),
     );
     preview.appendChild(stage);
@@ -4160,7 +4177,7 @@
   function renderStylePresetCard(preset, selected, summary) {
     const cues = STY.presetCardSummary(preset);
     const look = SP
-      ? SP.buildEpisodeLookFromEpisode(preset.id, summary, Object.assign({}, styleSelection, { layout: preset.defaultLayout }))
+      ? SP.buildEpisodeLook(preset.id, { showName: summary && summary.showName })
       : null;
     const card = el(
       "button",

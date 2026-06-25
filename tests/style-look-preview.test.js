@@ -57,15 +57,16 @@ test("new-show setup uses rich episode look previews instead of abstract layout 
 });
 
 test("ACCEPTANCE: every named preset produces a distinct publish-ready look model", () => {
-  const layouts = new Set();
+  const signatures = new Set();
   style.STYLE_PRESETS.forEach((preset) => {
     const look = preview.buildEpisodeLook(preset.id, { showName: "Demo Show" });
     assert.ok(look.presetName);
     assert.ok(look.captionStyle);
     assert.ok(look.formatCue);
-    layouts.add(look.layoutId);
+    assert.ok(look.captionTreatment);
+    signatures.add(preview.previewVisualSignature(look));
   });
-  assert.ok(layouts.size >= 3);
+  assert.strictEqual(signatures.size, style.STYLE_PRESETS.length);
 });
 
 console.log(`\nstyle look preview: ${passed} assertions passed`);
