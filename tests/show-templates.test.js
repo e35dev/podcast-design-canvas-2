@@ -91,6 +91,29 @@ test("applyTemplateForEpisode keeps layout but uses the new episode speakers", (
   assert.deepStrictEqual(appliedB.speakerFrames.map((frame) => frame.name), ["Alex Chen", "Jordan Lee"]);
 });
 
+test("style-step template selection carries the full saved canvas identity", () => {
+  templates._resetTemplateCounter();
+  const episodeA = setup.summarize(completeUploadDraft());
+  const selection = style.createSelection();
+  selection.presetId = "split-stage";
+  selection.layout = "split";
+  let doc = editor.createFromStyle(style.summarizeStyle(selection, episodeA.speakerCount), episodeA, selection);
+  doc = editor.updateElement(doc, "titleText", "Agency Split Layout");
+  doc = editor.updateElement(doc, "accent", "#ff5500");
+  doc = editor.updateElement(doc, "captionText", "Custom caption treatment");
+
+  const template = templates.createTemplate("Agency Split", doc, "tpl-style-step");
+  const episodeB = setup.summarize(twoSpeakerDraft());
+  const styleFromTemplate = templates.styleSelectionFromCanvas(template.canvas);
+  const canvasForB = templates.applyTemplateForEpisode(template, episodeB, styleFromTemplate);
+
+  assert.strictEqual(canvasForB.titleText, "Agency Split Layout");
+  assert.strictEqual(canvasForB.accent, "#ff5500");
+  assert.strictEqual(canvasForB.captionText, "Custom caption treatment");
+  assert.strictEqual(canvasForB.speakerFrames.length, 2);
+  assert.strictEqual(canvasForB.speakerFrames[0].name, "Alex Chen");
+});
+
 test("serializeStore and deserializeStore round-trip the template library", () => {
   templates._resetTemplateCounter();
   let store = templates.createStore();

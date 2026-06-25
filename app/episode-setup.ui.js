@@ -611,7 +611,7 @@
         el(
           "div",
           { class: "selected-style-body" },
-          renderPreview(summary, styleSelection, true),
+          renderPreview(summary, styleSelection, true, activeTemplateId && canvasDoc ? canvasDoc : null),
           el(
             "div",
             { class: "selected-style-meta" },
@@ -999,7 +999,13 @@
   function renderSavedTemplatesCard(saved, summary, returnTo) {
     const card = el("section", { class: "card template-picker template-library" }, el("h3", {}, "Show template library"));
     card.appendChild(
-      el("p", { class: "hint" }, "Pick a saved layout and style — your current episode speakers stay assigned."),
+      el(
+        "p",
+        { class: "hint" },
+        returnTo === "style"
+          ? "Start from a saved show identity. Your current speakers stay assigned — the full saved layout and palette apply to the preview."
+          : "Pick a saved layout and style — your current episode speakers stay assigned.",
+      ),
     );
     const list = el("div", { class: "template-list" });
     saved.forEach((item) => {
@@ -1013,7 +1019,11 @@
           `${item.presetName || "Custom"} · ${item.titleText || "Untitled"}`,
         ),
       );
-      const useButton = el("button", { type: "button", class: "ghost" }, "Use template");
+      const useButton = el(
+        "button",
+        { type: "button", class: activeTemplateId === item.id ? "primary" : "ghost" },
+        activeTemplateId === item.id ? "Applied ✓" : "Use template",
+      );
       useButton.addEventListener("click", () => {
         applySavedTemplate(item.id, summary, { returnTo: returnTo });
       });
@@ -1035,6 +1045,7 @@
     const episodeSummary = summary || ES.summarize(state);
     const fromCanvas = TM.styleSelectionFromCanvas(template.canvas);
     styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
+    layoutCustomized = Boolean(styleSelection && styleSelection.layout && styleSelection.layout !== "auto");
     canvasDoc = TM.applyTemplateForEpisode(template, episodeSummary, styleSelection);
     activeTemplateId = template.id;
     if (STY && styleSelection) {
@@ -1760,18 +1771,28 @@
   // ---- Preset style selection + preview (#4) ----------------------------------
 
   // A live preview built from the real assigned speakers. `compact` renders the smaller
-  // version shown on the workspace once a style is applied.
-  function renderPreview(summary, selection, compact) {
+  // version shown on the workspace once a style is applied. When `canvasDoc` is provided
+  // (saved show template applied), the preview reflects the full saved identity — palette,
+  // title, caption sample, and current-episode speaker frames — not just the preset defaults.
+  function renderPreview(summary, selection, compact, canvasDoc) {
     const preset = STY.getPreset(selection && selection.presetId);
     const pacing = STY.getPacing(selection && selection.pacing);
-    const frames = STY.buildPreviewFrames(summary.speakers, selection, summary.speakerCount);
-    const layoutId = STY.resolveLayout(selection, summary.speakerCount);
+    const doc = canvasDoc && typeof canvasDoc === "object" ? canvasDoc : null;
+    const frames = doc && Array.isArray(doc.speakerFrames) && doc.speakerFrames.length
+      ? doc.speakerFrames
+      : STY.buildPreviewFrames(summary.speakers, selection, summary.speakerCount);
+    const layoutId = doc && doc.layoutId ? doc.layoutId : STY.resolveLayout(selection, summary.speakerCount);
+    const accent = (doc && doc.accent) || preset.accent;
 
     const stage = el("div", {
       class: `preview-stage stage-${layoutId} pacing-${pacing.id}${compact ? " compact" : ""}`,
     });
-    stage.style.background = preset.background;
+    stage.style.background = (doc && doc.background) || preset.background;
     stage.style.color = preset.textColor;
+
+    if (doc && doc.titleText && !compact) {
+      stage.appendChild(el("div", { class: "preview-title" }, doc.titleText));
+    }
 
     const frameWrap = el("div", { class: "preview-frames" });
     frames.forEach((frame) => {
@@ -1781,28 +1802,30 @@
         el("span", { class: "preview-role" }, frame.role),
         el("span", { class: "preview-name" }, frame.name),
       );
-      frameEl.style.borderColor = preset.accent;
+      frameEl.style.borderColor = accent;
       if (frame.active) {
-        frameEl.style.boxShadow = `0 0 0 2px ${preset.accent}`;
+        frameEl.style.boxShadow = `0 0 0 2px ${accent}`;
       }
       frameWrap.appendChild(frameEl);
     });
     stage.appendChild(frameWrap);
 
-    // Sample caption strip so the caption treatment is visible in the preview.
+    const captionText = (doc && doc.captionText) || "Sample caption — this is how on-screen text will look.";
     const caption = el(
       "div",
       { class: "preview-caption" },
-      el("span", { class: "preview-caption-text" }, "Sample caption — this is how on-screen text will look."),
+      el("span", { class: "preview-caption-text" }, captionText),
     );
-    caption.style.background = preset.accent;
+    caption.style.background = accent;
     stage.appendChild(caption);
 
     if (!compact) {
       const foot = el(
         "p",
         { class: "preview-foot" },
-        `${pacing.label} pacing · ${preset.captionStyle} · ${STY.getLayout(layoutId).label}`,
+        doc && activeTemplateId
+          ? `Saved show template · ${pacing.label} pacing · ${STY.getLayout(layoutId).label}`
+          : `${pacing.label} pacing · ${preset.captionStyle} · ${STY.getLayout(layoutId).label}`,
       );
       const container = el("div", {}, stage, foot);
       return container;
@@ -1902,7 +1925,7 @@
       "section",
       { class: "card preview-card" },
       el("h3", {}, "Preview"),
-      renderPreview(summary, styleSelection, false),
+      renderPreview(summary, styleSelection, false, activeTemplateId && canvasDoc ? canvasDoc : null),
     );
     layoutGrid.appendChild(previewCard);
 
