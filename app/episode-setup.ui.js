@@ -3348,6 +3348,23 @@
     return stage;
   }
 
+  // Compact, CSS-driven preview of a preset's recommended layout (#94): a few
+  // mini frames arranged spotlight / side-by-side / grid, tinted with the preset
+  // colors so each card reads as a distinct visual look at a glance.
+  function renderPresetLayoutPreview(preset) {
+    const layout = preset.defaultLayout;
+    const wrap = el("span", { class: `preset-mini preset-mini--${layout}`, "aria-hidden": "true" });
+    const frameCount = layout === "split" ? 2 : layout === "grid" ? 4 : 3;
+    for (let i = 0; i < frameCount; i += 1) {
+      const lead = layout === "spotlight" && i === 0;
+      const frame = el("span", { class: `preset-mini-frame${lead ? " preset-mini-frame--lead" : ""}` });
+      frame.style.background = preset.surface;
+      frame.style.borderColor = preset.accent;
+      wrap.appendChild(frame);
+    }
+    return wrap;
+  }
+
   function renderStyle(summary) {
     root.innerHTML = "";
     setStep("Step 4 of 8 · Choose a style");
@@ -3372,8 +3389,13 @@
 
     const layoutGrid = el("div", { class: "style-layout" });
 
-    // Controls column
+    // Controls column. Every "look" choice here is a visual card — no native
+    // <select> on the style step (#94): preset, layout, and pacing are all
+    // pick-a-card so the picker matches the rest of the visual workflow.
     const controls = el("section", { class: "card" }, el("h3", {}, "Style presets"));
+    controls.appendChild(
+      el("p", { class: "hint" }, "Pick a look. Each card shows its layout and caption style; the preview on the right uses your real speakers."),
+    );
     const presetGrid = el("div", { class: "preset-grid" });
     STY.STYLE_PRESETS.forEach((preset) => {
       const selected = styleSelection.presetId === preset.id;
@@ -3394,7 +3416,15 @@
           return swatch;
         })(),
         el("span", { class: "preset-name" }, preset.name),
+        // Compact preview of the preset's layout + its key format cues (#94).
+        renderPresetLayoutPreview(preset),
         el("span", { class: "preset-tagline" }, preset.tagline),
+        el(
+          "span",
+          { class: "preset-cues" },
+          el("span", { class: "preset-cue" }, STY.getLayout(preset.defaultLayout).label),
+          el("span", { class: "preset-cue" }, preset.captionStyle),
+        ),
       );
       card.addEventListener("click", () => {
         styleSelection = STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized);
@@ -3406,36 +3436,56 @@
     });
     controls.appendChild(presetGrid);
 
-    // Layout control
-    const layoutSelect = el("select", { id: "style-layout" });
+    // Layout control — visual cards instead of a native select (#94).
+    controls.appendChild(el("p", { class: "field-label style-control-label" }, "Layout"));
+    const layoutCards = el("div", { class: "style-option-cards", role: "group", "aria-label": "Layout" });
     STY.LAYOUTS.forEach((layout) => {
-      layoutSelect.appendChild(
-        el("option", { value: layout.id, selected: styleSelection.layout === layout.id ? true : null }, layout.label),
+      const sel = styleSelection.layout === layout.id;
+      const btn = el(
+        "button",
+        {
+          type: "button",
+          class: `style-option-card${sel ? " selected" : ""}`,
+          "aria-pressed": sel ? "true" : "false",
+        },
+        el("span", { class: "style-option-name" }, layout.label),
       );
+      btn.addEventListener("click", () => {
+        styleSelection.layout = layout.id;
+        layoutCustomized = styleSelection.layout !== "auto";
+        activeTemplateId = null;
+        canvasDoc = null;
+        renderStyle(summary);
+      });
+      layoutCards.appendChild(btn);
     });
-    layoutSelect.addEventListener("change", (e) => {
-      styleSelection.layout = e.target.value;
-      layoutCustomized = styleSelection.layout !== "auto";
-      activeTemplateId = null;
-      canvasDoc = null;
-      renderStyle(summary);
-    });
-    controls.appendChild(field("Layout", layoutSelect, null, "Auto matches the number of speakers you set up."));
+    controls.appendChild(layoutCards);
+    controls.appendChild(el("p", { class: "hint" }, "Auto matches the number of speakers you set up."));
 
-    // Pacing control
-    const pacingSelect = el("select", { id: "style-pacing" });
+    // Pacing control — visual cards instead of a native select (#94).
+    controls.appendChild(el("p", { class: "field-label style-control-label" }, "Pacing"));
+    const pacingCards = el("div", { class: "style-option-cards", role: "group", "aria-label": "Pacing" });
     STY.PACING.forEach((pacing) => {
-      pacingSelect.appendChild(
-        el("option", { value: pacing.id, selected: styleSelection.pacing === pacing.id ? true : null }, pacing.label),
+      const sel = styleSelection.pacing === pacing.id;
+      const btn = el(
+        "button",
+        {
+          type: "button",
+          class: `style-option-card${sel ? " selected" : ""}`,
+          "aria-pressed": sel ? "true" : "false",
+        },
+        el("span", { class: "style-option-name" }, pacing.label),
+        el("span", { class: "style-option-note" }, pacing.note),
       );
+      btn.addEventListener("click", () => {
+        styleSelection.pacing = pacing.id;
+        activeTemplateId = null;
+        canvasDoc = null;
+        renderStyle(summary);
+      });
+      pacingCards.appendChild(btn);
     });
-    pacingSelect.addEventListener("change", (e) => {
-      styleSelection.pacing = e.target.value;
-      activeTemplateId = null;
-      canvasDoc = null;
-      renderStyle(summary);
-    });
-    controls.appendChild(field("Pacing", pacingSelect, null, STY.getPacing(styleSelection.pacing).note));
+    controls.appendChild(pacingCards);
 
     layoutGrid.appendChild(controls);
 
