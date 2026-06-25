@@ -3,7 +3,9 @@
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
-// show brand kits (#52), show identity episode start (#57), and publish package (#60).
+// show brand kits (#52), show identity episode start (#57), publish package (#60),
+// transcript correction (#63), episode import before brand setup (#73),
+// and episode import polish (#77).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -19,6 +21,7 @@
   const LIB = window.PdcShowLibrary;
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
+  const ONB = window.PdcShowOnboarding;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
   const root = document.getElementById("app");
@@ -48,6 +51,8 @@
   let selectedMomentId = null;
   let exportJob = null;
   let publishPackage = null;
+  let correctionReview = null;
+  let correctionApproved = false;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -104,6 +109,7 @@
       return;
     }
     applyContextEffects();
+    applyCorrectionEffects();
     try {
       localStorage.setItem(MOMENTS_STORAGE_KEY, VM.serializeBoard(momentsBoard));
     } catch (err) {
@@ -250,13 +256,85 @@
     return free || `Guest ${state.speakers.length}`;
   }
 
+  function setPageIntro(mode) {
+    const intro = document.querySelector(".intro");
+    if (!intro) {
+      return;
+    }
+    const heading = intro.querySelector("h1");
+    const copy = intro.querySelector("p");
+    if (mode === "library") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Organize episodes by show";
+      }
+      if (copy) {
+        copy.textContent = "Create a show, then import your recording first — Riverside link or synced speaker files, speaker roles, and social links — before style or brand work.";
+      }
+      return;
+    }
+    if (mode === "new-show") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Create a show";
+      }
+      if (copy) {
+        copy.textContent = "Name your show and optionally pick a saved template. Next you will import your first episode recording and assign speakers.";
+      }
+      return;
+    }
+    if (mode === "show-detail") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Show home";
+      }
+      if (copy) {
+        copy.textContent = "Start or continue episode import here. Brand kit is optional and can wait until after your recording and speakers are set up.";
+      }
+      return;
+    }
+    if (mode === "episode-setup") {
+      intro.hidden = false;
+      if (heading) {
+        heading.textContent = "Import your episode";
+      }
+      if (copy) {
+        copy.textContent = "Bring in a Riverside link or separate synced speaker files, assign each source to Host, Guest 1, or Guest 2, and add social links so the edit gets names and context right.";
+      }
+      return;
+    }
+    intro.hidden = true;
+  }
+
+  function getShowDetailSections(show) {
+    if (ONB) {
+      return ONB.showDetailSections(show);
+    }
+    return {
+      primary: {
+        id: "episode-setup",
+        title: "Import your recording first",
+        hint: "Add a Riverside link or synced speaker files and assign speakers before style or brand work.",
+        actionLabel: "Set up episode →",
+      },
+      secondary: {
+        id: "brand-kit",
+        title: "Brand kit (optional)",
+        hint: "Set up later — episode import comes first.",
+        actionLabel: "Set up brand kit later",
+      },
+    };
+  }
+
   // ---- Show library view -----------------------------------------------------
 
   function renderShowLibrary() {
     if (!LIB) {
+      setPageIntro("episode-setup");
       renderSetup();
       return;
     }
+    setPageIntro("library");
     root.innerHTML = "";
     setStep("Show Library");
 
@@ -285,7 +363,7 @@
         el(
           "div",
           { class: "show-library-empty" },
-          el("p", {}, "No shows yet. Create a show to organize your episodes and reuse templates."),
+          el("p", {}, "No shows yet. Create a show — you will import your first recording and assign speakers right away."),
         ),
       );
     } else {
@@ -339,6 +417,7 @@
   }
 
   function renderNewShowForm(prefillName, errorMsg) {
+    setPageIntro("new-show");
     root.innerHTML = "";
     setStep("Show Library · New Show");
 
@@ -364,7 +443,7 @@
 
     const form = el(
       "div",
-      { class: "card" },
+      { class: "card create-show-form" },
       el("h2", {}, "Create new show"),
       el(
         "div",
@@ -378,12 +457,17 @@
         el("label", { for: "f-show-template" }, "Start from template (optional)"),
         tplSelect,
       ),
+      el(
+        "p",
+        { class: "hint" },
+        "After you create the show, you will go straight to episode import — Riverside link or synced speaker files, speaker roles, and social links.",
+      ),
     );
 
     const cancelBtn = el("button", { class: "btn-secondary", type: "button" }, "Cancel");
     cancelBtn.addEventListener("click", () => renderShowLibrary());
 
-    const saveBtn = el("button", { class: "btn-primary", type: "button" }, "Create show");
+    const saveBtn = el("button", { class: "btn-primary create-show-continue-btn", type: "button" }, "Create show & import episode →");
     saveBtn.addEventListener("click", () => {
       const name = nameInput.value;
       const check = LIB.validateShowName(showLibrary, name);
@@ -400,10 +484,10 @@
       showLibrary = LIB.addShow(showLibrary, show);
       persistShowLibrary();
       activeShowId = show.id;
-      renderShowDetail(show.id);
+      startEpisodeFromShow(show.id);
     });
 
-    const footer = el("div", { class: "workspace-actions" }, cancelBtn, saveBtn);
+    const footer = el("div", { class: "workspace-actions setup-cta-bar" }, cancelBtn, saveBtn);
     root.appendChild(el("div", { class: "workspace-root" }, form, footer));
   }
 
@@ -413,10 +497,12 @@
       renderShowLibrary();
       return;
     }
+    setPageIntro("show-detail");
     root.innerHTML = "";
     setStep(`Show Library · ${show.name}`);
 
     const episodes = LIB.listEpisodes(showLibrary, showId);
+    const sections = getShowDetailSections(show);
     const metaParts = [];
     if (show.templateName) metaParts.push(`Template: ${show.templateName}`);
     if (show.presetName) metaParts.push(`Style: ${show.presetName}`);
@@ -424,20 +510,25 @@
     const backBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, "← Library");
     backBtn.addEventListener("click", () => renderShowLibrary());
 
-    const newEpBtn = el("button", { class: "btn-primary btn-sm", type: "button" }, "New episode →");
-    newEpBtn.addEventListener("click", () => startEpisodeFromShow(showId));
-
     const header = el(
       "div",
       { class: "workspace-header" },
-      el("div", { class: "workspace-header-row" }, backBtn, newEpBtn),
+      el("div", { class: "workspace-header-row" }, backBtn),
       el("h1", {}, show.name),
       metaParts.length ? el("p", { class: "hint" }, metaParts.join(" · ")) : null,
     );
 
+    const primaryCard = el("section", { class: "card show-primary-step-card" }, el("h2", {}, sections.primary.title));
+    primaryCard.appendChild(el("p", { class: "hint" }, sections.primary.hint));
+    const primaryBtn = el("button", { class: "btn-primary", type: "button" }, sections.primary.actionLabel);
+    primaryBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+    primaryCard.appendChild(el("div", { class: "show-primary-step-actions" }, primaryBtn));
+
     const epListEl = el("div", { class: "show-episode-list" });
     if (!episodes.length) {
-      epListEl.appendChild(el("p", { class: "hint" }, "No episodes yet. Start a new episode from this show."));
+      epListEl.appendChild(
+        el("p", { class: "hint" }, "No episodes yet — use the button above to import your first recording and assign speakers."),
+      );
     } else {
       episodes.forEach((ep) => {
         const statusLabel = LIB.episodeStatusLabel(ep.status);
@@ -453,11 +544,12 @@
       });
     }
 
-    const view = el("div", { class: "workspace-root" }, header, el("div", { class: "card" }, el("h2", {}, "Episodes"), epListEl));
+    const episodesCard = el("section", { class: "card show-episodes-card" }, el("h2", {}, "Episodes"), epListEl);
 
     const kit = show.brandKit;
     const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
-    const brandCard = el("section", { class: "card brand-kit-card" }, el("h2", {}, "Brand kit"));
+    const brandCard = el("section", { class: "card brand-kit-card show-secondary-step-card" }, el("h2", {}, sections.secondary.title));
+    brandCard.appendChild(el("p", { class: "hint" }, sections.secondary.hint));
     if (kitSummary && kitSummary.identityLine !== "No brand kit configured") {
       brandCard.appendChild(el("p", { class: "brand-kit-line" }, kitSummary.identityLine));
       if (kitSummary.colorSummary) {
@@ -466,14 +558,12 @@
       if (kitSummary.overlayCount) {
         brandCard.appendChild(el("p", { class: "hint" }, `${kitSummary.overlayCount} overlay asset${kitSummary.overlayCount === 1 ? "" : "s"}`));
       }
-    } else {
-      brandCard.appendChild(el("p", { class: "hint" }, "Define logo, colors, type, captions, and overlay assets so every episode feels on-brand."));
     }
-    const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, kit ? "Edit brand kit" : "Create brand kit");
+    const editBrandBtn = el("button", { class: "btn-secondary btn-sm", type: "button" }, sections.secondary.actionLabel);
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
     brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
-    view.insertBefore(brandCard, view.lastChild);
 
+    const view = el("div", { class: "workspace-root" }, header, primaryCard, episodesCard, brandCard);
     root.appendChild(view);
   }
 
@@ -488,6 +578,7 @@
       return;
     }
     activeShowId = showId;
+    setPageIntro("show-detail");
     let kit = show.brandKit || BK.createBrandKit(showId);
     root.innerHTML = "";
     setStep(`Show Library · ${show.name} · Brand kit`);
@@ -683,6 +774,7 @@
   function startBlankEpisode() {
     activeShowId = null;
     applyEpisodeStart(SI ? SI.buildBlankEpisodeStart() : null);
+    setPageIntro("episode-setup");
     renderSetup();
   }
 
@@ -709,21 +801,37 @@
     showLibrary = LIB.addEpisode(showLibrary, showId, episode);
     persistShowLibrary();
 
+    setPageIntro("episode-setup");
     renderSetup();
   }
 
   // ---- Setup view -------------------------------------------------------------
 
   function renderSetup() {
+    setPageIntro("episode-setup");
     root.innerHTML = "";
     setStep("Step 1 of 8 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
-    const form = el("form", { class: "setup", novalidate: true });
+    const form = el("form", { class: "setup setup-import", novalidate: true });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       onContinue();
     });
+
+    form.appendChild(
+      el(
+        "div",
+        { class: "setup-import-head" },
+        el("p", { class: "eyebrow" }, "Episode import"),
+        el("h2", {}, "Set up your recording and speakers"),
+        el(
+          "p",
+          { class: "hint" },
+          "Import your synced sources, assign each speaker, and add social links — then continue to audio polish and style.",
+        ),
+      ),
+    );
 
     const identityBanner = renderShowIdentityBanner();
     if (identityBanner) {
@@ -771,8 +879,9 @@
 
     const detailsCard = el(
       "section",
-      { class: "card" },
+      { class: "card setup-section" },
       el("h2", {}, "Episode details"),
+      el("p", { class: "hint setup-section-lead" }, "Name this episode so it is easy to find in your show library."),
       field("Episode name", nameInput, "episodeName"),
     );
     form.appendChild(detailsCard);
@@ -796,9 +905,9 @@
 
     const sourceCard = el(
       "section",
-      { class: "card" },
+      { class: "card setup-section" },
       el("h2", {}, "Recording source"),
-      el("p", { class: "hint" }, "Bring in your recording, then assign each track to a speaker below."),
+      el("p", { class: "hint setup-section-lead" }, "Choose how you recorded — Riverside link or separate synced speaker files."),
       el("div", { class: "mode-row" }, modeButtons),
     );
 
@@ -824,10 +933,22 @@
     form.appendChild(sourceCard);
 
     // Speakers & sources
-    const speakersCard = el("section", { class: "card" }, el("h2", {}, "Speakers & sources"));
+    const speakerStack = el("div", { class: "speaker-stack" });
     state.speakers.forEach((speaker, index) => {
-      speakersCard.appendChild(renderSpeaker(speaker, index));
+      speakerStack.appendChild(renderSpeaker(speaker, index));
     });
+
+    const speakersCard = el(
+      "section",
+      { class: "card setup-section setup-speakers-card" },
+      el("h2", {}, "Speakers & sources"),
+      el(
+        "p",
+        { class: "hint setup-section-lead" },
+        "One card per speaker — assign Host, Guest 1, or Guest 2 and attach each synced source.",
+      ),
+      speakerStack,
+    );
 
     const addButton = el("button", { type: "button", class: "ghost" }, "+ Add speaker source");
     addButton.addEventListener("click", () => {
@@ -847,12 +968,19 @@
     form.appendChild(
       el(
         "div",
-        { class: "actions" },
-        el("button", { type: "submit", class: "primary" }, "Continue to audio polish →"),
+        { class: "actions setup-actions setup-cta-bar" },
+        activeShowId
+          ? el("button", { type: "button", class: "btn-secondary", id: "setup-back-show" }, "← Back to show")
+          : null,
+        el("button", { type: "submit", class: "btn-primary setup-continue-btn" }, "Continue to audio polish →"),
       ),
     );
 
     root.appendChild(form);
+    const backShow = document.getElementById("setup-back-show");
+    if (backShow) {
+      backShow.addEventListener("click", () => renderShowDetail(activeShowId));
+    }
 
     if (showErrors) {
       focusFirstError();
@@ -860,7 +988,7 @@
   }
 
   function renderSpeaker(speaker, index) {
-    const card = el("div", { class: "speaker" });
+    const card = el("article", { class: "speaker speaker-card" });
     const header = el(
       "div",
       { class: "speaker-head" },
@@ -881,6 +1009,9 @@
     header.appendChild(removeButton);
     card.appendChild(header);
 
+    const body = el("div", { class: "speaker-body" });
+    const core = el("div", { class: "speaker-core" });
+
     // Name
     const nameInput = el("input", {
       id: `f-sp-${index}-name`,
@@ -892,7 +1023,7 @@
     nameInput.addEventListener("input", (e) => {
       speaker.name = e.target.value;
     });
-    card.appendChild(field("Speaker name", nameInput, `speaker:${index}:name`));
+    core.appendChild(field("Speaker name", nameInput, `speaker:${index}:name`));
 
     // Role bucket
     const roleSelect = el("select", {
@@ -906,9 +1037,11 @@
     roleSelect.addEventListener("change", (e) => {
       speaker.role = e.target.value;
     });
-    card.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
+    core.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
+    body.appendChild(core);
 
     // Source: file (upload) or optional channel label (riverside)
+    const sourceBlock = el("div", { class: "speaker-source-block" });
     if (state.sourceMode === "upload") {
       const fileInput = el("input", {
         id: `f-sp-${index}-source`,
@@ -927,8 +1060,8 @@
         speaker.fileSize = file ? file.size : 0;
         chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
       });
-      card.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
-      card.appendChild(chosen);
+      sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
+      sourceBlock.appendChild(chosen);
     } else {
       const trackInput = el("input", {
         id: `f-sp-${index}-source`,
@@ -939,8 +1072,9 @@
       trackInput.addEventListener("input", (e) => {
         speaker.trackLabel = e.target.value;
       });
-      card.appendChild(field("Channel label", trackInput, null, "Optional — name this speaker's channel in the recording."));
+      sourceBlock.appendChild(field("Channel label", trackInput, null, "Optional — name this speaker's channel in the recording."));
     }
+    body.appendChild(sourceBlock);
 
     // Optional social links
     const social = el("details", { class: "social" });
@@ -964,7 +1098,8 @@
       });
       social.appendChild(field(net.label, input, `speaker:${index}:social:${net.key}`));
     });
-    card.appendChild(social);
+    body.appendChild(social);
+    card.appendChild(body);
 
     return card;
   }
@@ -1048,6 +1183,7 @@
       contextApproved: contextApproved,
       exportReady: exportReady,
       publishReviewApproved: publishReviewApproved,
+      correctionApproved: correctionApproved,
       exportStatus: exportJob ? exportJob.status : "draft",
       exportDownloadName: exportJob && exportJob.downloadName ? exportJob.downloadName : "",
     };
@@ -1086,6 +1222,10 @@
     }
     if (target === "review") {
       renderPublishReview(summary);
+      return;
+    }
+    if (target === "correction") {
+      renderTranscriptCorrection(summary);
       return;
     }
     if (target === "export") {
@@ -1141,6 +1281,44 @@
     }
   }
 
+  function ensureCorrectionReview(summary) {
+    if (!TC) {
+      return null;
+    }
+    ensureMomentsBoard(summary);
+    if (!correctionReview) {
+      correctionReview = TC.createCorrectionReview(summary, {
+        contextReview: contextReview,
+        momentsBoard: momentsBoard,
+      });
+    }
+    return correctionReview;
+  }
+
+  function applyCorrectionEffects() {
+    if (!TC || !correctionReview || !correctionReview.approved) {
+      return;
+    }
+    const applied = TC.applyCorrectionReview(correctionReview, {
+      momentsBoard: momentsBoard,
+      canvasDoc: canvasDoc,
+      publishPackage: publishPackage,
+      speakers: state.speakers,
+    });
+    if (applied.momentsBoard) {
+      momentsBoard = applied.momentsBoard;
+    }
+    if (applied.canvasDoc) {
+      canvasDoc = applied.canvasDoc;
+    }
+    if (applied.publishPackage) {
+      publishPackage = applied.publishPackage;
+    }
+    if (applied.speakers) {
+      state.speakers = applied.speakers;
+    }
+  }
+
   function buildPublishPackageContext(summary) {
     const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
     return {
@@ -1156,6 +1334,7 @@
     if (!PP) {
       return null;
     }
+    applyCorrectionEffects();
     if (!publishPackage) {
       publishPackage = PP.createPackage(summary, buildPublishPackageContext(summary));
     }
@@ -1225,6 +1404,7 @@
   }
 
   function buildExportContext(summary) {
+    applyCorrectionEffects();
     const templateName = activeTemplateId && TM
       ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
       : "";
@@ -1347,6 +1527,8 @@
       showErrors = false;
       contextApproved = false;
       contextReview = null;
+      correctionApproved = false;
+      correctionReview = null;
       publishReviewApproved = false;
       publishReview = null;
       renderSetup();
@@ -1449,6 +1631,32 @@
     grid.appendChild(checksCard);
     view.appendChild(grid);
 
+    if (TC) {
+      ensureMomentsBoard(summary);
+      const correctionSummary = correctionReview && correctionReview.approved
+        ? TC.summarizeCorrection(correctionReview)
+        : null;
+      const correctionCard = el("section", { class: "card transcript-correction-banner" }, el("h3", {}, "Transcript & captions"));
+      correctionCard.appendChild(
+        el(
+          "p",
+          { class: "hint" },
+          "Fix speaker names, brand spellings, and caption text once — corrections carry through captions, visual moments, export metadata, and your publish package.",
+        ),
+      );
+      if (correctionSummary && correctionSummary.reviewLine) {
+        correctionCard.appendChild(el("p", { class: "transcript-correction-line" }, correctionSummary.reviewLine));
+      }
+      const correctionButton = el(
+        "button",
+        { type: "button", class: correctionApproved ? "ghost" : "primary" },
+        correctionApproved ? "Edit transcript corrections" : "Review transcript & captions →",
+      );
+      correctionButton.addEventListener("click", () => renderTranscriptCorrection(summary, { returnTo: "review" }));
+      correctionCard.appendChild(el("div", { class: "actions transcript-correction-actions" }, correctionButton));
+      view.appendChild(correctionCard);
+    }
+
     const approveError = el("p", { class: "field-error", role: "alert", hidden: true });
     const approveButton = el(
       "button",
@@ -1483,6 +1691,135 @@
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(approveError);
     view.appendChild(el("div", { class: "actions" }, approveButton, exportButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Transcript & caption correction (#63) ---------------------------------
+
+  function renderTranscriptCorrection(summary, options) {
+    if (!TC) {
+      renderPublishReview(summary);
+      return;
+    }
+    ensureCorrectionReview(summary);
+    const returnTo = options && options.returnTo;
+    root.innerHTML = "";
+    setStep("Transcript review · Fix names & captions");
+
+    const view = el("div", { class: "transcript-correction-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Transcript & caption review"),
+        el("h2", {}, `Correct wording for ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "Edit speaker labels and key caption lines pulled from your episode and social context. Approved corrections update on-screen captions, title moments, export metadata, and publish package copy.",
+        ),
+      ),
+    );
+
+    const layout = el("div", { class: "transcript-correction-layout" });
+
+    const speakersCard = el("section", { class: "card" }, el("h3", {}, "Speaker labels"));
+    correctionReview.speakers.forEach((speaker) => {
+      const card = el("section", { class: "transcript-speaker-card" });
+      card.appendChild(el("h4", {}, speaker.role));
+
+      function bindSpeakerInput(label, key, value, hint) {
+        const input = el("input", {
+          id: `tc-speaker-${speaker.role}-${key}`,
+          type: "text",
+          value: value || "",
+        });
+        input.addEventListener("input", (e) => {
+          correctionReview = TC.updateSpeaker(correctionReview, speaker.role, { [key]: e.target.value });
+        });
+        card.appendChild(field(label, input, null, hint));
+      }
+
+      bindSpeakerInput("On-screen name", "label", speaker.label, "How this speaker's name appears in captions and credits.");
+      bindSpeakerInput("Brand or show", "brand", speaker.brand, "Company, show, or personal brand spelling.");
+      bindSpeakerInput(
+        "Topic terms",
+        "topicTerms",
+        (speaker.topicTerms || []).join(", "),
+        "Comma-separated terms to keep consistent in titles and callouts.",
+      );
+      speakersCard.appendChild(card);
+    });
+    layout.appendChild(speakersCard);
+
+    const linesCard = el("section", { class: "card" }, el("h3", {}, "Key lines"));
+    linesCard.appendChild(
+      el("p", { class: "hint" }, "Captions, titles, and transcript segments that appear in the finished episode."),
+    );
+    const lineList = el("div", { class: "transcript-line-list" });
+    correctionReview.lines.forEach((line) => {
+      const row = el("div", { class: "transcript-line-row" });
+      row.appendChild(
+        el(
+          "div",
+          { class: "transcript-line-meta" },
+          el("span", { class: "transcript-line-time" }, line.time),
+          el("span", { class: "transcript-line-kind" }, line.kind),
+          el("span", { class: "transcript-line-speaker" }, line.speakerLabel || line.speakerRole),
+        ),
+      );
+      const textInput = el("textarea", {
+        id: `tc-line-${line.id}`,
+        rows: "2",
+        class: "transcript-line-text",
+      }, line.text || "");
+      textInput.addEventListener("input", (e) => {
+        correctionReview = TC.updateLine(correctionReview, line.id, { text: e.target.value });
+      });
+      row.appendChild(field("Caption / line text", textInput));
+      lineList.appendChild(row);
+    });
+    linesCard.appendChild(lineList);
+    layout.appendChild(linesCard);
+    view.appendChild(layout);
+
+    const approveError = el("p", { class: "field-error", role: "alert", hidden: true });
+    const approveButton = el(
+      "button",
+      { type: "button", class: "primary" },
+      correctionApproved ? "Re-apply corrections →" : "Apply corrections →",
+    );
+    approveButton.addEventListener("click", () => {
+      if (!correctionReview.lines.length && !correctionReview.speakers.length) {
+        approveError.hidden = false;
+        approveError.textContent = "Add visual moments or speakers before applying corrections.";
+        return;
+      }
+      correctionReview = TC.approveCorrection(correctionReview);
+      correctionApproved = true;
+      applyCorrectionEffects();
+      persistMoments();
+      approveError.hidden = true;
+      if (returnTo === "package") {
+        renderPublishPackage(summary);
+      } else if (returnTo === "export") {
+        renderExport(summary);
+      } else {
+        renderPublishReview(summary);
+      }
+    });
+
+    const backTarget = returnTo === "package"
+      ? () => renderPublishPackage(summary)
+      : returnTo === "export"
+        ? () => renderExport(summary)
+        : () => renderPublishReview(summary);
+    const back = el("button", { type: "button", class: "ghost" }, "← Back");
+    back.addEventListener("click", backTarget);
+    view.appendChild(approveError);
+    view.appendChild(el("div", { class: "actions" }, approveButton, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -1623,13 +1960,30 @@
     packageSummary.lines.forEach((line) => {
       previewCard.appendChild(el("p", { class: "export-summary-line" }, line));
     });
+    if (TC && correctionReview && correctionReview.approved) {
+      const correctionSummary = TC.summarizeCorrection(correctionReview);
+      if (correctionSummary.reviewLine) {
+        previewCard.appendChild(el("p", { class: "export-summary-line" }, correctionSummary.reviewLine));
+      }
+    }
     view.appendChild(previewCard);
 
     const toExport = el("button", { type: "button", class: "primary" }, "Continue to export →");
     toExport.addEventListener("click", () => renderExport(summary));
-    const back = el("button", { type: "button", class: "ghost" }, "← Back to export");
-    back.addEventListener("click", () => renderExport(summary));
-    view.appendChild(el("div", { class: "actions" }, toExport, back));
+    const correctionButton = TC
+      ? el(
+        "button",
+        { type: "button", class: "ghost" },
+        correctionApproved ? "Edit transcript corrections" : "Review transcript & captions",
+      )
+      : null;
+    if (correctionButton) {
+      correctionButton.addEventListener("click", () => renderTranscriptCorrection(summary, { returnTo: "package" }));
+    }
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to publish review");
+    back.addEventListener("click", () => renderPublishReview(summary));
+    const actionButtons = correctionButton ? [toExport, correctionButton, back] : [toExport, back];
+    view.appendChild(el("div", { class: "actions" }, actionButtons));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -1805,6 +2159,15 @@
     view.appendChild(grid);
 
     const actions = el("div", { class: "actions" });
+    if (TC) {
+      const correctionButton = el(
+        "button",
+        { type: "button", class: "ghost" },
+        correctionApproved ? "Edit transcript corrections" : "Review transcript & captions",
+      );
+      correctionButton.addEventListener("click", () => renderTranscriptCorrection(summary, { returnTo: "export" }));
+      actions.appendChild(correctionButton);
+    }
     const packageButton = el("button", { type: "button", class: "ghost" }, publishPackage ? "Edit publish package" : "Open publish package →");
     packageButton.addEventListener("click", () => renderPublishPackage(summary));
     actions.appendChild(packageButton);
