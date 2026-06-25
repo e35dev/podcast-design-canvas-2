@@ -3,7 +3,7 @@
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
-// and show brand kits (#52).
+// show brand kits (#52), show identity episode start (#57), and publish package (#60).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -19,6 +19,8 @@
   const WS = window.PdcEpisodeWorkspace;
   const LIB = window.PdcShowLibrary;
   const BK = window.PdcShowBrandKit;
+  const SI = window.PdcShowIdentity;
+  const PP = window.PdcPublishPackage;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -45,6 +47,7 @@
   let momentsBoard = null;
   let selectedMomentId = null;
   let exportJob = null;
+  let publishPackage = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
   let contextReview = null;
   let contextApproved = false;
@@ -52,11 +55,12 @@
   let transcriptReviewApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
-  let publishPackage = null;
   const LIB_STORAGE_KEY = "pdc-show-library";
   let showLibrary = { shows: [] };
   let activeShowId = null;
   let activeBrandKit = null;
+  let startingFromShowIdentity = false;
+  let showIdentitySummary = null;
 
   function getActiveBrandKit() {
     if (activeBrandKit) {
@@ -267,7 +271,10 @@
     const newShowBtn = el("button", { class: "btn-primary", type: "button" }, "+ New show");
     newShowBtn.addEventListener("click", () => renderNewShowForm());
 
-    const actions = el("div", { class: "workspace-actions" }, newShowBtn);
+    const blankEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start blank episode");
+    blankEpisodeBtn.addEventListener("click", () => startBlankEpisode());
+
+    const actions = el("div", { class: "workspace-actions" }, newShowBtn, blankEpisodeBtn);
 
     const listEl = el("div", { class: "show-library-list" });
 
@@ -608,11 +615,20 @@
     root.appendChild(view);
   }
 
-  function startEpisodeFromShow(showId) {
-    const show = LIB.getShow(showLibrary, showId);
-    const prefill = show ? LIB.newEpisodeDraft(show) : {};
-    activeShowId = showId;
-    activeBrandKit = prefill.brandKit || null;
+  function renderShowIdentityBanner() {
+    if (!startingFromShowIdentity || !showIdentitySummary) {
+      return null;
+    }
+    return el(
+      "section",
+      { class: "card show-identity-banner" },
+      el("h3", {}, showIdentitySummary.headline),
+      el("p", { class: "hint" }, showIdentitySummary.identityLine),
+      el("p", { class: "hint show-identity-note" }, "Everything below is prefilled from this show — edit any step as needed."),
+    );
+  }
+
+  function resetEpisodeSession() {
     state = ES.createDraft();
     errors = {};
     showErrors = false;
@@ -621,32 +637,67 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    activeTemplateId = null;
     canvasDoc = null;
+    canvasLayerCounter = 20;
+    workspaceSummaryCache = null;
     momentsBoard = null;
     selectedMomentId = null;
     exportJob = null;
+    publishPackage = null;
     contextReview = null;
     contextApproved = false;
     publishReview = null;
     publishReviewApproved = false;
-    publishPackage = null;
+    startingFromShowIdentity = false;
+    showIdentitySummary = null;
+  }
 
-    // Apply show prefill.
-    if (prefill.templateId && TM) {
-      activeTemplateId = prefill.templateId;
-      const tpl = TM.listTemplates(templateStore).find((t) => t.id === prefill.templateId);
-      if (tpl) {
-        canvasDoc = tpl.canvasDoc ? JSON.parse(JSON.stringify(tpl.canvasDoc)) : null;
-      }
+  function applyEpisodeStart(start) {
+    resetEpisodeSession();
+    if (!start) {
+      return;
     }
-    if (prefill.presetName && STY) {
-      const presets = STY.listPresets ? STY.listPresets() : [];
-      const match = presets.find((p) => p.name === prefill.presetName);
-      if (match) {
-        styleSelection.presetId = match.id;
-        styleSelection.presetName = match.name;
-      }
+    activeShowId = start.showId || null;
+    activeBrandKit = start.brandKit || null;
+    startingFromShowIdentity = Boolean(start.fromShowIdentity);
+    showIdentitySummary = start.identity || null;
+    state = start.setupDraft || ES.createDraft();
+    styleSelection = start.styleSelection || (STY ? STY.createSelection() : null);
+    appliedStyle = start.appliedStyle || null;
+    activeTemplateId = start.templateId || null;
+    canvasDoc = start.canvasDoc || null;
+    layoutCustomized = Boolean(styleSelection && styleSelection.layout && styleSelection.layout !== "auto");
+  }
+
+  function startBlankEpisode() {
+    activeShowId = null;
+    applyEpisodeStart(SI ? SI.buildBlankEpisodeStart() : null);
+    renderSetup();
+  }
+
+  function startEpisodeFromShow(showId) {
+    if (!LIB || !SI) {
+      startBlankEpisode();
+      return;
     }
+    const show = LIB.getShow(showLibrary, showId);
+    if (!show) {
+      renderShowLibrary();
+      return;
+    }
+    const start = SI.buildEpisodeStart(show, templateStore);
+    applyEpisodeStart(start);
+
+    const episode = LIB.createEpisode(showId, state.episodeName, {
+      templateId: start.templateId,
+      templateName: start.templateName,
+      presetName: start.appliedStyle ? start.appliedStyle.presetName : show.presetName,
+      speakerRoles: state.speakers.map((speaker) => speaker.role),
+      status: LIB.EPISODE_STATUS.DRAFT,
+    });
+    showLibrary = LIB.addEpisode(showLibrary, showId, episode);
+    persistShowLibrary();
 
     renderSetup();
   }
@@ -663,6 +714,11 @@
       event.preventDefault();
       onContinue();
     });
+
+    const identityBanner = renderShowIdentityBanner();
+    if (identityBanner) {
+      form.appendChild(identityBanner);
+    }
 
     if (showErrors && errors && Object.keys(errors).length) {
       form.appendChild(
@@ -1114,6 +1170,27 @@
     }
   }
 
+  function buildPublishPackageContext(summary) {
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    return {
+      showName: show ? show.name : summary.episodeName,
+      momentsBoard: momentsBoard,
+      brandKit: getActiveBrandKit(),
+      brandKitSummary: brandKitSummary(),
+      appliedStyle: brandedAppliedStyle(summary),
+    };
+  }
+
+  function ensurePublishPackage(summary) {
+    if (!PP) {
+      return null;
+    }
+    if (!publishPackage) {
+      publishPackage = PP.createPackage(summary, buildPublishPackageContext(summary));
+    }
+    return publishPackage;
+  }
+
   function buildExportContext(summary) {
     const templateName = activeTemplateId && TM
       ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
@@ -1138,6 +1215,7 @@
       momentsSummary: momentsSummary,
       contextSummary: contextSummary,
       brandKitSummary: brandKitSummary(),
+      publishPackageSummary: publishPackage && PP ? PP.summarizePackage(publishPackage) : null,
     };
   }
 
@@ -1157,6 +1235,10 @@
     setStep("Episode workspace · Import to publish");
 
     const view = el("div", { class: "workspace guided-workspace" });
+    const identityBanner = renderShowIdentityBanner();
+    if (identityBanner) {
+      view.appendChild(identityBanner);
+    }
     view.appendChild(
       el(
         "div",
@@ -1223,8 +1305,23 @@
           el("h3", {}, "Show brand kit"),
           el("p", { class: "brand-kit-line" }, kitSummary.reviewLine),
           kitSummary.colorSummary ? el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`) : null,
+          activeTemplateId && TM
+            ? el("p", { class: "hint" }, `Saved template: ${(TM.getTemplate(templateStore, activeTemplateId) || {}).name || activeTemplateId}`)
+            : null,
         ),
       );
+    } else if (startingFromShowIdentity && activeTemplateId && TM) {
+      const template = TM.getTemplate(templateStore, activeTemplateId);
+      if (template) {
+        view.appendChild(
+          el(
+            "section",
+            { class: "card brand-kit-workspace-card" },
+            el("h3", {}, "Saved show template"),
+            el("p", { class: "brand-kit-line" }, template.name),
+          ),
+        );
+      }
     }
 
     const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
@@ -1664,6 +1761,7 @@
 
     refreshPublishReview(summary);
     const reviewGate = PR ? PR.validateExportGate(publishReview) : { ok: true };
+    ensurePublishPackage(summary);
     const ctx = buildExportContext(summary);
     const readiness = EXP.validateReadiness(ctx);
     if (!exportJob) {
@@ -1822,6 +1920,9 @@
     view.appendChild(grid);
 
     const actions = el("div", { class: "actions" });
+    const packageButton = el("button", { type: "button", class: "ghost" }, publishPackage ? "Edit publish package" : "Open publish package →");
+    packageButton.addEventListener("click", () => renderPublishPackage(summary));
+    actions.appendChild(packageButton);
     if (exportJob.status !== "ready") {
       const startButton = el("button", { type: "button", class: "primary" }, "Start export →");
       startButton.addEventListener("click", () => {
@@ -2685,6 +2786,10 @@
     }
 
     const view = el("div", { class: "style-step" });
+    const identityBanner = renderShowIdentityBanner();
+    if (identityBanner) {
+      view.appendChild(identityBanner);
+    }
     view.appendChild(
       el(
         "div",

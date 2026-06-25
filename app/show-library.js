@@ -40,6 +40,9 @@
       templateName: opts.templateName || "",
       presetName: opts.presetName || "",
       brandKit: opts.brandKit || null,
+      defaultSourceMode: opts.defaultSourceMode || "",
+      defaultRiversideLink: opts.defaultRiversideLink || "",
+      defaultSpeakers: Array.isArray(opts.defaultSpeakers) ? clone(opts.defaultSpeakers) : [],
       createdAt: opts.createdAt || Date.now(),
       episodes: [],
     };
@@ -178,7 +181,11 @@
       templateName: s.templateName || "",
       presetName: s.presetName || "",
       brandKit: s.brandKit ? clone(s.brandKit) : null,
-      speakerRoles: Array.isArray(s.defaultSpeakerRoles) ? s.defaultSpeakerRoles.slice() : [],
+      defaultSourceMode: s.defaultSourceMode || "",
+      defaultSpeakers: Array.isArray(s.defaultSpeakers) ? clone(s.defaultSpeakers) : [],
+      speakerRoles: Array.isArray(s.defaultSpeakers)
+        ? s.defaultSpeakers.map(function (speaker) { return speaker.role; })
+        : (Array.isArray(s.defaultSpeakerRoles) ? s.defaultSpeakerRoles.slice() : []),
     };
   }
 
