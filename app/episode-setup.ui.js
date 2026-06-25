@@ -9,6 +9,7 @@
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
+  const AUD = window.PdcAudioPolish;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -22,6 +23,9 @@
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
   let layoutCustomized = false;
+  // Audio polish step state, kept across navigation so the treatment survives Back/Edit.
+  let audioSelection = AUD ? AUD.createSelection() : null;
+  let appliedAudio = null;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
   let activeTemplateId = null;
@@ -537,9 +541,34 @@
       }
     }
 
-    // Next step — style, canvas, or template
+    // Saved audio treatment (review/export path) — shown once audio polish is applied.
+    if (AUD && appliedAudio) {
+      const controlsLine = appliedAudio.activeCount
+        ? appliedAudio.controls
+            .filter((control) => control.on)
+            .map((control) => `${control.label}: ${control.levelLabel}`)
+            .join(" · ")
+        : "No processing — audio left untouched.";
+      const audioCard = el(
+        "section",
+        { class: "card saved-audio" },
+        el("h3", {}, "Audio treatment"),
+        el("p", { class: "saved-audio-name" }, appliedAudio.treatmentName),
+        el("p", { class: "hint" }, appliedAudio.tagline),
+        el("p", { class: "saved-audio-controls" }, controlsLine),
+        el(
+          "p",
+          { class: "hint" },
+          `${appliedAudio.readyCount} of ${appliedAudio.trackCount} speaker track${appliedAudio.trackCount === 1 ? "" : "s"} ready for export.`,
+        ),
+      );
+      view.appendChild(audioCard);
+    }
+
+    // Next step — style, canvas, audio, or template
     const styleAvailable = Boolean(STY);
     const canvasAvailable = Boolean(CL && CE && appliedStyle);
+    const audioAvailable = Boolean(AUD);
     const styleButton = el(
       "button",
       { type: "button", class: canvasAvailable ? "ghost" : "primary", disabled: styleAvailable ? null : true },
@@ -555,6 +584,14 @@
     );
     if (canvasAvailable) {
       canvasButton.addEventListener("click", () => openCanvasEditor(summary));
+    }
+    const audioButton = el(
+      "button",
+      { type: "button", class: "ghost", disabled: audioAvailable ? null : true },
+      appliedAudio ? "Adjust audio polish →" : "Polish audio →",
+    );
+    if (audioAvailable) {
+      audioButton.addEventListener("click", () => renderAudioPolish(summary));
     }
     const nextTitle = activeTemplateId
       ? "Template saved"
@@ -572,6 +609,9 @@
       actions.appendChild(styleButton);
     } else {
       actions.appendChild(styleButton);
+    }
+    if (audioAvailable) {
+      actions.appendChild(audioButton);
     }
     actions.appendChild(
       (function () {
@@ -1090,6 +1130,118 @@
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply style & continue →");
     applyButton.addEventListener("click", () => {
       appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Audio polish (#15) -----------------------------------------------------
+
+  function renderAudioTrack(track) {
+    const row = el(
+      "div",
+      { class: `audio-track audio-track-${track.status}` },
+      el(
+        "div",
+        { class: "audio-track-main" },
+        el("span", { class: "role-pill" }, track.role || "Speaker"),
+        el("span", { class: "summary-name" }, track.name || "Unnamed speaker"),
+        el(
+          "span",
+          { class: `audio-track-status audio-track-status-${track.status}` },
+          track.ready ? "Ready" : "Needs source",
+        ),
+      ),
+      el("p", { class: "summary-source" }, track.sourceLabel || "No source assigned"),
+      el(
+        "p",
+        { class: "audio-track-treatment" },
+        track.ready ? track.treatmentLabel : "Add this speaker's source to polish it.",
+      ),
+    );
+    return row;
+  }
+
+  function renderAudioPolish(summary) {
+    root.innerHTML = "";
+    setStep("Step 4 of 6 · Audio polish");
+    if (!audioSelection) {
+      audioSelection = AUD.createSelection();
+    }
+
+    const view = el("div", { class: "audio-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Audio polish"),
+        el("h2", {}, `Choose how ${summary.episodeName} should sound`),
+        el("p", { class: "hint" }, "Pick a quality goal, then fine-tune. These are sound choices, not technical settings."),
+      ),
+    );
+
+    const grid = el("div", { class: "audio-layout" });
+
+    // Controls column: quality presets + the four simple goals.
+    const controls = el("section", { class: "card" }, el("h3", {}, "Quality preset"));
+    const presetGrid = el("div", { class: "preset-grid audio-preset-grid" });
+    AUD.AUDIO_PRESETS.forEach((preset) => {
+      const selected = audioSelection.presetId === preset.id && !AUD.summarizeAudio(audioSelection, summary.speakers).isCustom;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          class: `preset-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        el("span", { class: "preset-name" }, preset.name),
+        el("span", { class: "preset-tagline" }, preset.tagline),
+      );
+      card.addEventListener("click", () => {
+        audioSelection = AUD.applyPresetToSelection(audioSelection, preset.id);
+        renderAudioPolish(summary);
+      });
+      presetGrid.appendChild(card);
+    });
+    controls.appendChild(presetGrid);
+
+    controls.appendChild(el("h4", { class: "canvas-subhead" }, "Fine-tune"));
+    AUD.CONTROLS.forEach((control) => {
+      const select = el("select", { id: `audio-${control.key}` });
+      AUD.LEVELS.forEach((level) => {
+        select.appendChild(
+          el("option", { value: level.id, selected: audioSelection.controls[control.key] === level.id ? true : null }, level.label),
+        );
+      });
+      select.addEventListener("change", (e) => {
+        audioSelection = AUD.setControl(audioSelection, control.key, e.target.value);
+        renderAudioPolish(summary);
+      });
+      controls.appendChild(field(control.label, select, null, control.hint));
+    });
+    grid.appendChild(controls);
+
+    // Tracks column: per-speaker indicators tied to the imported sources.
+    const summaryNow = AUD.summarizeAudio(audioSelection, summary.speakers);
+    const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
+    tracksCard.appendChild(
+      el("p", { class: "hint" }, `${summaryNow.treatmentName} applied to every imported track.`),
+    );
+    summaryNow.tracks.forEach((track) => {
+      tracksCard.appendChild(renderAudioTrack(track));
+    });
+    grid.appendChild(tracksCard);
+
+    view.appendChild(grid);
+
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio polish →");
+    applyButton.addEventListener("click", () => {
+      appliedAudio = AUD.summarizeAudio(audioSelection, summary.speakers);
       renderWorkspace(summary);
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
