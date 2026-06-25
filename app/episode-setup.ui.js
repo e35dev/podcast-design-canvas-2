@@ -61,6 +61,7 @@
   const LIB_STORAGE_KEY = "pdc-show-library";
   let showLibrary = { shows: [] };
   let activeShowId = null;
+  let activeEpisodeId = null;
   let activeBrandKit = null;
   let startingFromShowIdentity = false;
   let showIdentitySummary = null;
@@ -167,6 +168,10 @@
   function setStep(label) {
     if (stepPill) {
       stepPill.textContent = label;
+      const isNumberedStep = /^Step \d+ of \d+/i.test(label);
+      const isWorkspace = /workspace|production/i.test(label);
+      stepPill.classList.toggle("step-pill--workflow", isNumberedStep || isWorkspace);
+      stepPill.classList.toggle("step-pill--current", isNumberedStep);
     }
   }
 
@@ -550,8 +555,23 @@
 
     const primaryCard = el("section", { class: "card show-primary-step-card" }, el("h2", {}, sections.primary.title));
     primaryCard.appendChild(el("p", { class: "hint" }, sections.primary.hint));
-    const primaryBtn = el("button", { class: "btn-primary", type: "button" }, sections.primary.actionLabel);
-    primaryBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+    const primaryBtn = el(
+      "button",
+      {
+        class: sections.primary.resumableEpisodeId
+          ? "btn-primary show-resume-primary-btn"
+          : "btn-primary",
+        type: "button",
+      },
+      sections.primary.actionLabel,
+    );
+    primaryBtn.addEventListener("click", () => {
+      if (sections.primary.resumableEpisodeId) {
+        resumeEpisodeFromShow(showId, sections.primary.resumableEpisodeId);
+      } else {
+        startEpisodeFromShow(showId);
+      }
+    });
     primaryCard.appendChild(el("div", { class: "show-primary-step-actions" }, primaryBtn));
 
     const epListEl = el("div", { class: "show-episode-list" });
@@ -563,12 +583,31 @@
       episodes.forEach((ep) => {
         const statusLabel = LIB.episodeStatusLabel(ep.status);
         const statusClass = `ep-status ep-status--${ep.status}`;
+        const isResumable = LIB.isResumableStatus(ep.status);
+        const resumeBtn = isResumable
+          ? el(
+            "button",
+            {
+              type: "button",
+              class: "btn-primary btn-sm show-episode-resume-btn",
+            },
+            ep.status === LIB.EPISODE_STATUS.IN_PROGRESS ? "Continue →" : "Resume →",
+          )
+          : null;
+        if (resumeBtn) {
+          resumeBtn.addEventListener("click", () => resumeEpisodeFromShow(showId, ep.id));
+        }
         const epCard = el(
           "div",
-          { class: "show-episode-card" },
-          el("span", { class: "show-episode-name" }, ep.name),
-          el("span", { class: statusClass }, statusLabel),
-          ep.downloadName ? el("span", { class: "show-episode-download" }, ep.downloadName) : null,
+          { class: `show-episode-card${isResumable ? " show-episode-card--resumable" : ""}` },
+          el(
+            "div",
+            { class: "show-episode-card-main" },
+            el("span", { class: "show-episode-name" }, ep.name),
+            el("span", { class: statusClass }, statusLabel),
+            ep.downloadName ? el("span", { class: "show-episode-download" }, ep.downloadName) : null,
+          ),
+          resumeBtn ? el("div", { class: "show-episode-card-actions" }, resumeBtn) : null,
         );
         epListEl.appendChild(epCard);
       });
@@ -776,6 +815,15 @@
     publishReviewApproved = false;
     startingFromShowIdentity = false;
     showIdentitySummary = null;
+    activeEpisodeId = null;
+  }
+
+  function syncEpisodeRecord(patch) {
+    if (!LIB || !activeShowId || !activeEpisodeId) {
+      return;
+    }
+    showLibrary = LIB.updateEpisode(showLibrary, activeShowId, activeEpisodeId, patch || {});
+    persistShowLibrary();
   }
 
   function applyEpisodeStart(start) {
@@ -830,7 +878,42 @@
     });
     showLibrary = LIB.addEpisode(showLibrary, showId, episode);
     persistShowLibrary();
+    activeEpisodeId = episode.id;
 
+    setPageIntro("episode-setup");
+    renderSetup();
+  }
+
+  function resumeEpisodeFromShow(showId, episodeId) {
+    if (!LIB || !SI) {
+      startBlankEpisode();
+      return;
+    }
+    const show = LIB.getShow(showLibrary, showId);
+    const episodes = LIB.listEpisodes(showLibrary, showId);
+    const ep = episodes.find((item) => item.id === episodeId);
+    if (!show || !ep) {
+      renderShowDetail(showId);
+      return;
+    }
+    activeShowId = showId;
+    activeEpisodeId = episodeId;
+    const start = SI.buildEpisodeStart(show, templateStore);
+    applyEpisodeStart(start);
+    state.episodeName = ep.name;
+    if (Array.isArray(ep.speakerRoles) && ep.speakerRoles.length) {
+      state.speakers.forEach((speaker, index) => {
+        if (ep.speakerRoles[index]) {
+          speaker.role = ep.speakerRoles[index];
+        }
+      });
+    }
+    sanitizeSetupState();
+
+    if (LIB.resumeDestination(ep.status) === "workspace" && ES.validateDraft(state).ok) {
+      renderWorkspace(ES.summarize(state));
+      return;
+    }
     setPageIntro("episode-setup");
     renderSetup();
   }
@@ -1261,6 +1344,11 @@
     showErrors = true;
     if (result.ok) {
       const summary = ES.summarize(state);
+      syncEpisodeRecord({
+        name: state.episodeName,
+        speakerRoles: state.speakers.map((speaker) => speaker.role),
+        status: LIB ? LIB.EPISODE_STATUS.IN_PROGRESS : undefined,
+      });
       if (SC && !contextApproved) {
         contextReview = SC.createReview(summary);
         renderContextReview(summary);
@@ -1521,27 +1609,49 @@
   function renderWorkspace(summary) {
     workspaceSummaryCache = summary;
     root.innerHTML = "";
-    setStep("Episode workspace · Import to publish");
-
-    const view = el("div", { class: "workspace guided-workspace" });
-    const identityBanner = renderShowIdentityBanner();
-    if (identityBanner) {
-      view.appendChild(identityBanner);
-    }
-    view.appendChild(
-      el(
-        "div",
-        { class: "workspace-head" },
-        el("p", { class: "eyebrow" }, "Production workspace"),
-        el("h2", {}, summary.episodeName),
-        el("p", { class: "hint" }, "One self-serve flow from import to publish. Each stage shows what is ready and what still needs attention."),
-      ),
-    );
 
     if (WS) {
       ensureMomentsBoard(summary);
       const ws = WS.buildWorkspace(summary, buildWorkspaceContext(summary));
       const wsSummary = WS.summarizeWorkspace(ws);
+      const currentStage = WS.getStage(ws, ws.currentStageId);
+      setStep(wsSummary.stepIndicatorLine);
+
+      const view = el("div", { class: "workspace guided-workspace" });
+      const identityBanner = renderShowIdentityBanner();
+      if (identityBanner) {
+        view.appendChild(identityBanner);
+      }
+      view.appendChild(
+        el(
+          "div",
+          { class: "workspace-head" },
+          el("p", { class: "eyebrow" }, "Production workspace"),
+          el("h2", {}, summary.episodeName),
+          el("p", { class: "hint" }, "One self-serve flow from import to publish. Each stage shows what is ready and what still needs attention."),
+        ),
+      );
+
+      if (currentStage) {
+        const nextActionBtn = el(
+          "button",
+          { type: "button", class: "btn-primary workspace-next-action-btn" },
+          `${wsSummary.nextActionLabel} →`,
+        );
+        nextActionBtn.addEventListener("click", function () {
+          navigateWorkspaceStage(wsSummary.nextActionTarget, summary);
+        });
+        view.appendChild(
+          el(
+            "section",
+            { class: "card workspace-current-hero" },
+            el("p", { class: "workspace-current-eyebrow" }, "Current step"),
+            el("h3", { class: "workspace-current-title" }, wsSummary.currentStageLabel),
+            el("p", { class: "hint workspace-current-summary" }, currentStage.summary),
+            el("div", { class: "workspace-current-actions" }, nextActionBtn),
+          ),
+        );
+      }
 
       view.appendChild(
         el(
@@ -1574,7 +1684,7 @@
             el("p", { class: "workspace-stage-summary" }, item.summary),
           ),
         );
-        const openButton = el("button", { type: "button", class: item.status === "active" ? "primary" : "ghost" }, `${item.actionLabel} →`);
+        const openButton = el("button", { type: "button", class: item.id === ws.currentStageId ? "btn-primary" : "btn-secondary" }, `${item.actionLabel} →`);
         openButton.addEventListener("click", function () {
           navigateWorkspaceStage(item.actionTarget, summary);
         });
@@ -1583,58 +1693,72 @@
       });
       pipeline.appendChild(stageList);
       view.appendChild(pipeline);
-    }
 
-    const kitSummary = brandKitSummary();
-    if (kitSummary && kitSummary.reviewLine) {
-      view.appendChild(
-        el(
-          "section",
-          { class: "card brand-kit-workspace-card" },
-          el("h3", {}, "Show brand kit"),
-          el("p", { class: "brand-kit-line" }, kitSummary.reviewLine),
-          kitSummary.colorSummary ? el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`) : null,
-          activeTemplateId && TM
-            ? el("p", { class: "hint" }, `Saved template: ${(TM.getTemplate(templateStore, activeTemplateId) || {}).name || activeTemplateId}`)
-            : null,
-        ),
-      );
-    } else if (startingFromShowIdentity && activeTemplateId && TM) {
-      const template = TM.getTemplate(templateStore, activeTemplateId);
-      if (template) {
+      const kitSummary = brandKitSummary();
+      if (kitSummary && kitSummary.reviewLine) {
         view.appendChild(
           el(
             "section",
             { class: "card brand-kit-workspace-card" },
-            el("h3", {}, "Saved show template"),
-            el("p", { class: "brand-kit-line" }, template.name),
+            el("h3", {}, "Show brand kit"),
+            el("p", { class: "brand-kit-line" }, kitSummary.reviewLine),
+            kitSummary.colorSummary ? el("p", { class: "hint" }, `Colors: ${kitSummary.colorSummary}`) : null,
+            activeTemplateId && TM
+              ? el("p", { class: "hint" }, `Saved template: ${(TM.getTemplate(templateStore, activeTemplateId) || {}).name || activeTemplateId}`)
+              : null,
           ),
         );
+      } else if (startingFromShowIdentity && activeTemplateId && TM) {
+        const template = TM.getTemplate(templateStore, activeTemplateId);
+        if (template) {
+          view.appendChild(
+            el(
+              "section",
+              { class: "card brand-kit-workspace-card" },
+              el("h3", {}, "Saved show template"),
+              el("p", { class: "brand-kit-line" }, template.name),
+            ),
+          );
+        }
       }
+
+      const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
+      editSetup.addEventListener("click", function () {
+        showErrors = false;
+        contextApproved = false;
+        contextReview = null;
+        correctionApproved = false;
+        correctionReview = null;
+        publishReviewApproved = false;
+        publishReview = null;
+        renderSetup();
+      });
+      view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
+
+      if (TM) {
+        const saved = TM.listTemplates(templateStore);
+        if (saved.length) {
+          view.appendChild(renderSavedTemplatesCard(saved, summary));
+        }
+      }
+
+      root.appendChild(view);
+      syncEpisodeRecord({ status: LIB ? LIB.EPISODE_STATUS.IN_PROGRESS : undefined });
+      view.scrollIntoView({ block: "start" });
+      return;
     }
 
-    const editSetup = el("button", { type: "button", class: "ghost" }, "← Edit setup");
-    editSetup.addEventListener("click", function () {
-      showErrors = false;
-      contextApproved = false;
-      contextReview = null;
-      correctionApproved = false;
-      correctionReview = null;
-      publishReviewApproved = false;
-      publishReview = null;
-      renderSetup();
-    });
-    view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
-
-    if (TM) {
-      const saved = TM.listTemplates(templateStore);
-      if (saved.length) {
-        view.appendChild(renderSavedTemplatesCard(saved, summary));
-      }
-    }
-
-    root.appendChild(view);
-    view.scrollIntoView({ block: "start" });
+    setStep("Episode workspace · Import to publish");
+    root.appendChild(
+      el(
+        "div",
+        { class: "workspace guided-workspace" },
+        el("div", { class: "workspace-head" },
+          el("h2", {}, summary.episodeName),
+          el("p", { class: "hint" }, "Production workspace unavailable in this preview build."),
+        ),
+      ),
+    );
   }
 
   // ---- Publish review (#37) -------------------------------------------------

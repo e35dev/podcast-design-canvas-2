@@ -15,11 +15,37 @@
     const episodes = show && Array.isArray(show.episodes) ? show.episodes : [];
     const episodeCount = episodes.length;
     const hasBrandKit = Boolean(show && show.brandKit);
+    const resumable = episodes.find(function (ep) {
+      return ep.status === "draft" || ep.status === "in-progress";
+    });
+
+    if (resumable) {
+      const resumeLabel = resumable.status === "in-progress" ? "Continue production →" : "Resume draft →";
+      return {
+        primary: {
+          id: FIRST_STEP,
+          title: `Continue “${resumable.name}”`,
+          hint: resumable.status === "in-progress"
+            ? "Pick up where you left off in the guided production workspace — style, audio, moments, and export."
+            : "Finish importing your recording, assign speakers, and continue through the guided production flow.",
+          actionLabel: resumeLabel,
+          resumableEpisodeId: resumable.id,
+        },
+        secondary: {
+          id: "brand-kit",
+          title: "Brand kit (optional)",
+          hint: hasBrandKit
+            ? "Reusable logo, colors, and captions — edit any time after your first import."
+            : "Set up later. Episode import and speaker context come first.",
+          actionLabel: hasBrandKit ? "Edit brand kit" : "Set up brand kit later",
+        },
+      };
+    }
 
     return {
       primary: {
         id: FIRST_STEP,
-        title: episodeCount ? "Start or continue an episode" : "Import your recording first",
+        title: episodeCount ? "Start a new episode" : "Import your recording first",
         hint: episodeCount
           ? "Add a Riverside link or synced speaker files, assign Host / Guest roles, and add social links before style or brand work."
           : "This show has no episodes yet. Import a Riverside link or separate synced speaker files, assign each to Host, Guest 1, or Guest 2, and add social links — then continue to audio polish and style.",

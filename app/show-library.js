@@ -160,6 +160,20 @@
     return show.episodes.slice().sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
   }
 
+  function isResumableStatus(status) {
+    return status === EPISODE_STATUS.DRAFT || status === EPISODE_STATUS.IN_PROGRESS;
+  }
+
+  // Latest draft or in-progress episode a creator can pick up from show home.
+  function findResumableEpisode(episodes) {
+    const list = Array.isArray(episodes) ? episodes : [];
+    return list.find(function (ep) { return isResumableStatus(ep.status); }) || null;
+  }
+
+  function resumeDestination(status) {
+    return status === EPISODE_STATUS.IN_PROGRESS ? "workspace" : "setup";
+  }
+
   function episodeStatusLabel(status) {
     switch (status) {
       case EPISODE_STATUS.DRAFT: return "Draft";
@@ -238,6 +252,9 @@
     addEpisode,
     updateEpisode,
     listEpisodes,
+    isResumableStatus,
+    findResumableEpisode,
+    resumeDestination,
     episodeStatusLabel,
     newEpisodeDraft,
     summarizeLibrary,

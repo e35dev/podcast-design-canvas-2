@@ -97,6 +97,8 @@ test("summarizeWorkspace reports progress across stages", () => {
   assert.ok(summary.completeCount >= 5);
   assert.ok(summary.progressLine.indexOf("stages complete") >= 0);
   assert.ok(summary.workspaceLine.indexOf("Next:") === 0 || summary.currentStageLabel.length > 0);
+  assert.ok(/^Step \d+ of \d+ · /.test(summary.stepIndicatorLine));
+  assert.ok(summary.nextActionLabel.length > 0);
 });
 
 test("ACCEPTANCE: workspace tracks setup, style, review, and export progress", () => {

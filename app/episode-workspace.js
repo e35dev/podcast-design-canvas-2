@@ -195,15 +195,22 @@
   function summarizeWorkspace(workspace) {
     const ws = workspace || buildWorkspace({}, {});
     const current = getStage(ws, ws.currentStageId);
+    const stageIndex = current ? STAGE_ORDER.indexOf(current.id) + 1 : 1;
     return {
       progressLine: ws.progressLine,
       completeCount: ws.completeCount,
       totalStages: ws.totalStages,
       currentStageId: ws.currentStageId,
       currentStageLabel: current ? current.label : "",
+      currentStageStatus: current ? current.status : STATUS.PENDING,
+      stepIndicatorLine: current
+        ? `Step ${stageIndex} of ${ws.totalStages} · ${current.label}`
+        : ws.progressLine,
       workspaceLine: current
         ? `Next: ${current.label} — ${current.summary}`
         : ws.progressLine,
+      nextActionLabel: current ? current.actionLabel : "",
+      nextActionTarget: current ? current.actionTarget : "",
     };
   }
 
