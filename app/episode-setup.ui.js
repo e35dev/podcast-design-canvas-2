@@ -1,12 +1,11 @@
 "use strict";
 
-// Browser wiring for the episode setup flow (#1) and the preset style step (#3). Renders
-// the setup wizard, the episode workspace, and the preset style selection + preview from
-// the shared PdcEpisodeSetup / PdcEpisodeStyle rules. Loaded as a classic script so the
-// app runs by opening index.html directly or via `npm run preview`.
+// Browser wiring for the episode setup (#1), preset style (#3), and canvas editor (#11)
+// flows. Loaded as a classic script so the app runs by opening index.html directly.
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
+  const CEU = window.PdcCanvasEditorUI;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -19,6 +18,8 @@
   // Style step state, kept across navigation so choices survive Edit setup / Back.
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
+  // Canvas editor template store — plain object, lives for the page session.
+  const templateStore = Object.create(null);
 
   function setStep(label) {
     if (stepPill) {
@@ -473,7 +474,7 @@
       view.appendChild(styleCard);
     }
 
-    // Next step — choose or change the visual style
+    // Next step — choose/change style, or open the canvas editor once a style is applied
     const styleAvailable = Boolean(STY);
     const styleButton = el(
       "button",
@@ -483,6 +484,25 @@
     if (styleAvailable) {
       styleButton.addEventListener("click", () => renderStyle(summary));
     }
+
+    const canvasButton = CEU && appliedStyle
+      ? (function () {
+          const btn = el("button", { type: "button", class: "primary" }, "Open canvas editor →");
+          btn.addEventListener("click", () => {
+            setStep("Step 3 of 6 · Canvas editor");
+            CEU.renderCanvasEditor(
+              root,
+              summary,
+              appliedStyle,
+              templateStore,
+              function onSave(_tmpl, _store) { renderWorkspace(summary); },
+              function onBack() { renderWorkspace(summary); },
+            );
+          });
+          return btn;
+        })()
+      : null;
+
     view.appendChild(
       el(
         "section",
@@ -492,10 +512,11 @@
           "p",
           {},
           appliedStyle
-            ? "Your style is set. Detailed editing and export come next."
+            ? "Your style is saved. Open the canvas editor to customise and save a reusable show template."
             : "Your sources, speaker roles, and context are saved. Pick a visual style next.",
         ),
         el("div", { class: "actions" },
+          canvasButton,
           styleButton,
           (function () {
             const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
