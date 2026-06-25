@@ -15,6 +15,7 @@ const required = [
   "app/canvas-editor.js",
   "app/show-templates.js",
   "app/visual-moments.js",
+  "app/social-context.js",
   "app/episode-export.js",
   "app/episode-setup.ui.js",
 ];
@@ -40,6 +41,7 @@ for (const file of [
   "app/canvas-editor.js",
   "app/show-templates.js",
   "app/visual-moments.js",
+  "app/social-context.js",
   "app/episode-export.js",
   "app/episode-setup.ui.js",
 ]) {

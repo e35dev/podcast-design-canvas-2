@@ -1263,3 +1263,23 @@ button:disabled {
 .export-blocked .field-error {
   margin: 0;
 }
+
+/* ---- Social context review (#34) ---- */
+.context-step .workspace-head .hint {
+  max-width: 62ch;
+}
+
+.context-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.context-speaker-card h3 {
+  margin-top: 0;
+}
+
+.context-summary-line {
+  font-weight: 600;
+  margin: 0 0 4px;
+}

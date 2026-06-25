@@ -1,7 +1,7 @@
 "use strict";
 
-// Browser wiring for episode setup (#1), audio polish (#15), preset style (#4),
-// and canvas editor (#11).
+// Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
+// preset style (#4), canvas editor (#11), visual moments (#19), and export (#30).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -10,6 +10,7 @@
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
   const VM = window.PdcVisualMoments;
+  const SC = window.PdcSocialContext;
   const EXP = window.PdcEpisodeExport;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
@@ -38,6 +39,8 @@
   let selectedMomentId = null;
   let exportJob = null;
   const MOMENTS_STORAGE_KEY = "pdc-visual-moments";
+  let contextReview = null;
+  let contextApproved = false;
 
   function safeLoadMoments() {
     try {
@@ -51,6 +54,7 @@
     if (!VM || typeof localStorage === "undefined" || !momentsBoard) {
       return;
     }
+    applyContextEffects();
     try {
       localStorage.setItem(MOMENTS_STORAGE_KEY, VM.serializeBoard(momentsBoard));
     } catch (err) {
@@ -182,7 +186,7 @@
 
   function renderSetup() {
     root.innerHTML = "";
-    setStep("Step 1 of 6 · Set up episode");
+    setStep("Step 1 of 7 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
     const form = el("form", { class: "setup", novalidate: true });
@@ -436,7 +440,10 @@
     showErrors = true;
     if (result.ok) {
       const summary = ES.summarize(state);
-      if (AP && !appliedAudioPolish) {
+      if (SC && !contextApproved) {
+        contextReview = SC.createReview(summary);
+        renderContextReview(summary);
+      } else if (AP && !appliedAudioPolish) {
         audioPolish = AP.createPolish(summary);
         renderAudioPolish(summary);
       } else if (STY && !appliedStyle) {
@@ -466,6 +473,18 @@
 
   // ---- Workspace summary view -------------------------------------------------
 
+  function applyContextEffects() {
+    if (!SC || !contextReview || !contextReview.approved) {
+      return;
+    }
+    if (momentsBoard) {
+      momentsBoard = SC.applyReviewToMoments(momentsBoard, contextReview);
+    }
+    if (canvasDoc) {
+      canvasDoc = SC.applyReviewToCanvas(canvasDoc, contextReview);
+    }
+  }
+
   function buildExportContext(summary) {
     const templateName = activeTemplateId && TM
       ? (TM.getTemplate(templateStore, activeTemplateId) || {}).name
@@ -474,17 +493,21 @@
     if (VM && momentsBoard) {
       momentsSummary = VM.summarizeBoard(momentsBoard);
     }
+    const contextSummary = SC && contextReview && contextReview.approved
+      ? SC.summarizeReview(contextReview)
+      : null;
     return {
       audioPolish: appliedAudioPolish,
       appliedStyle: appliedStyle,
       templateName: templateName || "",
       momentsSummary: momentsSummary,
+      contextSummary: contextSummary,
     };
   }
 
   function renderWorkspace(summary) {
     root.innerHTML = "";
-    setStep("Step 1 of 6 · Episode workspace");
+    setStep("Step 1 of 7 · Episode workspace");
 
     const view = el("div", { class: "workspace" });
     view.appendChild(
@@ -547,6 +570,23 @@
       sources.appendChild(row);
     });
     view.appendChild(sources);
+
+    if (SC && contextReview && contextReview.approved) {
+      const ctxSummary = SC.summarizeReview(contextReview);
+      view.appendChild(
+        el(
+          "section",
+          { class: "card context-summary" },
+          el("h3", {}, "Approved context"),
+          el("p", { class: "context-summary-line" }, ctxSummary.reviewLine.replace(/^Context: /, "")),
+          el(
+            "p",
+            { class: "hint" },
+            "Names, brands, and spelling hints from your social links are applied to captions, titles, and callouts.",
+          ),
+        ),
+      );
+    }
 
     // Audio polish summary
     if (AP && appliedAudioPolish) {
@@ -755,6 +795,8 @@
         const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
         back.addEventListener("click", () => {
           showErrors = false;
+          contextApproved = false;
+          contextReview = null;
           renderSetup();
         });
         return back;
@@ -785,7 +827,7 @@
 
   function renderExport(summary) {
     root.innerHTML = "";
-    setStep("Step 6 of 6 · Export & publish");
+    setStep("Step 7 of 7 · Export & publish");
     if (!EXP) {
       return;
     }
@@ -1149,7 +1191,7 @@
       canvasDoc = CE.createFromStyle(appliedStyle, summary, styleSelection);
     }
     root.innerHTML = "";
-    setStep("Step 4 of 6 · Canvas editor");
+    setStep("Step 5 of 7 · Canvas editor");
 
     const evaluation = CL.evaluateLayout(canvasDoc.layers);
     const view = el("div", { class: "canvas-step" });
@@ -1295,6 +1337,79 @@
     view.scrollIntoView({ block: "start" });
   }
 
+  // ---- Social context review (#34) --------------------------------------------
+
+  function renderContextReview(summary) {
+    if (!contextReview) {
+      contextReview = SC.createReview(summary);
+    }
+    root.innerHTML = "";
+    setStep("Step 2 of 7 · Review context");
+
+    const view = el("div", { class: "context-step" });
+    view.appendChild(
+      el("div", { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Review context"),
+        el("h2", {}, `Confirm names and spellings for ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "We pulled concise hints from the social links you added — approve or edit them so captions, titles, and callouts spell names and brands correctly.",
+        ),
+      ),
+    );
+
+    const grid = el("div", { class: "context-layout" });
+    contextReview.speakers.forEach((speaker, index) => {
+      const card = el("section", { class: "card context-speaker-card" });
+      card.appendChild(
+        el("h3", {}, `${speaker.role}${speaker.socialLinkCount ? " · social links" : ""}`),
+      );
+
+      function bindInput(label, key, value, hint) {
+        const input = el("input", { id: `ctx-${index}-${key}`, type: "text", value: value || "" });
+        input.addEventListener("input", (e) => {
+          contextReview = SC.updateSpeaker(contextReview, index, { [key]: e.target.value });
+        });
+        card.appendChild(field(label, input, null, hint));
+      }
+
+      bindInput("Approved name", "displayName", speaker.displayName, "How this speaker's name should appear on screen.");
+      bindInput("Brand or show", "brand", speaker.brand, "Company, show, or personal brand tied to this speaker.");
+      bindInput("Topics", "topics", (speaker.topics || []).join(", "), "Comma-separated topics for smarter titles and callouts.");
+      bindInput(
+        "Spelling hints",
+        "spellingHints",
+        (speaker.spellingHints || []).join(", "),
+        "Common misspellings to auto-fix in captions and overlays.",
+      );
+      grid.appendChild(card);
+    });
+    view.appendChild(grid);
+
+    const approveButton = el("button", { type: "button", class: "primary" }, "Approve context & continue →");
+    approveButton.addEventListener("click", () => {
+      contextReview = SC.approveReview(contextReview);
+      contextApproved = true;
+      applyContextEffects();
+      if (AP && !appliedAudioPolish) {
+        audioPolish = AP.createPolish(summary);
+        renderAudioPolish(summary);
+      } else {
+        renderWorkspace(summary);
+      }
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
+    back.addEventListener("click", () => {
+      contextReview = null;
+      renderSetup();
+    });
+    view.appendChild(el("div", { class: "actions" }, approveButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
   // ---- Audio polish (#15) -----------------------------------------------------
 
   function renderAudioPolish(summary) {
@@ -1302,7 +1417,7 @@
       audioPolish = AP.createPolish(summary);
     }
     root.innerHTML = "";
-    setStep("Step 2 of 6 · Audio polish");
+    setStep("Step 3 of 7 · Audio polish");
 
     const view = el("div", { class: "audio-step" });
     view.appendChild(
@@ -1519,7 +1634,7 @@
   function renderVisualMoments(summary) {
     ensureMomentsBoard(summary);
     root.innerHTML = "";
-    setStep("Step 5 of 6 · Visual moments");
+    setStep("Step 6 of 7 · Visual moments");
 
     const list = VM.listMoments(momentsBoard);
     // Keep the selected moment valid; default to the first moment so a preview is shown.
@@ -1697,7 +1812,7 @@
 
   function renderStyle(summary) {
     root.innerHTML = "";
-    setStep("Step 3 of 6 · Choose a style");
+    setStep("Step 4 of 7 · Choose a style");
     if (!styleSelection) {
       styleSelection = STY.createSelection();
     }

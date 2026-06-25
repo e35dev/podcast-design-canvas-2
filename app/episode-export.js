@@ -127,6 +127,9 @@
     if (ctx.momentsSummary && ctx.momentsSummary.reviewLine) {
       lines.push(ctx.momentsSummary.reviewLine);
     }
+    if (ctx.contextSummary && ctx.contextSummary.reviewLine) {
+      lines.push(ctx.contextSummary.reviewLine);
+    }
 
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);
