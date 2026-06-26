@@ -36,6 +36,19 @@ function completeDraft() {
   return draft;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 function fullContext(episode, options) {
   const opts = options || {};
   const selection = style.createSelection();
@@ -44,7 +57,7 @@ function fullContext(episode, options) {
   let contextReview = contextApi.createReview(episode);
   contextReview = contextApi.approveReview(contextReview);
   return {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: polishedAudio(episode),
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: opts.templateName || "Founders Unfiltered",
     hasCanvas: opts.hasCanvas !== false,
@@ -92,6 +105,17 @@ test("approveReview succeeds when required checks pass even with warnings", () =
   assert.strictEqual(approved.ok, true);
   assert.strictEqual(approved.review.approved, true);
   assert.strictEqual(review.validateExportGate(approved.review).ok, true);
+});
+
+test("preset-only audio remains blocked until polished assets are saved", () => {
+  const episode = setup.summarize(completeDraft());
+  const ctx = fullContext(episode);
+  ctx.audioPolish = audio.summarizePolish(audio.createPolish(episode));
+
+  const publishReview = review.createReview(episode, ctx);
+
+  assert.strictEqual(review.canApprove(publishReview), false);
+  assert.ok(review.blockers(publishReview).some((item) => item.id === "audio-missing"));
 });
 
 test("approveReview is rejected while blockers remain", () => {

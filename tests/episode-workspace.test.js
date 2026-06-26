@@ -30,13 +30,26 @@ function completeDraft() {
   return draft;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 function baseCtx(episode, overrides) {
   const selection = style.createSelection();
   let board = moments.createBoard(episode);
   board = moments.addMoment(board, "caption", { time: 30, text: "Welcome", speakerRole: "Host" });
   return Object.assign({
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: polishedAudio(episode),
     templateName: "Founders Format",
     momentsSummary: moments.summarizeBoard(board),
     contextApproved: true,
@@ -88,6 +101,19 @@ test("workspace reflects publish review and export readiness", () => {
   assert.strictEqual(workspace.getStage(ws, "review").status, workspace.STATUS.COMPLETE);
   assert.strictEqual(workspace.getStage(ws, "export").status, workspace.STATUS.COMPLETE);
   assert.ok(workspace.getStage(ws, "export").summary.indexOf(".mp4") >= 0);
+});
+
+test("workspace keeps audio active until polished assets are saved", () => {
+  const episode = setup.summarize(completeDraft());
+  const ctx = baseCtx(episode, {
+    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    exportReady: false,
+  });
+  const ws = workspace.buildWorkspace(episode, ctx);
+  const audioStage = workspace.getStage(ws, "audio");
+
+  assert.strictEqual(audioStage.status, workspace.STATUS.ACTIVE);
+  assert.ok(audioStage.summary.includes("Apply polish"));
 });
 
 test("summarizeWorkspace reports progress across stages", () => {

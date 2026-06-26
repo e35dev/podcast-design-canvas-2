@@ -87,6 +87,21 @@
     return g.PdcPublishReview;
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
+  function audioPolishReady(audioPolish) {
+    const AP = audioPolishApi();
+    return AP && AP.hasCompletePolishedTracks
+      ? AP.hasCompletePolishedTracks(audioPolish)
+      : Boolean(audioPolish && audioPolish.readyForExport);
+  }
+
   function validatePublishReviewGate(context) {
     const ctx = context || {};
     const PR = publishReviewApi();
@@ -118,7 +133,7 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    if (!audioPolishReady(ctx.audioPolish)) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -154,8 +169,10 @@
 
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
-    if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+    if (audioPolishReady(ctx.audioPolish) && ctx.audioPolish.presetName) {
+      lines.push(
+        `Polished audio: ${ctx.audioPolish.presetName} · ${ctx.audioPolish.assetLine || ctx.audioPolish.treatmentLine || "assets saved"}`,
+      );
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
@@ -207,12 +224,25 @@
     if (!check.ok) {
       return { ok: false, error: check.error, state: clone(state || createExport(episodeSummary)) };
     }
+    const ctx = context || {};
     const next = clone(state || createExport(episodeSummary));
     next.status = "rendering";
     next.progress = 0;
     next.startedAt = Date.now();
     next.completedAt = null;
     next.downloadName = "";
+    next.polishedAudioAssets = ctx.audioPolish && Array.isArray(ctx.audioPolish.polishedTracks)
+      ? ctx.audioPolish.polishedTracks.map((track) => ({
+        assetId: track.assetId,
+        fileName: track.fileName,
+        mimeType: track.mimeType,
+        byteLength: track.byteLength,
+        sourceFingerprint: track.sourceFingerprint,
+        settingsHash: track.settingsHash,
+        outputHash: track.outputHash,
+      }))
+      : [];
+    next.audioAssetIds = next.polishedAudioAssets.map((track) => track.assetId).filter(Boolean);
     return { ok: true, state: next };
   }
 
@@ -247,6 +277,7 @@
       captionLabel: captions.label,
       templateName: job.templateName || "",
       downloadName: job.downloadName || "",
+      audioAssetCount: Array.isArray(job.polishedAudioAssets) ? job.polishedAudioAssets.length : 0,
       ready: job.status === "ready",
       rendering: job.status === "rendering",
     };
@@ -263,6 +294,7 @@
     validateReadiness,
     validatePublishReviewGate,
     validateExportAuthorization,
+    audioPolishReady,
     updateOption,
     buildFinalSummary,
     startExport,
