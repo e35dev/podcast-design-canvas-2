@@ -61,6 +61,20 @@ test("runProcessing saves polished WAV outputs for every imported speaker track"
   assert.ok(result.polish.speakers[0].polishedFileName.includes("jordan-studio-polished.wav"));
 });
 
+test("saveAssetsSync persists polished WAV bytes for reload", () => {
+  mediaStore.__resetMemoryStoreForTests();
+  const episode = setup.summarize(completeUploadDraft());
+  const result = audio.runProcessing(audio.createPolish(episode), episode, {
+    showId: "show-indie",
+    episodeId: "ep-3",
+  });
+  mediaStore.saveAssetsSync("show-indie", "ep-3", result.assets);
+  const restored = mediaStore.listAssetsSync("show-indie", "ep-3");
+  assert.strictEqual(restored.length, 3);
+  assert.ok(restored.every((asset) => asset.byteLength > 44));
+  assert.ok(restored.every((asset) => /polished\.wav$/.test(asset.polishedFileName)));
+});
+
 test("attachStoredAssets restores processed track references from saved asset metadata", () => {
   mediaStore.__resetMemoryStoreForTests();
   const episode = setup.summarize(completeUploadDraft());
@@ -107,7 +121,8 @@ test("buildExportAudioLine references saved polished track filenames", () => {
 
 test("audio polish UI runs real processing handoff before continuing", () => {
   assert.ok(ui.includes("function applyAudioPolishHandoff"));
-  assert.ok(ui.includes("AP.runProcessingAndPersist"));
+  assert.ok(ui.includes("function restoreAudioPolishFromStorage"));
+  assert.ok(ui.includes("runProcessingAndPersist"));
   const block = ui.slice(ui.indexOf("function renderAudioPolish"), ui.indexOf("// ---- Visual moments editor"));
   assert.ok(block.includes("audio-track-status"));
   assert.ok(block.includes("applyAudioPolishHandoff(summary)"));

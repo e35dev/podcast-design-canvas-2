@@ -352,17 +352,23 @@
   function runProcessingAndPersist(polish, episodeSummary, context, sourceResolver) {
     const result = runProcessing(polish, episodeSummary, context, sourceResolver);
     if (!result.ok) {
-      return Promise.resolve(result);
+      return result;
     }
     const STORE = mediaStoreApi();
-    if (!STORE) {
-      return Promise.resolve(result);
+    if (STORE && STORE.saveAssetsSync && context && context.showId && context.episodeId) {
+      STORE.saveAssetsSync(context.showId, context.episodeId, result.assets);
     }
-    return Promise.all(result.assets.map((asset) => {
-      const payload = clone(asset);
-      payload.wavBytes = asset.wavBytes;
-      return STORE.saveAsset(payload);
-    })).then(() => result);
+    if (!STORE || typeof STORE.saveAsset !== "function") {
+      return result;
+    }
+    try {
+      result.assets.forEach((asset) => {
+        STORE.saveAsset(Object.assign({}, asset, { wavBytes: asset.wavBytes }));
+      });
+    } catch (err) {
+      /* localStorage/memory sync already saved the outputs */
+    }
+    return result;
   }
 
   function trackStatusLabel(track) {

@@ -54,7 +54,8 @@ async function polishAndApply(page) {
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").filter({ hasText: "Studio" }).click();
   await page.getByRole("button", { name: "Apply audio & continue →" }).click();
-  await page.locator(".guided-workspace").waitFor({ state: "visible" });
+  await page.locator(".audio-track-status-ready, .audio-polish-complete").first().waitFor({ timeout: 10000 });
+  await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 10000 });
 }
 
 async function main() {
@@ -68,7 +69,11 @@ async function main() {
 
   try {
     const { chromium } = await import("playwright");
-    browser = await chromium.launch({ headless: true });
+    const chromePath = "/root/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome";
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: existsSync(chromePath) ? chromePath : undefined,
+    });
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());

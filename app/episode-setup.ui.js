@@ -360,11 +360,7 @@
       state = SI.sanitizeSetupDraft(state, LIB.getShow(showLibrary, activeShowId));
     }
     if (appliedAudioPolish && appliedAudioPolish.allTracksReady && AMS && AP && activeShowId && activeEpisodeId) {
-      AMS.listAssets(activeShowId, activeEpisodeId).then((assets) => {
-        if (assets.length) {
-          audioPolish = AP.attachStoredAssets(AP.createPolish(ES.summarize(state)), assets);
-        }
-      });
+      restoreAudioPolishFromStorage(ES.summarize(state));
     }
   }
 
@@ -395,24 +391,44 @@
     };
   }
 
+  function restoreAudioPolishFromStorage(summary) {
+    if (!AMS || !AP || !activeShowId || !activeEpisodeId) {
+      return;
+    }
+    const assets = AMS.listAssetsSync(activeShowId, activeEpisodeId);
+    if (!assets.length) {
+      return;
+    }
+    audioPolish = AP.attachStoredAssets(audioPolish || AP.createPolish(summary), assets);
+    if (AP.allTracksReady(audioPolish)) {
+      appliedAudioPolish = AP.summarizePolish(audioPolish);
+    }
+  }
+
   function applyAudioPolishHandoff(summary) {
     if (!AP || audioPolishProcessing) {
       return;
     }
+    if (LIB && typeof ensureFreshEpisodeRecord === "function") {
+      ensureFreshEpisodeRecord(summary);
+    }
+    if (!activeShowId || !activeEpisodeId) {
+      audioPolishError = "Save the episode before applying audio polish.";
+      renderAudioPolish(summary);
+      return;
+    }
     audioPolishProcessing = true;
     audioPolishError = "";
-    const context = { showId: activeShowId, episodeId: activeEpisodeId };
-    Promise.all((audioPolish.speakers || []).map((track, index) => {
-      const pending = pendingSpeakerMedia.get(index);
-      if (pending) {
-        return decodeSpeakerMedia(pending);
-      }
-      return Promise.resolve(null);
-    })).then((decodedSources) => {
-      const sourceResolver = buildAudioSourceResolver(decodedSources);
-      const persist = AMS ? AP.runProcessingAndPersist : AP.runProcessing;
-      return Promise.resolve(persist(audioPolish, summary, context, sourceResolver));
-    }).then((result) => {
+    audioPolish = Object.assign({}, audioPolish || AP.createPolish(summary), {
+      speakers: (audioPolish.speakers || []).map((track) => Object.assign({}, track, {
+        status: "processing",
+        error: "",
+      })),
+      processingStatus: "processing",
+    });
+    renderAudioPolish(summary);
+
+    function finishProcessing(result) {
       audioPolishProcessing = false;
       audioPolish = result.polish;
       if (!result.ok) {
@@ -422,16 +438,38 @@
       }
       appliedAudioPolish = AP.summarizePolish(audioPolish);
       persistEpisodeSession();
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
-      }
-    }).catch((err) => {
-      audioPolishProcessing = false;
-      audioPolishError = err && err.message ? err.message : String(err);
       renderAudioPolish(summary);
-    });
+      window.setTimeout(function () {
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
+      }, 150);
+    }
+
+    const context = { showId: activeShowId, episodeId: activeEpisodeId };
+    const hasUploadedMedia = pendingSpeakerMedia.size > 0;
+    if (hasUploadedMedia) {
+      Promise.all((audioPolish.speakers || []).map((track, index) => {
+        const file = pendingSpeakerMedia.get(index);
+        return file ? decodeSpeakerMedia(file) : Promise.resolve(null);
+      })).then((decodedSources) => {
+        finishProcessing(AP.runProcessingAndPersist(
+          audioPolish,
+          summary,
+          context,
+          buildAudioSourceResolver(decodedSources),
+        ));
+      }).catch((err) => {
+        audioPolishProcessing = false;
+        audioPolishError = err && err.message ? err.message : String(err);
+        renderAudioPolish(summary);
+      });
+      return;
+    }
+
+    finishProcessing(AP.runProcessingAndPersist(audioPolish, summary, context, null));
   }
 
   // Tiny DOM helper: el("div", {class:"x", onclick:fn}, child, child...).
@@ -4828,6 +4866,7 @@
   // ---- Audio polish (#15) -----------------------------------------------------
 
   function renderAudioPolish(summary) {
+    restoreAudioPolishFromStorage(summary);
     if (!audioPolish) {
       audioPolish = AP.createPolish(summary);
     }
@@ -4847,6 +4886,15 @@
       view.appendChild(
         el("div", { class: "card audio-polish-error", role: "alert" },
           el("p", {}, audioPolishError),
+        ),
+      );
+    }
+
+    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
+      view.appendChild(
+        el("div", { class: "card audio-polish-complete" },
+          el("p", { class: "audio-polish-complete-lead" }, "Polished audio saved for every speaker track."),
+          el("p", { class: "hint" }, appliedAudioPolish.polishedTrackLine || "Saved polished outputs are ready for review and export."),
         ),
       );
     }
@@ -4904,7 +4952,7 @@
     );
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      const statusClass = track.status || AP.PROCESSING_STATUS.PENDING;
+      const statusClass = track.status || "pending";
       trackList.appendChild(
         el("div", { class: `audio-track audio-track-${statusClass}` },
           el("div", { class: "audio-track-main" },
@@ -4937,14 +4985,6 @@
       if (audioPolishProcessing) {
         return;
       }
-      audioPolish = Object.assign({}, audioPolish, {
-        speakers: audioPolish.speakers.map((track) => Object.assign({}, track, {
-          status: AP.PROCESSING_STATUS.PROCESSING,
-          error: "",
-        })),
-        processingStatus: "processing",
-      });
-      renderAudioPolish(summary);
       applyAudioPolishHandoff(summary);
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");

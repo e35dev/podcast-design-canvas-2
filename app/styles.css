@@ -2011,6 +2011,18 @@ button.ghost:hover,
   margin-bottom: 14px;
 }
 
+.audio-polish-complete {
+  border-color: #b7e4c7;
+  background: #f3fbf6;
+  margin-bottom: 14px;
+}
+
+.audio-polish-complete-lead {
+  margin: 0;
+  font-weight: 700;
+  color: #1f7a42;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;
