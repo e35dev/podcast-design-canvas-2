@@ -111,7 +111,18 @@
 
   function addLayer(layers, type, id) {
     const list = Array.isArray(layers) ? layers.slice() : [];
-    list.unshift(createLayer(type, id));
+    // New layers default to the top of the stack, but a locked layer's stacking
+    // position must never shift as a side effect of adding another layer. Splicing at
+    // index i shifts every layer at index >= i, so insert just below the lowest locked
+    // layer (highest index): that keeps every locked layer's index — and therefore its
+    // stacking order — unchanged. With no locked layers, this is index 0 (top, as before).
+    let insertAt = 0;
+    for (let i = 0; i < list.length; i += 1) {
+      if (list[i].locked) {
+        insertAt = i + 1;
+      }
+    }
+    list.splice(insertAt, 0, createLayer(type, id));
     return list;
   }
 
