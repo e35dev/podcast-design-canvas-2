@@ -144,14 +144,31 @@
     return applyDefaultSpeakers(draft, show);
   }
 
-  function resolveStyleSelection(show, templateStore) {
+  function resolveTemplateId(show, preferredTemplateId) {
+    const preferred = typeof preferredTemplateId === "string" ? preferredTemplateId.trim() : "";
+    if (preferred) {
+      return preferred;
+    }
+    return show && show.templateId ? show.templateId : "";
+  }
+
+  function templateBelongsToShow(template, show) {
+    if (!template || !show || !show.id) {
+      return Boolean(template);
+    }
+    const scopedShowId = typeof template.showId === "string" ? template.showId.trim() : "";
+    return !scopedShowId || scopedShowId === show.id;
+  }
+
+  function resolveStyleSelection(show, templateStore, preferredTemplateId) {
     const STY = styleApi();
     const TM = templatesApi();
     let selection = STY ? STY.createSelection() : { presetId: "studio-spotlight", layout: "auto", pacing: "balanced" };
+    const templateId = resolveTemplateId(show, preferredTemplateId);
 
-    if (show && show.templateId && TM && templateStore) {
-      const template = TM.getTemplate(templateStore, show.templateId);
-      if (template) {
+    if (show && templateId && TM && templateStore) {
+      const template = TM.getTemplate(templateStore, templateId);
+      if (template && templateBelongsToShow(template, show)) {
         const fromCanvas = TM.styleSelectionFromCanvas(template.canvas);
         if (fromCanvas) {
           return fromCanvas;
@@ -176,22 +193,27 @@
     return selection;
   }
 
-  function resolveTemplate(show, templateStore) {
+  function resolveTemplate(show, templateStore, preferredTemplateId) {
     const TM = templatesApi();
-    if (!show || !show.templateId || !TM || !templateStore) {
+    const templateId = resolveTemplateId(show, preferredTemplateId);
+    if (!show || !templateId || !TM || !templateStore) {
       return null;
     }
-    return TM.getTemplate(templateStore, show.templateId);
+    const template = TM.getTemplate(templateStore, templateId);
+    if (!template || !templateBelongsToShow(template, show)) {
+      return null;
+    }
+    return template;
   }
 
-  function buildAppliedPresentation(show, templateStore, setupDraft) {
+  function buildAppliedPresentation(show, templateStore, setupDraft, preferredTemplateId) {
     const ES = setupApi();
     const STY = styleApi();
     const TM = templatesApi();
     const BK = brandKitApi();
     const summary = ES.summarize(setupDraft || buildSetupDraft(show));
-    const styleSelection = resolveStyleSelection(show, templateStore);
-    const template = resolveTemplate(show, templateStore);
+    const styleSelection = resolveStyleSelection(show, templateStore, preferredTemplateId);
+    const template = resolveTemplate(show, templateStore, preferredTemplateId);
     let canvasDoc = null;
 
     if (template && TM) {
@@ -250,9 +272,10 @@
     };
   }
 
-  function buildEpisodeStart(show, templateStore) {
+  function buildEpisodeStart(show, templateStore, options) {
+    const opts = options || {};
     const setupDraft = buildSetupDraft(show);
-    const presentation = buildAppliedPresentation(show, templateStore, setupDraft);
+    const presentation = buildAppliedPresentation(show, templateStore, setupDraft, opts.templateId);
     const identity = summarizeShowIdentity(show, presentation);
 
     return {

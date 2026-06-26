@@ -35,14 +35,17 @@
     return typeof name === "string" ? name.trim() : "";
   }
 
-  function validateTemplateName(store, name, excludeId) {
+  function validateTemplateName(store, name, excludeId, showId) {
     const trimmed = normalizeName(name);
     if (!trimmed) {
       return { ok: false, error: "Give your show template a name." };
     }
+    const scopeShowId = normalizeName(showId);
     const list = store && Array.isArray(store.templates) ? store.templates : [];
     const duplicate = list.find(
-      (template) => template.name.toLowerCase() === trimmed.toLowerCase() && template.id !== excludeId,
+      (template) => template.name.toLowerCase() === trimmed.toLowerCase()
+        && template.id !== excludeId
+        && normalizeName(template.showId) === scopeShowId,
     );
     if (duplicate) {
       return { ok: false, error: "A template with that name already exists." };
@@ -50,10 +53,11 @@
     return { ok: true, name: trimmed };
   }
 
-  function createTemplate(name, canvasDoc, id) {
+  function createTemplate(name, canvasDoc, id, showId) {
     templateCounter += 1;
     return {
       id: id || `tpl-${templateCounter}`,
+      showId: normalizeName(showId),
       name: normalizeName(name),
       createdAt: Date.now(),
       canvas: cloneCanvas(canvasDoc),
@@ -80,11 +84,39 @@
     const list = store && Array.isArray(store.templates) ? store.templates : [];
     return list.map((template) => ({
       id: template.id,
+      showId: normalizeName(template.showId),
       name: template.name,
       createdAt: template.createdAt,
       presetName: template.canvas && template.canvas.presetName,
       titleText: template.canvas && template.canvas.titleText,
     }));
+  }
+
+  function listTemplatesForShow(store, showId) {
+    const scopeShowId = normalizeName(showId);
+    if (!scopeShowId) {
+      return [];
+    }
+    return listTemplates(store).filter((template) => template.showId === scopeShowId);
+  }
+
+  function reconcileTemplateShowIds(store, library) {
+    const shows = library && Array.isArray(library.shows) ? library.shows : [];
+    const next = createStore();
+    next.templates = (store && Array.isArray(store.templates) ? store.templates : []).map(function (template) {
+      if (normalizeName(template.showId)) {
+        return template;
+      }
+      const owner = shows.find(function (show) {
+        return show.templateId === template.id;
+      });
+      if (owner) {
+        return Object.assign({}, template, { showId: owner.id });
+      }
+      return template;
+    });
+    syncCountersFromStore(next);
+    return next;
   }
 
   function getTemplate(store, id) {
@@ -93,7 +125,10 @@
     if (!found) {
       return null;
     }
-    return Object.assign({}, found, { canvas: cloneCanvas(found.canvas) });
+    return Object.assign({}, found, {
+      showId: normalizeName(found.showId),
+      canvas: cloneCanvas(found.canvas),
+    });
   }
 
   function applyTemplate(template) {
@@ -153,6 +188,12 @@
     });
   }
 
+  function normalizeStoredTemplates(templates) {
+    return (Array.isArray(templates) ? templates : []).map(function (template) {
+      return Object.assign({}, template, { showId: normalizeName(template.showId) });
+    });
+  }
+
   function deserializeStore(json) {
     if (!json) {
       return createStore();
@@ -162,12 +203,20 @@
       if (!parsed || !Array.isArray(parsed.templates)) {
         return createStore();
       }
-      const store = { templates: parsed.templates };
+      const store = { templates: normalizeStoredTemplates(parsed.templates) };
       syncCountersFromStore(store);
       return store;
     } catch (err) {
       return createStore();
     }
+  }
+
+  function hydrateTemplateStore(json, library) {
+    let store = deserializeStore(json);
+    if (library) {
+      store = reconcileTemplateShowIds(store, library);
+    }
+    return store;
   }
 
   function _resetTemplateCounter() {
@@ -180,12 +229,15 @@
     createTemplate,
     saveTemplate,
     listTemplates,
+    listTemplatesForShow,
+    reconcileTemplateShowIds,
     getTemplate,
     applyTemplate,
     applyTemplateForEpisode,
     styleSelectionFromCanvas,
     serializeStore,
     deserializeStore,
+    hydrateTemplateStore,
     _resetTemplateCounter,
   };
 

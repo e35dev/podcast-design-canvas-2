@@ -86,7 +86,8 @@ test("buildEpisodeStart carries preset style into first-episode import context",
 
 test("ACCEPTANCE: primary CTA lands on first-episode import with Riverside, files, and workspace recap", () => {
   assert.ok(ui.includes("startNewShowImportFlow"));
-  assert.ok(ui.includes('() => startNewShowImportFlow()'));
+  assert.ok(ui.includes("renderNewShowForm"));
+  assert.ok(ui.includes('() => renderNewShowForm("", "", null)'));
   assert.ok(ui.includes("renderFirstEpisodeImport"));
   assert.ok(ui.includes("First episode import"));
   assert.ok(ui.includes("setup-first-episode-import"));
