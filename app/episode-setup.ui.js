@@ -31,6 +31,7 @@
   const SP = window.PdcStylePreview;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
+  const RS = window.PdcRiversideSession;
   const root = document.getElementById("app");
   const stepIndicator = document.querySelector(".workflow-step-indicator");
   const stepCountEl = document.querySelector(".workflow-step-count");
@@ -59,6 +60,8 @@
   let canvasDoc = null;
   let canvasLayerCounter = 20;
   let workspaceSummaryCache = null;
+  let riversideSessionPreview = null;
+  let riversideDiscoverError = "";
   // Visual moments (#19): the per-episode moments board + the moment selected for preview.
   // Kept in module state so edits survive navigating away and back; mirrored to localStorage.
   let momentsBoard = null;
@@ -2198,6 +2201,8 @@
       });
       linkInput.addEventListener("input", (e) => {
         state.riversideLink = e.target.value;
+        riversideSessionPreview = null;
+        riversideDiscoverError = "";
         syncImportReadyBanner();
       });
       sourceCard.appendChild(
@@ -2211,6 +2216,85 @@
             "Example Riverside link added so you can continue — replace it with your own session anytime.",
           ),
         );
+      }
+      if (RS) {
+        const discoverRow = el("div", { class: "riverside-discover-row" });
+        const discoverBtn = el(
+          "button",
+          { type: "button", class: "btn-secondary riverside-discover-btn" },
+          "Discover tracks",
+        );
+        discoverBtn.addEventListener("click", () => {
+          readSetupFormState();
+          const result = RS.discoverSession(state.riversideLink);
+          if (!result.ok) {
+            riversideSessionPreview = null;
+            riversideDiscoverError = result.error || "Could not read that Riverside session.";
+            renderSetup();
+            return;
+          }
+          riversideDiscoverError = "";
+          riversideSessionPreview = result.session;
+          renderSetup();
+        });
+        discoverRow.appendChild(discoverBtn);
+        discoverRow.appendChild(
+          el(
+            "p",
+            { class: "hint riverside-discover-hint" },
+            "Find synced speaker tracks from your Riverside session and map them to Host and Guest buckets.",
+          ),
+        );
+        sourceCard.appendChild(discoverRow);
+
+        if (riversideDiscoverError) {
+          sourceCard.appendChild(
+            el("p", { class: "field-error riverside-discover-error", role: "alert" }, riversideDiscoverError),
+          );
+        }
+
+        if (riversideSessionPreview && Array.isArray(riversideSessionPreview.tracks)) {
+          const previewCard = el("div", { class: "riverside-session-preview" });
+          previewCard.appendChild(
+            el(
+              "p",
+              { class: "riverside-session-preview-lead" },
+              el("strong", {}, riversideSessionPreview.sessionTitle || "Riverside session"),
+              ` — ${riversideSessionPreview.trackCount} synced track${riversideSessionPreview.trackCount === 1 ? "" : "s"} found`,
+            ),
+          );
+          const trackList = el("div", { class: "riverside-session-track-list" });
+          riversideSessionPreview.tracks.forEach((track) => {
+            const syncLabel = track.synced ? "Synced" : "Needs review";
+            trackList.appendChild(
+              el(
+                "div",
+                { class: "riverside-session-track" },
+                el("p", { class: "riverside-session-track-label" }, track.label),
+                el(
+                  "p",
+                  { class: "hint riverside-session-track-meta" },
+                  `${track.participantName} · ${track.durationLabel} · ${syncLabel}`,
+                ),
+              ),
+            );
+          });
+          previewCard.appendChild(trackList);
+          const applyBtn = el(
+            "button",
+            { type: "button", class: "btn-primary riverside-apply-tracks-btn" },
+            "Apply to speaker buckets",
+          );
+          applyBtn.addEventListener("click", () => {
+            readSetupFormState();
+            state = RS.applyTracksToDraft(state, riversideSessionPreview);
+            sanitizeSetupState();
+            riversideDiscoverError = "";
+            renderSetup();
+          });
+          previewCard.appendChild(applyBtn);
+          sourceCard.appendChild(previewCard);
+        }
       }
     } else {
       sourceCard.appendChild(

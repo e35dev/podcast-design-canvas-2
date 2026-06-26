@@ -3338,6 +3338,57 @@ button.ghost:hover,
   max-width: 28ch;
 }
 
+.riverside-discover-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.riverside-discover-hint {
+  flex: 1 1 220px;
+  margin: 0;
+}
+
+.riverside-discover-error {
+  margin-top: 8px;
+}
+
+.riverside-session-preview {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fcfcff;
+}
+
+.riverside-session-preview-lead {
+  margin: 0 0 12px;
+}
+
+.riverside-session-track-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.riverside-session-track {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.riverside-session-track-label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.riverside-session-track-meta {
+  margin: 4px 0 0;
+}
+
 .file-placeholder-btn {
   margin-top: 8px;
 }

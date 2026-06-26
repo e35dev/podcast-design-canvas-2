@@ -36,6 +36,10 @@
     };
   }
 
+  function trim(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
   function setupApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
       return require("./episode-setup.js");
@@ -64,8 +68,17 @@
         parts.push(episode.sourceModeLabel);
       }
       const identities = (episode.speakers || []).map(function (speaker) {
+        const sourceLabel = trim(speaker.sourceLabel);
+        const hasTrackLabel = sourceLabel && sourceLabel !== "Riverside recording";
         if (setup && setup.handoffIdentityLine) {
-          return setup.handoffIdentityLine(speaker.name, speaker.role);
+          const identity = setup.handoffIdentityLine(speaker.name, speaker.role);
+          if (hasTrackLabel) {
+            return `${identity} — ${sourceLabel}`;
+          }
+          return identity;
+        }
+        if (hasTrackLabel) {
+          return speaker.name ? `${speaker.name} — ${sourceLabel}` : sourceLabel;
         }
         return speaker.name ? `${speaker.name} (${speaker.role})` : speaker.role;
       }).filter(Boolean);
