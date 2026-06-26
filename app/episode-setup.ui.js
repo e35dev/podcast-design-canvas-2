@@ -14,6 +14,7 @@
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
   const AP = window.PdcAudioPolish;
+  const MEDIA = window.PdcSpeakerMediaStore;
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
@@ -325,8 +326,21 @@
     if (!activeShowId || !activeEpisodeId) {
       return;
     }
+    const key = episodeSessionKey(activeShowId, activeEpisodeId);
+    const snapshot = buildEpisodeSessionSnapshot();
+    // Full-length polished/imported audio is far too large for localStorage, so move the
+    // real WAV bytes into the durable speaker media store and keep only references in the
+    // session record. The store writes run in the background; the lean record saves now.
+    if (MEDIA) {
+      if (snapshot.audioPolish) {
+        snapshot.audioPolish = MEDIA.externalizeAudioPolish(snapshot.audioPolish, key).lean;
+      }
+      if (snapshot.appliedAudioPolish) {
+        snapshot.appliedAudioPolish = MEDIA.externalizeAudioPolish(snapshot.appliedAudioPolish, key).lean;
+      }
+    }
     const sessions = loadEpisodeSessions();
-    sessions[episodeSessionKey(activeShowId, activeEpisodeId)] = buildEpisodeSessionSnapshot();
+    sessions[key] = snapshot;
     saveEpisodeSessions(sessions);
     if (LIB) {
       const status = buildEpisodeSessionSnapshot().workspaceReached
@@ -1724,7 +1738,7 @@
     renderFirstEpisodeImport();
   }
 
-  function resumeEpisodeFromShow(showId, episodeId) {
+  async function resumeEpisodeFromShow(showId, episodeId) {
     if (!LIB || !SI) {
       startBlankEpisode();
       return;
@@ -1761,6 +1775,17 @@
 
     if (snapshot) {
       applyEpisodeSessionSnapshot(snapshot);
+      // Restore the full-length audio that persistence offloaded to the durable store, so
+      // a resumed episode polishes/exports the real treated tracks rather than empty refs.
+      if (MEDIA) {
+        const sessionKey = episodeSessionKey(showId, episodeId);
+        if (audioPolish) {
+          audioPolish = await MEDIA.rehydrateAudioPolish(audioPolish, sessionKey);
+        }
+        if (appliedAudioPolish) {
+          appliedAudioPolish = await MEDIA.rehydrateAudioPolish(appliedAudioPolish, sessionKey);
+        }
+      }
     } else {
       state = start.setupDraft || ES.createDraft();
       state = SI.sanitizeSetupDraft(state, show);

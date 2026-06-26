@@ -151,19 +151,21 @@ test("encodeWav/decodeWav round-trip a standards-compliant 16-bit mono WAV", () 
   assert.throws(() => audio.decodeWav(new Uint8Array([1, 2, 3])), /RIFF\/WAVE/);
 });
 
-test("buildCapturedMedia resamples and bounds the real imported audio, fingerprinting the source", () => {
-  // Simulate a 44.1kHz, 3s upload — capture should resample to 8kHz and bound to ~2s.
+test("buildCapturedMedia keeps the FULL imported track at native rate, fingerprinting the source", () => {
+  // Simulate a 44.1kHz, 3s upload — capture keeps the whole track at its native rate
+  // (no 2s excerpt, no downsample) so review/export use the entire treated recording.
   const uploaded = fixture.buildUploadedWav(1, { sampleRate: 44100, seconds: 3 });
   const captured = audio.buildCapturedMedia(uploaded.samples, uploaded.sampleRate, {
     sourceBytes: uploaded.bytes.length,
     sourceFingerprint: audio.sourceFingerprint(uploaded.bytes),
   });
-  assert.strictEqual(captured.sampleRate, 8000);
-  assert.ok(captured.capturedSeconds <= 2.0001 && captured.capturedSeconds > 1.5, "bounded to ~2s");
+  assert.strictEqual(captured.sampleRate, 44100, "keeps the native sample rate");
+  assert.ok(Math.abs(captured.capturedSeconds - 3) < 0.05, "captures the full duration, not a 2s excerpt");
   assert.ok(Math.abs(captured.durationSeconds - 3) < 0.05, "records the full source duration");
 
   const decoded = audio.decodeWav(dataUriBytes(captured.media));
-  assert.strictEqual(decoded.sampleRate, 8000);
+  assert.strictEqual(decoded.sampleRate, 44100);
+  assert.ok(Math.abs(decoded.samples.length - uploaded.samples.length) <= 1, "captured audio spans the whole track");
   assert.strictEqual(captured.sourceHash, audio.sourceFingerprint(uploaded.bytes));
 
   // Distinct uploads produce distinct captured audio and fingerprints.

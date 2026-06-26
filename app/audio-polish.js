@@ -159,8 +159,7 @@
   // one code path (the pure-JS WAV decode path; the browser also uses AudioContext for
   // non-WAV uploads upstream at capture time).
   const WAV_HEADER_BYTES = 44;
-  const TARGET_SAMPLE_RATE = 8000;
-  const MAX_CAPTURE_SECONDS = 2;
+  const TARGET_SAMPLE_RATE = 8000; // fallback rate only; real uploads keep their native rate
   const WAV_DATA_URI_PREFIX = "data:audio/wav;base64,";
 
   // Each control level maps to a processing strength; "strong" pushes the DSP hardest.
@@ -382,20 +381,22 @@
   }
 
   // Turn decoded PCM from an imported file into the durable captured-media artifact:
-  // a bounded, resampled, mono 16-bit WAV preview plus the metadata review/export show.
+  // the FULL imported track re-encoded as a standards-compliant 16-bit mono WAV at its
+  // native sample rate — no excerpt, no downsample — plus the metadata review/export show.
+  // Review and export consume this whole-track audio so a published long-form episode is
+  // built from the entire treated recording, not a short preview. (Full tracks are large,
+  // so the UI persists them through the IndexedDB-backed speaker media store, not inline.)
   function buildCapturedMedia(samples, sampleRate, options) {
     const opts = options || {};
-    const fromRate = sampleRate || TARGET_SAMPLE_RATE;
-    const resampled = resampleAudio(samples, fromRate, TARGET_SAMPLE_RATE);
-    const maxSamples = Math.round(TARGET_SAMPLE_RATE * MAX_CAPTURE_SECONDS);
-    const bounded = resampled.length > maxSamples ? resampled.subarray(0, maxSamples) : resampled;
-    const bytes = encodeWav(bounded, TARGET_SAMPLE_RATE);
-    const fullDuration = (samples ? samples.length : 0) / fromRate;
+    const source = samples || new Float32Array(0);
+    const rate = sampleRate || TARGET_SAMPLE_RATE;
+    const bytes = encodeWav(source, rate);
+    const durationSeconds = source.length / rate;
     return {
       media: encodeWavDataUri(bytes),
-      sampleRate: TARGET_SAMPLE_RATE,
-      capturedSeconds: bounded.length / TARGET_SAMPLE_RATE,
-      durationSeconds: fullDuration,
+      sampleRate: rate,
+      capturedSeconds: durationSeconds,
+      durationSeconds: durationSeconds,
       sourceBytes: typeof opts.sourceBytes === "number" ? opts.sourceBytes : bytes.length,
       sourceHash: opts.sourceFingerprint || sourceFingerprint(bytes),
     };
@@ -639,6 +640,36 @@
     });
   }
 
+  // The polished audio "bed" that downstream review/export CONSUME as the episode's
+  // source audio: the actual treated WAV bytes per track (not a count or a readiness
+  // flag), each bound to its real imported source by fingerprint. Export renders from
+  // these bytes and review reports them, so the output is genuinely the treated episode
+  // audio — never the raw originals and never just completion metadata.
+  function buildPolishedAudioBed(audioPolish) {
+    const ap = audioPolish || {};
+    const tracks = Array.isArray(ap.tracks) ? ap.tracks : [];
+    const sources = tracks
+      .filter((track) => track
+        && track.status === "complete"
+        && typeof track.processedAsset === "string"
+        && track.processedAsset.indexOf(WAV_DATA_URI_PREFIX) === 0
+        && base64ByteLength(track.processedAsset.slice(WAV_DATA_URI_PREFIX.length)) > WAV_HEADER_BYTES)
+      .map((track) => ({
+        trackIndex: track.trackIndex,
+        role: track.role,
+        name: track.name,
+        sourceHash: track.mediaSourceHash || "",
+        settingsHash: track.settingsHash || "",
+        asset: track.processedAsset,
+        byteLength: base64ByteLength(track.processedAsset.slice(WAV_DATA_URI_PREFIX.length)),
+      }));
+    return {
+      trackCount: sources.length,
+      totalBytes: sources.reduce((sum, item) => sum + item.byteLength, 0),
+      sources: sources,
+    };
+  }
+
   function summarizePolish(polish) {
     const state = polish || createPolish({});
     const preset = getPreset(state.presetId);
@@ -738,6 +769,7 @@
     processPolish,
     processPolishAsync,
     hasCompletePolishedTracks,
+    buildPolishedAudioBed,
   };
 
   if (typeof module !== "undefined" && module.exports) {

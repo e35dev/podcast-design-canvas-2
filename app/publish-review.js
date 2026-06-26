@@ -109,8 +109,9 @@
     }
 
     if (audioReady) {
-      const polishedNote = context.audioPolish.polishedTrackCount
-        ? ` · ${context.audioPolish.polishedTrackCount} track${context.audioPolish.polishedTrackCount === 1 ? "" : "s"} polished`
+      const bed = AP.buildPolishedAudioBed(context.audioPolish);
+      const polishedNote = bed.trackCount
+        ? ` · ${bed.trackCount} polished WAV track${bed.trackCount === 1 ? "" : "s"} ready as the export source`
         : "";
       checks.push(check(
         "audio-ready",
