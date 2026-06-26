@@ -32,6 +32,7 @@
       styleTags: Array.isArray(listing.styleTags) ? listing.styleTags.slice() : [],
       previewImage: Object.assign({}, listing.previewImage || {}),
       canvas: cloneCanvas(listing.canvas),
+      accessLabel: normalizeAccessLabel(listing.accessLabel),
     });
   }
 
@@ -72,6 +73,23 @@
   }
 
   const INTERNAL_STYLE_TAGS = new Set(["creator-share"]);
+
+  const ACCESS_LABELS = Object.freeze({
+    free: "Free",
+    paid: "Paid",
+  });
+
+  function normalizeAccessLabel(value) {
+    const lowered = trim(value).toLowerCase();
+    if (lowered === "paid") {
+      return "paid";
+    }
+    return "free";
+  }
+
+  function formatAccessLabel(accessLabel) {
+    return ACCESS_LABELS[normalizeAccessLabel(accessLabel)];
+  }
 
   function deriveStyleTags(canvas) {
     const tags = [];
@@ -154,6 +172,7 @@
       canvas: cloneCanvas(canvas),
       sourceTemplateId: meta.sourceTemplateId || null,
       creatorName: trim(meta.creatorName) || "Creator",
+      accessLabel: normalizeAccessLabel(meta.accessLabel),
       publishedAt: Date.now(),
     };
   }
@@ -192,6 +211,7 @@
       styleTags: Array.isArray(listing.styleTags) ? listing.styleTags.slice() : [],
       previewImage: Object.assign({}, listing.previewImage || {}),
       creatorName: listing.creatorName,
+      accessLabel: normalizeAccessLabel(listing.accessLabel),
       publishedAt: listing.publishedAt,
       presetName: listing.previewImage && listing.previewImage.presetName,
       sourceTemplateId: listing.sourceTemplateId,
@@ -252,6 +272,9 @@
     deriveStyleTags,
     formatStyleTag,
     displayStyleTags,
+    normalizeAccessLabel,
+    formatAccessLabel,
+    ACCESS_LABELS,
     validateListingName,
     createListing,
     saveListing,
