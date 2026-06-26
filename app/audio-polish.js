@@ -264,14 +264,6 @@
     ].join("|"));
   }
 
-  function pseudoNoise(seed, index) {
-    let value = (seed + Math.imul(index + 1, 1103515245)) >>> 0;
-    value ^= value << 13;
-    value ^= value >>> 17;
-    value ^= value << 5;
-    return ((value >>> 0) / 4294967295) * 2 - 1;
-  }
-
   function clampSample(value) {
     if (value > 1) {
       return 1;
@@ -300,30 +292,27 @@
     return bytes;
   }
 
-  function renderSourceSamples(sourceBytes, fingerprint) {
+  function renderSourceSamples(sourceBytes) {
     if (!sourceBytes || !sourceBytes.length) {
       throw new Error("Imported source bytes were empty for this track.");
     }
     const sampleCount = Math.max(1, Math.round(SAMPLE_RATE * TRACK_DURATION_SECONDS));
     const samples = new Float32Array(sampleCount);
-    const seed = parseInt(fingerprint.slice(0, 8), 16) || 1;
-    const baseHz = 118 + (seed % 90);
-    const formantHz = 520 + ((seed >>> 8) % 260);
-    const phase = ((seed >>> 16) % 360) * Math.PI / 180;
+    const sourceLength = sourceBytes.length;
 
     for (let index = 0; index < sampleCount; index += 1) {
-      const t = index / SAMPLE_RATE;
-      const byte = sourceBytes[index % sourceBytes.length];
-      const previousByte = sourceBytes[(index + sourceBytes.length - 1) % sourceBytes.length];
-      const mediaWave = ((byte - 128) / 128) * 0.68;
-      const mediaEdge = ((byte - previousByte) / 255) * 0.24;
-      const envelope = 0.52 + 0.34 * Math.sin(2 * Math.PI * (1.4 + (seed % 4) * 0.2) * t);
-      const voice = Math.sin(2 * Math.PI * baseHz * t + phase)
-        + 0.38 * Math.sin(2 * Math.PI * (baseHz * 1.98) * t)
-        + 0.17 * Math.sin(2 * Math.PI * formantHz * t);
-      const roomRumble = 0.12 * Math.sin(2 * Math.PI * (46 + (seed % 12)) * t);
-      const roomNoise = pseudoNoise(seed, index) * 0.055;
-      samples[index] = clampSample((mediaWave + mediaEdge) * envelope + (voice * 0.08) + roomRumble + roomNoise);
+      const position = sourceLength > sampleCount
+        ? Math.floor(index * sourceLength / sampleCount)
+        : index % sourceLength;
+      const previousPosition = (position + sourceLength - 1) % sourceLength;
+      const nextPosition = (position + 1) % sourceLength;
+      const byte = sourceBytes[position];
+      const previousByte = sourceBytes[previousPosition];
+      const nextByte = sourceBytes[nextPosition];
+      const centered = (byte - 128) / 128;
+      const slope = (nextByte - previousByte) / 255;
+      const localAverage = ((previousByte + byte + nextByte) / 3 - 128) / 128;
+      samples[index] = clampSample(centered * 0.72 + slope * 0.22 + localAverage * 0.18);
     }
 
     return samples;
@@ -414,7 +403,7 @@
       const sourceAsset = normalized.sourceAsset || {};
       const sourceBytes = bytesFromDataUri(sourceAsset.dataUri);
       const sourceHash = hashBytes(sourceBytes);
-      const sourceSamples = renderSourceSamples(sourceBytes, fingerprint);
+      const sourceSamples = renderSourceSamples(sourceBytes);
       const processedSamples = applyPolishToSamples(sourceSamples, polish);
       const wavBytes = encodeWav(processedSamples, SAMPLE_RATE);
       const outputHash = hashBytes(wavBytes);
