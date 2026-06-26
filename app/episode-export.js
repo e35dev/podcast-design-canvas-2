@@ -118,7 +118,11 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    const AP = typeof module !== "undefined" && module.exports && typeof require === "function"
+      ? require("./audio-polish.js")
+      : (typeof window !== "undefined" ? window.PdcAudioPolish : null);
+    const audioCheck = AP ? AP.validatePolishForExport(ctx.audioPolish) : { ok: Boolean(ctx.audioPolish && ctx.audioPolish.presetName) };
+    if (!audioCheck.ok) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -155,7 +159,13 @@
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const AP = typeof module !== "undefined" && module.exports && typeof require === "function"
+        ? require("./audio-polish.js")
+        : null;
+      const audioLine = AP ? AP.buildExportAudioLine(ctx.audioPolish) : `Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`;
+      if (audioLine) {
+        lines.push(audioLine);
+      }
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
