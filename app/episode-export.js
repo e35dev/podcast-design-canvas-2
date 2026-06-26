@@ -165,6 +165,18 @@
     if (!check.ok) {
       return { ok: false, error: check.error, state: clone(state || createExport(episodeSummary)) };
     }
+    // Hard gate (#43): a publish-ready export cannot start until the creator has
+    // approved the full-episode review. Enforced here in the model — not just in
+    // the UI routing — so an unapproved episode cannot be exported by skipping
+    // ahead through any code path.
+    if (!(context && context.reviewApproved)) {
+      return {
+        ok: false,
+        error: "Approve the full-episode review before exporting.",
+        state: clone(state || createExport(episodeSummary)),
+        needsReview: true,
+      };
+    }
     const next = clone(state || createExport(episodeSummary));
     next.status = "rendering";
     next.progress = 0;

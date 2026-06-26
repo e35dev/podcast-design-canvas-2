@@ -72,6 +72,7 @@
   let contextApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  let publishReviewApprovedAt = "";
   const LIB_STORAGE_KEY = "pdc-show-library";
   const EPISODE_SESSIONS_KEY = "pdc-episode-sessions";
   let showLibrary = { shows: [] };
@@ -310,6 +311,7 @@
       appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
+      publishReviewApprovedAt: publishReviewApprovedAt,
       activeTemplateId: activeTemplateId,
       lastView: lastView,
       setupComplete: ES.validateDraft(state).ok,
@@ -345,6 +347,7 @@
     appliedAudioPolish = data.appliedAudioPolish || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
+    publishReviewApprovedAt = data.publishReviewApprovedAt || "";
     activeTemplateId = data.activeTemplateId || null;
     lastView = data.lastView || "setup";
     if (SI && activeShowId && LIB) {
@@ -2570,16 +2573,30 @@
       return null;
     }
     const next = PR.createReview(summary, buildReviewContext(summary));
-    if (publishReview && publishReview.approved) {
+    // Approval must persist across navigation AND across a reloaded session
+    // snapshot, where the review object is gone but publishReviewApproved (and
+    // its timestamp) were restored. Honor either source, but only while the
+    // episode still satisfies the review's blockers — if a later edit
+    // reintroduces a blocker, the approval correctly drops and export re-gates.
+    const wasApproved =
+      (publishReview && publishReview.approved) || publishReviewApproved;
+    if (wasApproved) {
       if (PR.canApprove(next)) {
         next.approved = true;
-        next.approvedAt = publishReview.approvedAt;
+        next.approvedAt =
+          (publishReview && publishReview.approvedAt) ||
+          publishReviewApprovedAt ||
+          next.approvedAt;
       } else {
         publishReviewApproved = false;
+        publishReviewApprovedAt = "";
       }
     }
     publishReview = next;
     publishReviewApproved = Boolean(publishReview.approved);
+    publishReviewApprovedAt = publishReview.approved
+      ? next.approvedAt || publishReviewApprovedAt
+      : "";
     return publishReview;
   }
 
@@ -2768,6 +2785,7 @@
     return {
       audioPolish: appliedAudioPolish,
       appliedStyle: brandedAppliedStyle(summary),
+      reviewApproved: publishReviewApproved,
       templateName: templateName || "",
       momentsSummary: momentsSummary,
       contextSummary: contextSummary,
@@ -3072,6 +3090,8 @@
       }
       publishReview = result.review;
       publishReviewApproved = true;
+      publishReviewApprovedAt = publishReview.approvedAt || publishReviewApprovedAt;
+      persistEpisodeSession();
       approveError.hidden = true;
       renderPublishReview(summary);
     });
@@ -3572,6 +3592,9 @@
       startButton.addEventListener("click", () => {
         const result = EXP.runExport(exportJob, summary, ctx);
         if (!result.ok) {
+          if (result.needsReview) {
+            renderPublishReview(summary);
+          }
           return;
         }
         exportJob = result.state;

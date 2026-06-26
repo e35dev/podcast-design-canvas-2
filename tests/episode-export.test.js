@@ -40,6 +40,7 @@ function completeContext(episode) {
   return {
     audioPolish: polish,
     appliedStyle,
+    reviewApproved: true,
     templateName: "Founders Unfiltered",
     momentsSummary,
   };
@@ -96,6 +97,30 @@ test("startExport blocks when required choices are missing", () => {
   assert.strictEqual(blocked.ok, false);
   assert.ok(blocked.error);
   assert.strictEqual(blocked.state.status, "draft");
+});
+
+test("startExport blocks export until the full-episode review is approved (#43 gate)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const job = exportApi.createExport(episode);
+  const ctx = completeContext(episode);
+
+  // Unapproved: readiness is otherwise satisfied, but the review gate blocks.
+  const unapproved = Object.assign({}, ctx, { reviewApproved: false });
+  const blocked = exportApi.startExport(job, episode, unapproved);
+  assert.strictEqual(blocked.ok, false);
+  assert.strictEqual(blocked.needsReview, true);
+  assert.ok(/review/i.test(blocked.error));
+  assert.strictEqual(blocked.state.status, "draft");
+
+  // runExport must refuse too — no skipping ahead through any path.
+  const run = exportApi.runExport(job, episode, unapproved);
+  assert.strictEqual(run.ok, false);
+  assert.strictEqual(run.needsReview, true);
+
+  // Approved: the same episode now exports.
+  const allowed = exportApi.startExport(job, episode, ctx);
+  assert.strictEqual(allowed.ok, true);
+  assert.strictEqual(allowed.state.status, "rendering");
 });
 
 test("runExport completes with a ready-to-download filename", () => {
