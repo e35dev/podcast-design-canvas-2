@@ -44,6 +44,14 @@
     return g.PdcEpisodeSetup;
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
   function buildStages(episodeSummary, ctx) {
     const episode = episodeSummary || {};
     const context = ctx || {};
@@ -103,7 +111,11 @@
     ));
 
     // Audio -------------------------------------------------------------------
-    const audioApplied = context.audioPolish && context.audioPolish.presetName;
+    const AP = audioPolishApi();
+    const audioApplied = Boolean(AP && AP.hasCompletePolishedTracks(context.audioPolish));
+    const polishedNote = audioApplied && context.audioPolish.polishedTrackCount
+      ? ` · ${context.audioPolish.polishedTrackCount} track${context.audioPolish.polishedTrackCount === 1 ? "" : "s"} polished`
+      : "";
     stages.push(stage(
       "audio",
       "Audio polish",
@@ -111,7 +123,7 @@
         ? STATUS.COMPLETE
         : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
       audioApplied
-        ? `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"}`
+        ? `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"}${polishedNote}`
         : "Choose a sound quality preset for every speaker track.",
       audioApplied ? "Change audio" : "Polish audio",
       ACTION_TARGETS.audio,

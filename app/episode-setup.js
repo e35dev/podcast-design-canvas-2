@@ -65,6 +65,14 @@
       fileName: "",
       fileSize: 0,
       trackLabel: "",
+      // Captured audio from the imported media file (set by the setup capture step).
+      // media is a data:audio/wav preview decoded from the real upload; the rest is
+      // metadata about the imported source so review/export can reference it.
+      media: "",
+      mediaName: "",
+      mediaBytes: 0,
+      mediaDurationSeconds: 0,
+      mediaSourceHash: "",
       social: emptySocial(),
     };
   }
@@ -263,6 +271,12 @@
         role: trim(speaker.role),
         name: trim(speaker.name),
         sourceLabel: sourceLabel(mode, speaker),
+        // Carry the captured imported audio through to the polish step.
+        media: typeof speaker.media === "string" ? speaker.media : "",
+        mediaName: trim(speaker.mediaName) || trim(speaker.fileName),
+        mediaBytes: speaker.mediaBytes || 0,
+        mediaDurationSeconds: speaker.mediaDurationSeconds || 0,
+        mediaSourceHash: trim(speaker.mediaSourceHash),
         social,
       };
     });

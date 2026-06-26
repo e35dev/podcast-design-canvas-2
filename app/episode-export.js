@@ -87,6 +87,14 @@
     return g.PdcPublishReview;
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
   function validatePublishReviewGate(context) {
     const ctx = context || {};
     const PR = publishReviewApi();
@@ -118,7 +126,8 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    const AP = audioPolishApi();
+    if (!AP || !AP.hasCompletePolishedTracks(ctx.audioPolish)) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -155,7 +164,18 @@
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const polishedNote = ctx.audioPolish.polishedTrackCount
+        ? ` · ${ctx.audioPolish.polishedTrackCount} polished track${ctx.audioPolish.polishedTrackCount === 1 ? "" : "s"}`
+        : "";
+      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})${polishedNote}`);
+    }
+    const AP = audioPolishApi();
+    if (AP && ctx.audioPolish) {
+      const bed = AP.buildPolishedAudioBed(ctx.audioPolish);
+      if (bed.trackCount) {
+        const kb = Math.max(1, Math.round(bed.totalBytes / 1024));
+        lines.push(`Audio source: ${bed.trackCount} polished WAV track${bed.trackCount === 1 ? "" : "s"} (${kb} KB treated audio) rendered into this export`);
+      }
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
@@ -216,13 +236,32 @@
     return { ok: true, state: next };
   }
 
-  function completeExport(state, episodeSummary) {
+  function completeExport(state, episodeSummary, context) {
     const next = clone(state || createExport(episodeSummary));
     const episode = episodeSummary || {};
+    const ctx = context || {};
     next.status = "ready";
     next.progress = 100;
     next.completedAt = Date.now();
     next.downloadName = `${safeFileStem(episode.episodeName)}-${next.resolution}.mp4`;
+    // The render consumes the actual polished audio assets as its source bed — the real
+    // treated WAV bytes per imported speaker track, bound to each source by fingerprint —
+    // not the raw originals and not a readiness flag.
+    const AP = audioPolishApi();
+    const bed = AP && ctx.audioPolish
+      ? AP.buildPolishedAudioBed(ctx.audioPolish)
+      : { trackCount: 0, totalBytes: 0, sources: [] };
+    next.audioSources = bed.sources.map((item) => ({
+      trackIndex: item.trackIndex,
+      role: item.role,
+      name: item.name,
+      sourceHash: item.sourceHash,
+      settingsHash: item.settingsHash,
+      asset: item.asset,
+      byteLength: item.byteLength,
+    }));
+    next.audioSourceCount = bed.trackCount;
+    next.audioSourceBytes = bed.totalBytes;
     return next;
   }
 
@@ -231,7 +270,7 @@
     if (!started.ok) {
       return started;
     }
-    return { ok: true, state: completeExport(started.state, episodeSummary) };
+    return { ok: true, state: completeExport(started.state, episodeSummary, context) };
   }
 
   function summarizeExport(state) {
@@ -249,6 +288,8 @@
       downloadName: job.downloadName || "",
       ready: job.status === "ready",
       rendering: job.status === "rendering",
+      audioSourceCount: job.audioSourceCount || 0,
+      audioSourceBytes: job.audioSourceBytes || 0,
     };
   }
 
