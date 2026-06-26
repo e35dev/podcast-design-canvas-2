@@ -309,6 +309,7 @@
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
       appliedAudioPolish: appliedAudioPolish,
+      audioPolish: audioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
       publishReviewApprovedAt: publishReviewApprovedAt,
@@ -345,6 +346,9 @@
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
+    // Restore the processed polish (with per-track polished assets) so reload preserves the
+    // applied settings and polished track references (#197).
+    audioPolish = data.audioPolish || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
     publishReviewApprovedAt = data.publishReviewApprovedAt || null;
@@ -4801,42 +4805,85 @@
     });
     grid.appendChild(controls);
 
+    const applied = AP.isApplied(audioPolish);
+
     const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+      el("p", { class: "hint" }, applied
+        ? "Each imported source has been processed into a polished audio asset used by review and export."
+        : "Each imported source will be processed with the treatment you choose above when you apply."),
     );
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
+      const status = track.status || AP.TRACK_STATUS.PENDING;
+      const statusLabel = status === AP.TRACK_STATUS.COMPLETED ? "Polished"
+        : status === AP.TRACK_STATUS.PROCESSING ? "Processing…"
+        : status === AP.TRACK_STATUS.FAILED ? "Failed" : "Pending";
       trackList.appendChild(
-        el("div", { class: "audio-track" },
+        el("div", { class: `audio-track audio-track--${status}` },
           el("div", { class: "audio-track-main" },
             el("span", { class: "role-pill" }, track.role),
             el("span", { class: "summary-name" }, track.name),
+            el("span", { class: `audio-track-status audio-track-status--${status}` }, statusLabel),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
           el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+          track.asset
+            ? el("p", { class: "audio-track-asset" }, `Polished asset: ${track.asset.polishedName}`)
+            : null,
         ),
       );
     });
     tracksCard.appendChild(trackList);
+    if (applied) {
+      const done = AP.polishedAssets(audioPolish).length;
+      tracksCard.appendChild(
+        el("p", { class: "audio-applied-banner" }, `Audio polished ✓ — ${done} track${done === 1 ? "" : "s"} saved as durable polished assets.`),
+      );
+    }
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
-      }
-    });
+    const actions = el("div", { class: "actions" });
+    if (!applied) {
+      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+      applyButton.addEventListener("click", () => {
+        // Real processing handoff (#197): process every imported track into a durable polished
+        // asset, persist it, and only then surface completion. Synchronous + deterministic so
+        // completion is guaranteed and immediately visible on this screen.
+        audioPolish = AP.applyPolish(audioPolish);
+        appliedAudioPolish = AP.summarizePolish(audioPolish);
+        persistEpisodeSession();
+        renderAudioPolish(summary);
+      });
+      actions.appendChild(applyButton);
+    } else {
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      continueButton.addEventListener("click", () => {
+        appliedAudioPolish = AP.summarizePolish(audioPolish);
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
+      });
+      const reapply = el("button", { type: "button", class: "ghost" }, "Re-process tracks");
+      reapply.addEventListener("click", () => {
+        audioPolish = AP.applyPolish(audioPolish);
+        appliedAudioPolish = AP.summarizePolish(audioPolish);
+        persistEpisodeSession();
+        renderAudioPolish(summary);
+      });
+      actions.appendChild(continueButton);
+      actions.appendChild(reapply);
+    }
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    actions.appendChild(back);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });

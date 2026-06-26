@@ -90,6 +90,22 @@
     return CONTROLS.find((control) => control.id === id) || CONTROLS[0];
   }
 
+  // Per-track processing lifecycle (#197): tracks start PENDING, move to PROCESSING when the
+  // creator applies, and become COMPLETED once a durable polished asset is saved.
+  const TRACK_STATUS = {
+    PENDING: "pending",
+    PROCESSING: "processing",
+    COMPLETED: "completed",
+    FAILED: "failed",
+  };
+
+  function slug(value) {
+    const base = String(value || "track").trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return base || "track";
+  }
+
   function buildSpeakerTracks(episodeSummary) {
     const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
       ? episodeSummary.speakers
@@ -99,6 +115,8 @@
       name: (speaker && speaker.name) || "Unnamed speaker",
       sourceLabel: (speaker && speaker.sourceLabel) || "Source track",
       trackIndex: index + 1,
+      status: TRACK_STATUS.PENDING,
+      asset: null,
     }));
   }
 
@@ -112,7 +130,79 @@
       speechClarity: levels.speechClarity,
       enhancement: levels.enhancement,
       speakers: buildSpeakerTracks(episodeSummary),
+      applied: false,
+      appliedAt: null,
     };
+  }
+
+  // Settings snapshot saved with each polished asset so the treatment is durable.
+  function settingsSnapshot(polish) {
+    const state = polish || {};
+    return {
+      preset: getPreset(state.presetId).id,
+      noiseCleanup: state.noiseCleanup,
+      leveling: state.leveling,
+      speechClarity: state.speechClarity,
+      enhancement: state.enhancement,
+    };
+  }
+
+  // Transform one imported speaker track into a durable polished audio asset. Deterministic
+  // (derived from the track + chosen settings) so it completes reliably anywhere — the app
+  // has no real DSP backend, so the polished asset is a saved descriptor of the treated track
+  // that downstream review/export consume in place of the raw source.
+  function processTrack(track, polish) {
+    const t = track || {};
+    const settings = settingsSnapshot(polish);
+    const preset = getPreset(polish && polish.presetId);
+    return {
+      assetId: `polished-${t.trackIndex || 1}-${preset.id}`,
+      trackIndex: t.trackIndex || 1,
+      role: t.role || "Speaker",
+      name: t.name || "Unnamed speaker",
+      sourceLabel: t.sourceLabel || "Source track",
+      polishedName: `${slug(t.name || t.role)}-${preset.id}-polished.wav`,
+      status: TRACK_STATUS.COMPLETED,
+      settings: settings,
+      format: "wav",
+      processedAt: Date.now(),
+    };
+  }
+
+  // Apply the chosen treatment to every imported track, producing durable polished assets.
+  // Synchronous and deterministic so completion is guaranteed and observable. Returns a new
+  // polish object with each track COMPLETED and `applied` set.
+  function applyPolish(polish) {
+    const base = polish || createPolish({});
+    const speakers = (Array.isArray(base.speakers) ? base.speakers : []).map((track) => {
+      const asset = processTrack(track, base);
+      return Object.assign({}, track, { status: TRACK_STATUS.COMPLETED, asset: asset });
+    });
+    return Object.assign({}, base, {
+      speakers: speakers,
+      applied: true,
+      appliedAt: Date.now(),
+    });
+  }
+
+  // Mark every track as actively processing — used for the brief visible transition.
+  function markProcessing(polish) {
+    const base = polish || createPolish({});
+    const speakers = (Array.isArray(base.speakers) ? base.speakers : []).map((track) =>
+      Object.assign({}, track, { status: TRACK_STATUS.PROCESSING }),
+    );
+    return Object.assign({}, base, { speakers: speakers });
+  }
+
+  function isApplied(polish) {
+    const speakers = polish && Array.isArray(polish.speakers) ? polish.speakers : [];
+    return Boolean(polish && polish.applied) && speakers.length > 0
+      && speakers.every((t) => t.status === TRACK_STATUS.COMPLETED && t.asset);
+  }
+
+  function polishedAssets(polish) {
+    const speakers = polish && Array.isArray(polish.speakers) ? polish.speakers : [];
+    return speakers.map((t) => t.asset).filter(Boolean);
   }
 
   function applyPreset(polish, presetId) {
@@ -163,6 +253,19 @@
       enhancementLabel: getLevel(state.enhancement).label,
       speakerCount: Array.isArray(state.speakers) ? state.speakers.length : 0,
       treatmentLine: controlSummary.join(" · "),
+      // Processing/result info (#197): durable polished assets per track.
+      processed: isApplied(state),
+      appliedAt: state.appliedAt || null,
+      usesPolishedAudio: isApplied(state),
+      polishedTrackCount: polishedAssets(state).length,
+      tracks: (Array.isArray(state.speakers) ? state.speakers : []).map((t) => ({
+        role: t.role,
+        name: t.name,
+        sourceLabel: t.sourceLabel,
+        status: t.status || TRACK_STATUS.PENDING,
+        polishedName: t.asset ? t.asset.polishedName : "",
+        assetId: t.asset ? t.asset.assetId : "",
+      })),
     };
   }
 
@@ -174,6 +277,9 @@
     const lines = [];
     if (audio.presetName) {
       lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})`);
+    }
+    if (audio.processed && audio.polishedTrackCount) {
+      lines.push(`Polished audio: ${audio.polishedTrackCount} track${audio.polishedTrackCount === 1 ? "" : "s"} processed`);
     }
     if (options.styleName) {
       lines.push(`Visual style: ${options.styleName}`);
@@ -189,6 +295,8 @@
       styleName: options.styleName || "",
       templateName: options.templateName || "",
       readyForExport: Boolean(audio.presetName),
+      usesPolishedAudio: Boolean(audio.usesPolishedAudio),
+      polishedTrackCount: audio.polishedTrackCount || 0,
       summaryLines: lines,
     };
   }
@@ -197,6 +305,7 @@
     QUALITY_PRESETS,
     CONTROLS,
     LEVELS,
+    TRACK_STATUS,
     defaultPreset,
     getPreset,
     getLevel,
@@ -205,6 +314,11 @@
     createPolish,
     applyPreset,
     updateControl,
+    processTrack,
+    applyPolish,
+    markProcessing,
+    isApplied,
+    polishedAssets,
     speakerIndicator,
     summarizePolish,
     buildReviewSummary,

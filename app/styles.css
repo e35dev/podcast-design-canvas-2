@@ -4173,3 +4173,34 @@ button.ghost:hover,
   display: grid;
   gap: 8px;
 }
+
+/* ---- Audio polish processing status (#197) ---- */
+.audio-track-status {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  margin-left: auto;
+  background: #eef0f8;
+  color: var(--ink-soft);
+}
+.audio-track-status--processing { background: rgba(108,76,255,0.14); color: var(--brand); }
+.audio-track-status--completed { background: rgba(31,157,107,0.16); color: var(--ok); }
+.audio-track-status--failed { background: rgba(200,50,74,0.14); color: var(--warn); }
+
+.audio-track--completed {
+  border-color: rgba(31,157,107,0.4);
+}
+
+.audio-track-asset {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 6px 0 0;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+}
+
+.audio-applied-banner {
+  margin: 14px 0 0;
+  font-weight: 700;
+  color: var(--ok);
+}

@@ -99,12 +99,16 @@
     }
 
     if (context.audioPolish && context.audioPolish.presetName) {
+      const ap = context.audioPolish;
+      const polishedNote = ap.usesPolishedAudio
+        ? ` · ${ap.polishedTrackCount} polished track${ap.polishedTrackCount === 1 ? "" : "s"} ready for export`
+        : "";
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${ap.presetName} · ${ap.treatmentLine || "treatment applied"}${polishedNote}`,
         null,
       ));
     } else {

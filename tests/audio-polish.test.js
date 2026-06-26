@@ -88,6 +88,74 @@ test("buildReviewSummary includes audio in the export path", () => {
   assert.ok(review.summaryLines.some((line) => line.indexOf("Audio:") === 0));
 });
 
+test("tracks start pending and are not yet applied (#197)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.createPolish(episode);
+  assert.strictEqual(polish.applied, false);
+  assert.ok(polish.speakers.every((t) => t.status === audio.TRACK_STATUS.PENDING));
+  assert.ok(polish.speakers.every((t) => t.asset === null));
+  assert.strictEqual(audio.isApplied(polish), false);
+});
+
+test("applyPolish processes every imported track into a durable polished asset (#197)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  let polish = audio.applyPreset(audio.createPolish(episode), "studio");
+  polish = audio.applyPolish(polish);
+
+  assert.strictEqual(polish.applied, true);
+  assert.ok(polish.appliedAt, "records when it was applied");
+  assert.strictEqual(polish.speakers.length, 3);
+  polish.speakers.forEach((track) => {
+    assert.strictEqual(track.status, audio.TRACK_STATUS.COMPLETED);
+    assert.ok(track.asset, "each track has a polished asset");
+    assert.ok(/polished\.wav$/.test(track.asset.polishedName));
+    assert.strictEqual(track.asset.settings.preset, "studio");
+  });
+  assert.strictEqual(audio.isApplied(polish), true);
+  assert.strictEqual(audio.polishedAssets(polish).length, 3);
+});
+
+test("polished asset names are unique per speaker track", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.applyPolish(audio.createPolish(episode));
+  const names = polish.speakers.map((t) => t.asset.polishedName);
+  assert.strictEqual(new Set(names).size, names.length, "no two tracks share a polished asset name");
+});
+
+test("summarizePolish reports processed state and per-track polished references", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const before = audio.summarizePolish(audio.createPolish(episode));
+  assert.strictEqual(before.processed, false);
+  assert.strictEqual(before.usesPolishedAudio, false);
+
+  const after = audio.summarizePolish(audio.applyPolish(audio.createPolish(episode)));
+  assert.strictEqual(after.processed, true);
+  assert.strictEqual(after.usesPolishedAudio, true);
+  assert.strictEqual(after.polishedTrackCount, 3);
+  assert.ok(after.tracks.every((t) => t.status === "completed" && t.polishedName));
+});
+
+test("a completed polish survives a serialize/restore round trip (reload persistence)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.applyPolish(audio.createPolish(episode));
+  const restored = JSON.parse(JSON.stringify(polish));
+  assert.strictEqual(audio.isApplied(restored), true);
+  assert.strictEqual(audio.polishedAssets(restored).length, 3);
+  assert.deepStrictEqual(
+    audio.summarizePolish(restored).tracks.map((t) => t.polishedName),
+    polish.speakers.map((t) => t.asset.polishedName),
+  );
+});
+
+test("review/export consume the polished tracks once applied", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const applied = audio.summarizePolish(audio.applyPolish(audio.createPolish(episode)));
+  const review = audio.buildReviewSummary(episode, applied, { styleName: "Studio Spotlight" });
+  assert.strictEqual(review.usesPolishedAudio, true);
+  assert.strictEqual(review.polishedTrackCount, 3);
+  assert.ok(review.summaryLines.some((line) => /Polished audio: 3 tracks/.test(line)));
+});
+
 test("ACCEPTANCE: episode setup flows into audio polish and saves a review summary", () => {
   const draft = completeUploadDraft();
   assert.strictEqual(setup.validateDraft(draft).ok, true);
