@@ -30,13 +30,19 @@ function completeDraft() {
   return draft;
 }
 
+function processedAudio(episode) {
+  const result = audio.runPolish(audio.createPolish(episode), episode);
+  assert.strictEqual(result.ok, true);
+  return audio.summarizePolish(result.polish);
+}
+
 function baseCtx(episode, overrides) {
   const selection = style.createSelection();
   let board = moments.createBoard(episode);
   board = moments.addMoment(board, "caption", { time: 30, text: "Welcome", speakerRole: "Host" });
   return Object.assign({
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: processedAudio(episode),
     templateName: "Founders Format",
     momentsSummary: moments.summarizeBoard(board),
     contextApproved: true,

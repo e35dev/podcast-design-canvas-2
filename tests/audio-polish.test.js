@@ -76,16 +76,17 @@ test("summarizePolish reflects the chosen treatment", () => {
 
 test("buildReviewSummary includes audio in the export path", () => {
   const episode = setup.summarize(completeUploadDraft());
-  const polish = audio.summarizePolish(audio.createPolish(episode));
-  const review = audio.buildReviewSummary(episode, polish, {
+  const result = audio.runPolish(audio.createPolish(episode), episode);
+  const polish = audio.summarizePolish(result.polish);
+  const reviewSummary = audio.buildReviewSummary(episode, polish, {
     styleName: "Studio Spotlight",
     templateName: "Founders Unfiltered",
   });
-  assert.strictEqual(review.episodeName, "Founders Unfiltered #7");
-  assert.strictEqual(review.audioPreset, "Clean");
-  assert.strictEqual(review.styleName, "Studio Spotlight");
-  assert.strictEqual(review.readyForExport, true);
-  assert.ok(review.summaryLines.some((line) => line.indexOf("Audio:") === 0));
+  assert.strictEqual(reviewSummary.episodeName, "Founders Unfiltered #7");
+  assert.strictEqual(reviewSummary.audioPreset, "Clean");
+  assert.strictEqual(reviewSummary.styleName, "Studio Spotlight");
+  assert.strictEqual(reviewSummary.readyForExport, true);
+  assert.ok(reviewSummary.summaryLines.some((line) => line.indexOf("Audio:") === 0));
 });
 
 test("ACCEPTANCE: episode setup flows into audio polish and saves a review summary", () => {
@@ -98,13 +99,17 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
 
   polish = audio.applyPreset(polish, "clean");
   polish = audio.updateControl(polish, "speechClarity", "strong");
-  const applied = audio.summarizePolish(polish);
+  const result = audio.runPolish(polish, episode);
+  assert.strictEqual(result.ok, true);
+  const applied = audio.summarizePolish(result.polish);
   assert.strictEqual(applied.presetName, "Clean");
   assert.strictEqual(applied.speechClarityLabel, "Strong");
+  assert.strictEqual(applied.complete, true);
+  assert.ok(applied.polishedTrackLine.includes("3 polished"));
 
-  const review = audio.buildReviewSummary(episode, applied, {});
-  assert.strictEqual(review.readyForExport, true);
-  assert.ok(review.audioTreatment.includes("Speech clarity: Strong"));
+  const reviewSummary = audio.buildReviewSummary(episode, applied, {});
+  assert.strictEqual(reviewSummary.readyForExport, true);
+  assert.ok(reviewSummary.audioTreatment.includes("Speech clarity: Strong"));
 });
 
 console.log(`\naudio polish: ${passed} assertions passed`);

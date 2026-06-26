@@ -308,6 +308,7 @@
       setupDraft: state,
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
+      audioPolish: audioPolish,
       appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
@@ -345,6 +346,7 @@
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
+    audioPolish = data.audioPolish || (appliedAudioPolish && AP ? AP.createPolish(state) : null);
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
     publishReviewApprovedAt = data.publishReviewApprovedAt || null;
@@ -4807,13 +4809,25 @@
     );
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
+      const statusClass = track.status === AP.TRACK_STATUS.COMPLETE
+        ? "audio-track-status-complete"
+        : track.status === AP.TRACK_STATUS.FAILED
+          ? "audio-track-status-failed"
+          : "audio-track-status-pending";
       trackList.appendChild(
         el("div", { class: "audio-track" },
           el("div", { class: "audio-track-main" },
             el("span", { class: "role-pill" }, track.role),
             el("span", { class: "summary-name" }, track.name),
+            el("span", { class: `audio-track-status ${statusClass}` }, AP.trackStatusLabel(track.status)),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
+          track.polishedAssetId
+            ? el("p", { class: "hint audio-track-asset" }, track.polishedAssetId)
+            : null,
+          track.error
+            ? el("p", { class: "hint audio-track-error", role: "alert" }, track.error)
+            : null,
           el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
         ),
       );
@@ -4822,9 +4836,27 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
+    if (audioPolish.status === "complete" && appliedAudioPolish && appliedAudioPolish.complete) {
+      view.appendChild(
+        el(
+          "div",
+          { class: "banner audio-polish-result", role: "status" },
+          el("strong", {}, "Polished audio saved"),
+          el("p", { class: "hint" }, appliedAudioPolish.polishedTrackLine || "All speaker tracks processed."),
+        ),
+      );
+    }
+
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     applyButton.addEventListener("click", () => {
+      const result = AP.runPolish(audioPolish, summary);
+      audioPolish = result.polish;
+      if (!result.ok) {
+        renderAudioPolish(summary);
+        return;
+      }
       appliedAudioPolish = AP.summarizePolish(audioPolish);
+      persistEpisodeSession();
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {

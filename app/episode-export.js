@@ -118,7 +118,7 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    if (!ctx.audioPolish || !ctx.audioPolish.presetName || !ctx.audioPolish.complete) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -155,7 +155,10 @@
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const audioDetail = ctx.audioPolish.complete && ctx.audioPolish.polishedTrackLine
+        ? `${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"}) · ${ctx.audioPolish.polishedTrackLine}`
+        : `${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`;
+      lines.push(`Audio: ${audioDetail}`);
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(

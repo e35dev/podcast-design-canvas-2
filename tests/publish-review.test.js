@@ -36,6 +36,12 @@ function completeDraft() {
   return draft;
 }
 
+function processedAudio(episode) {
+  const result = audio.runPolish(audio.createPolish(episode), episode);
+  assert.strictEqual(result.ok, true);
+  return audio.summarizePolish(result.polish);
+}
+
 function fullContext(episode, options) {
   const opts = options || {};
   const selection = style.createSelection();
@@ -44,7 +50,7 @@ function fullContext(episode, options) {
   let contextReview = contextApi.createReview(episode);
   contextReview = contextApi.approveReview(contextReview);
   return {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: processedAudio(episode),
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: opts.templateName || "Founders Unfiltered",
     hasCanvas: opts.hasCanvas !== false,

@@ -98,14 +98,26 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    if (context.audioPolish && context.audioPolish.presetName && context.audioPolish.complete) {
+      const audioSummary = context.audioPolish.polishedTrackLine
+        ? `${context.audioPolish.presetName} · ${context.audioPolish.polishedTrackLine}`
+        : `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`;
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        audioSummary,
         null,
+      ));
+    } else if (context.audioPolish && context.audioPolish.presetName) {
+      checks.push(check(
+        "audio-unprocessed",
+        "audio",
+        "blocker",
+        "Audio not processed",
+        "Apply audio polish so each imported speaker track is saved as polished audio.",
+        { label: "Polish audio", target: FIX_TARGETS.audio },
       ));
     } else {
       checks.push(check(
@@ -218,7 +230,7 @@
       ));
     }
 
-    const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+    const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName && context.audioPolish.complete
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(

@@ -31,6 +31,12 @@ function completeDraft() {
   return draft;
 }
 
+function processedAudio(episode) {
+  const result = audio.runPolish(audio.createPolish(episode), episode);
+  assert.strictEqual(result.ok, true);
+  return audio.summarizePolish(result.polish);
+}
+
 function exportContext(episode, options) {
   const opts = options || {};
   const selection = style.createSelection();
@@ -38,9 +44,11 @@ function exportContext(episode, options) {
   board = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   let contextReview = contextApi.createReview(episode);
   contextReview = contextApi.approveReview(contextReview);
+  const audioSummary = processedAudio(episode);
+  const styleSummary = style.summarizeStyle(selection, episode.speakerCount);
   let publishReview = review.createReview(episode, {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
-    appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
+    audioPolish: audioSummary,
+    appliedStyle: styleSummary,
     templateName: "Founders Look",
     hasCanvas: true,
     contextApproved: true,
@@ -53,8 +61,8 @@ function exportContext(episode, options) {
     publishReview = review.approveReview(publishReview).review;
   }
   return {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
-    appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
+    audioPolish: audioSummary,
+    appliedStyle: styleSummary,
     templateName: "Founders Look",
     momentsSummary: moments.summarizeBoard(board),
     contextSummary: contextApi.summarizeReview(contextReview),
