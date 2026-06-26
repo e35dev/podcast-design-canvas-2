@@ -33,7 +33,7 @@ function completeUploadDraft() {
 function completeContext(episode) {
   const selection = style.createSelection();
   const appliedStyle = style.summarizeStyle(selection, episode.speakerCount);
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  const polish = audio.summarizePolish(audio.processPolish(audio.createPolish(episode)));
   const board = moments.createBoard(episode);
   const withMoment = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   const momentsSummary = moments.summarizeBoard(withMoment);
@@ -55,7 +55,7 @@ test("validateReadiness requires audio polish and visual style", () => {
   const episode = setup.summarize(completeUploadDraft());
   const missingBoth = exportApi.validateReadiness({});
   assert.strictEqual(missingBoth.ok, false);
-  assert.ok(missingBoth.error.includes("polish your audio"));
+  assert.ok(missingBoth.error.includes("audio polish"));
   assert.ok(missingBoth.error.includes("choose a visual style"));
 
   const ctx = completeContext(episode);

@@ -59,7 +59,7 @@
   function missingMessage(missing) {
     const needs = [];
     if (missing.indexOf("audio") >= 0) {
-      needs.push("polish your audio");
+      needs.push("process your audio polish into saved tracks");
     }
     if (missing.indexOf("style") >= 0) {
       needs.push("choose a visual style");
@@ -118,7 +118,9 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    // #197: export must consume real polished audio assets, not just a chosen
+    // preset. Require at least one saved polished track.
+    if (!ctx.audioPolish || !ctx.audioPolish.presetName || !(ctx.audioPolish.polishedTrackCount > 0)) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {

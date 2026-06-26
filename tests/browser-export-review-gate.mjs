@@ -49,6 +49,9 @@ async function polishAudioFromWorkspace(page) {
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").first().click();
   await page.getByRole("button", { name: "Apply audio & continue →" }).click();
+  // Apply now processes the tracks and stays on the step until they are saved.
+  await page.locator(".audio-status-banner.is-complete").waitFor();
+  await page.getByRole("button", { name: "Continue →" }).click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
 
