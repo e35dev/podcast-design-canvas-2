@@ -93,10 +93,12 @@
         return { ok: false, error: `Use a valid hex color for ${colorKeys[i]}.` };
       }
     }
-    if (!getTypeStyle(k.typeStyle)) {
+    // getTypeStyle/getCaptionStyle fall back to a default, so check membership directly —
+    // otherwise an unknown style id slips through validation unnoticed.
+    if (!TYPE_STYLES.some((item) => item.id === k.typeStyle)) {
       return { ok: false, error: "Choose a type style." };
     }
-    if (!getCaptionStyle(k.captionStyle)) {
+    if (!CAPTION_STYLES.some((item) => item.id === k.captionStyle)) {
       return { ok: false, error: "Choose a caption style." };
     }
     return { ok: true };
