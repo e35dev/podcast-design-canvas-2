@@ -76,7 +76,7 @@ test("summarizePolish reflects the chosen treatment", () => {
 
 test("buildReviewSummary includes audio in the export path", () => {
   const episode = setup.summarize(completeUploadDraft());
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  const polish = audio.prepareProcessedPolish(episode, { showId: "show-test", episodeId: "ep-test" });
   const review = audio.buildReviewSummary(episode, polish, {
     styleName: "Studio Spotlight",
     templateName: "Founders Unfiltered",
@@ -98,13 +98,15 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
 
   polish = audio.applyPreset(polish, "clean");
   polish = audio.updateControl(polish, "speechClarity", "strong");
-  const applied = audio.summarizePolish(polish);
+  const processed = audio.runProcessing(polish, episode, { showId: "show-test", episodeId: "ep-test" });
+  const applied = audio.summarizePolish(processed.polish);
   assert.strictEqual(applied.presetName, "Clean");
   assert.strictEqual(applied.speechClarityLabel, "Strong");
 
   const review = audio.buildReviewSummary(episode, applied, {});
   assert.strictEqual(review.readyForExport, true);
   assert.ok(review.audioTreatment.includes("Speech clarity: Strong"));
+  assert.ok(review.polishedTrackLine.includes("polished.wav"));
 });
 
 console.log(`\naudio polish: ${passed} assertions passed`);
