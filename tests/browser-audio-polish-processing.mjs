@@ -45,10 +45,41 @@ const testScript = `
     input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
   };
+  const wavBytes = (frequency, durationSeconds = 1.1) => {
+    const sampleRate = 8000;
+    const sampleCount = Math.round(sampleRate * durationSeconds);
+    const buffer = new ArrayBuffer(44 + sampleCount * 2);
+    const view = new DataView(buffer);
+    const writeAscii = (offset, value) => {
+      for (let index = 0; index < value.length; index += 1) {
+        view.setUint8(offset + index, value.charCodeAt(index));
+      }
+    };
+    writeAscii(0, "RIFF");
+    view.setUint32(4, 36 + sampleCount * 2, true);
+    writeAscii(8, "WAVE");
+    writeAscii(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, "data");
+    view.setUint32(40, sampleCount * 2, true);
+    for (let index = 0; index < sampleCount; index += 1) {
+      const t = index / sampleRate;
+      const envelope = 0.72 + 0.18 * Math.sin(2 * Math.PI * 2.3 * t);
+      const sample = Math.sin(2 * Math.PI * frequency * t) * 0.42 * envelope;
+      view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+    }
+    return new Uint8Array(buffer);
+  };
   const attachFile = (selector, fileName, contents) => {
     const input = document.querySelector(selector);
     if (!input) throw new Error("Missing file input " + selector);
-    const file = new File([contents], fileName, { type: "video/mp4" });
+    const file = new File([contents], fileName, { type: "audio/wav" });
     const transfer = new DataTransfer();
     transfer.items.add(file);
     Object.defineProperty(input, "files", {
@@ -104,9 +135,9 @@ const testScript = `
     fill("#f-sp-0-name", "Avery Host");
     fill("#f-sp-1-name", "Blake Guest");
     fill("#f-sp-2-name", "Casey Guest");
-    attachFile("#f-sp-0-source", "avery-host.mp4", "Avery host imported source bytes");
-    attachFile("#f-sp-1-source", "blake-guest.mp4", "Blake guest imported source bytes");
-    attachFile("#f-sp-2-source", "casey-guest.mp4", "Casey guest imported source bytes");
+    attachFile("#f-sp-0-source", "avery-host.wav", wavBytes(220));
+    attachFile("#f-sp-1-source", "blake-guest.wav", wavBytes(330));
+    attachFile("#f-sp-2-source", "casey-guest.wav", wavBytes(440));
     await waitFor(
       () => Array.from(document.querySelectorAll(".chosen-file")).every((item) => /ready for polish/.test(item.textContent || "")),
       "uploaded source bytes to be ready",
@@ -144,7 +175,7 @@ const testScript = `
     log(saved.ids.length === 3 && saved.ids.every(Boolean), "Polished track references are saved");
     log(saved.dataUris.every((uri) => /^data:audio\\/wav;base64,/.test(uri)), "Polished references point to WAV data assets");
     log(saved.sourceHashes.length === 3 && saved.sourceHashes.every(Boolean), "Polished tracks retain imported source byte hashes");
-    log(saved.sourceFileNames.join("|") === "avery-host.mp4|blake-guest.mp4|casey-guest.mp4", "Polished tracks reference the uploaded source files");
+    log(saved.sourceFileNames.join("|") === "avery-host.wav|blake-guest.wav|casey-guest.wav", "Polished tracks reference the uploaded source files");
     log(saved.sourceByteLengths.every((size) => size > 0), "Polished tracks record imported source byte lengths");
     log(saved.workingStatuses.every((status) => status === "complete"), "Working polish state keeps per-track completion status");
 

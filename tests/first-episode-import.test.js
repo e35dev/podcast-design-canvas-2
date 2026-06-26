@@ -42,11 +42,11 @@ test("resolveStyleSelection prefers show.presetId over presetName lookup", () =>
 
 test("attachPlaceholderFile seeds a synced filename per speaker bucket", () => {
   const host = setup.attachPlaceholderFile(setup.createSpeaker("Host"));
-  assert.strictEqual(host.fileName, "host-synced.mp4");
+  assert.strictEqual(host.fileName, "host-synced.wav");
   assert.ok(host.fileSize > 0);
 
   const guest = setup.attachPlaceholderFile(setup.createSpeaker("Guest 2"));
-  assert.strictEqual(guest.fileName, "guest-2-synced.mp4");
+  assert.strictEqual(guest.fileName, "guest-2-synced.wav");
 });
 
 test("upload draft with placeholder files validates for sandbox import", () => {
@@ -64,7 +64,7 @@ test("upload draft with placeholder files validates for sandbox import", () => {
   assert.strictEqual(summary.sourceModeLabel, "Uploaded speaker files");
   assert.deepStrictEqual(
     summary.speakers.map((speaker) => speaker.sourceLabel),
-    ["host-synced.mp4", "guest-1-synced.mp4", "guest-2-synced.mp4"],
+    ["host-synced.wav", "guest-1-synced.wav", "guest-2-synced.wav"],
   );
 });
 

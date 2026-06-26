@@ -80,8 +80,6 @@
     COMPLETE: "complete",
     FAILED: "failed",
   };
-  const SAMPLE_RATE = 8000;
-  const TRACK_DURATION_SECONDS = 0.6;
   const LEVEL_STRENGTH = {
     light: 0.28,
     balanced: 0.56,
@@ -292,30 +290,117 @@
     return bytes;
   }
 
-  function renderSourceSamples(sourceBytes) {
+  function readAscii(view, offset, length) {
+    let value = "";
+    for (let index = 0; index < length; index += 1) {
+      value += String.fromCharCode(view.getUint8(offset + index));
+    }
+    return value;
+  }
+
+  function decodePcmSample(view, offset, audioFormat, bitsPerSample) {
+    if (audioFormat === 3) {
+      if (bitsPerSample === 32) {
+        return clampSample(view.getFloat32(offset, true));
+      }
+      if (bitsPerSample === 64) {
+        return clampSample(view.getFloat64(offset, true));
+      }
+    }
+    if (audioFormat !== 1) {
+      throw new Error("Imported source audio must be PCM or float WAV.");
+    }
+    if (bitsPerSample === 8) {
+      return (view.getUint8(offset) - 128) / 128;
+    }
+    if (bitsPerSample === 16) {
+      return view.getInt16(offset, true) / 0x8000;
+    }
+    if (bitsPerSample === 24) {
+      const value = view.getUint8(offset)
+        | (view.getUint8(offset + 1) << 8)
+        | (view.getUint8(offset + 2) << 16);
+      return ((value & 0x800000) ? value | 0xff000000 : value) / 0x800000;
+    }
+    if (bitsPerSample === 32) {
+      return view.getInt32(offset, true) / 0x80000000;
+    }
+    throw new Error("Imported source WAV bit depth is not supported.");
+  }
+
+  function decodeWav(bytes) {
+    if (!bytes || bytes.length < 44) {
+      throw new Error("Imported source audio was too small to decode.");
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (readAscii(view, 0, 4) !== "RIFF" || readAscii(view, 8, 4) !== "WAVE") {
+      throw new Error("Imported source audio must be a decoded WAV track.");
+    }
+
+    let fmt = null;
+    let data = null;
+    let offset = 12;
+    while (offset + 8 <= bytes.length) {
+      const chunkId = readAscii(view, offset, 4);
+      const chunkSize = view.getUint32(offset + 4, true);
+      const chunkStart = offset + 8;
+      if (chunkStart + chunkSize > bytes.length) {
+        break;
+      }
+      if (chunkId === "fmt ") {
+        fmt = {
+          audioFormat: view.getUint16(chunkStart, true),
+          channels: view.getUint16(chunkStart + 2, true),
+          sampleRate: view.getUint32(chunkStart + 4, true),
+          bitsPerSample: view.getUint16(chunkStart + 14, true),
+        };
+      } else if (chunkId === "data") {
+        data = { offset: chunkStart, size: chunkSize };
+      }
+      offset = chunkStart + chunkSize + (chunkSize % 2);
+    }
+
+    if (!fmt || !data) {
+      throw new Error("Imported source WAV is missing audio samples.");
+    }
+    if (!fmt.channels || !fmt.sampleRate || !fmt.bitsPerSample) {
+      throw new Error("Imported source WAV has invalid audio metadata.");
+    }
+
+    const bytesPerSample = fmt.bitsPerSample / 8;
+    const frameSize = bytesPerSample * fmt.channels;
+    const frameCount = Math.floor(data.size / frameSize);
+    if (!Number.isInteger(bytesPerSample) || bytesPerSample <= 0 || frameCount <= 0) {
+      throw new Error("Imported source WAV has no decodable audio frames.");
+    }
+
+    const samples = new Float32Array(frameCount);
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      let sum = 0;
+      const frameOffset = data.offset + frame * frameSize;
+      for (let channel = 0; channel < fmt.channels; channel += 1) {
+        sum += decodePcmSample(
+          view,
+          frameOffset + channel * bytesPerSample,
+          fmt.audioFormat,
+          fmt.bitsPerSample,
+        );
+      }
+      samples[frame] = clampSample(sum / fmt.channels);
+    }
+
+    return {
+      samples,
+      sampleRate: fmt.sampleRate,
+      durationSeconds: samples.length / fmt.sampleRate,
+    };
+  }
+
+  function decodeSourceAudio(sourceBytes) {
     if (!sourceBytes || !sourceBytes.length) {
       throw new Error("Imported source bytes were empty for this track.");
     }
-    const sampleCount = Math.max(1, Math.round(SAMPLE_RATE * TRACK_DURATION_SECONDS));
-    const samples = new Float32Array(sampleCount);
-    const sourceLength = sourceBytes.length;
-
-    for (let index = 0; index < sampleCount; index += 1) {
-      const position = sourceLength > sampleCount
-        ? Math.floor(index * sourceLength / sampleCount)
-        : index % sourceLength;
-      const previousPosition = (position + sourceLength - 1) % sourceLength;
-      const nextPosition = (position + 1) % sourceLength;
-      const byte = sourceBytes[position];
-      const previousByte = sourceBytes[previousPosition];
-      const nextByte = sourceBytes[nextPosition];
-      const centered = (byte - 128) / 128;
-      const slope = (nextByte - previousByte) / 255;
-      const localAverage = ((previousByte + byte + nextByte) / 3 - 128) / 128;
-      samples[index] = clampSample(centered * 0.72 + slope * 0.22 + localAverage * 0.18);
-    }
-
-    return samples;
+    return decodeWav(sourceBytes);
   }
 
   function levelStrength(polish, controlId) {
@@ -403,9 +488,9 @@
       const sourceAsset = normalized.sourceAsset || {};
       const sourceBytes = bytesFromDataUri(sourceAsset.dataUri);
       const sourceHash = hashBytes(sourceBytes);
-      const sourceSamples = renderSourceSamples(sourceBytes);
-      const processedSamples = applyPolishToSamples(sourceSamples, polish);
-      const wavBytes = encodeWav(processedSamples, SAMPLE_RATE);
+      const decoded = decodeSourceAudio(sourceBytes);
+      const processedSamples = applyPolishToSamples(decoded.samples, polish);
+      const wavBytes = encodeWav(processedSamples, decoded.sampleRate);
       const outputHash = hashBytes(wavBytes);
       const episodeStem = safeFileStem((episodeSummary && episodeSummary.episodeName) || "episode");
       const roleStem = safeFileStem(normalized.role || `speaker-${index + 1}`);
@@ -420,8 +505,8 @@
           mimeType: "audio/wav",
           dataUri: `data:audio/wav;base64,${base64FromBytes(wavBytes)}`,
           byteLength: wavBytes.length,
-          durationSeconds: TRACK_DURATION_SECONDS,
-          sampleRate: SAMPLE_RATE,
+          durationSeconds: decoded.durationSeconds,
+          sampleRate: decoded.sampleRate,
           sourceFingerprint: fingerprint,
           sourceLabel: normalized.sourceLabel,
           sourceFileName: sourceAsset.fileName || normalized.sourceLabel,
