@@ -149,4 +149,68 @@ test("refreshSpeakerFrames rebuilds speaker frames for a new episode", () => {
   assert.strictEqual(doc.titleText, "Founders Unfiltered #7");
 });
 
+test("locked layers resist stack reorder, removal displacement, and bounds edits", () => {
+  const stack = [
+    layers.createLayer("captions", "l-captions"),
+    layers.createLayer("speaker", "l-speaker"),
+    layers.createLayer("brand", "l-brand", { locked: true }),
+    layers.createLayer("title", "l-title"),
+  ];
+  const lockedIndex = stack.findIndex((layer) => layer.id === "l-brand");
+  const lockedBounds = layers.layerBounds(stack[lockedIndex]);
+
+  assert.strictEqual(layers.canMoveLayer(stack, lockedIndex, -1), false);
+  assert.strictEqual(layers.canMoveLayer(stack, lockedIndex, 1), false);
+  assert.strictEqual(layers.canMoveLayer(stack, lockedIndex - 1, 1), false);
+  assert.deepStrictEqual(
+    layers.moveLayer(stack, lockedIndex - 1, 1).map((layer) => layer.id),
+    stack.map((layer) => layer.id),
+  );
+
+  assert.strictEqual(layers.canRemoveLayer(stack, 0), false);
+  assert.deepStrictEqual(
+    layers.removeLayer(stack, 0).map((layer) => layer.id),
+    stack.map((layer) => layer.id),
+  );
+
+  const withAdded = layers.addLayer(stack, "broll", "l-broll");
+  assert.strictEqual(withAdded[lockedIndex].id, "l-brand");
+  assert.deepStrictEqual(layers.layerBounds(withAdded[lockedIndex]), lockedBounds);
+
+  const dragged = layers.dragLayerBounds(stack[lockedIndex], 5, 5);
+  assert.deepStrictEqual(layers.layerBounds(dragged), lockedBounds);
+
+  const resized = layers.resizeLayerBounds(stack[lockedIndex], 8, 8);
+  assert.deepStrictEqual(layers.layerBounds(resized), lockedBounds);
+});
+
+test("ACCEPTANCE: locked canvas layers stay fixed until unlocked", () => {
+  const draft = completeUploadDraft();
+  const episode = setup.summarize(draft);
+  const selection = style.createSelection();
+  const applied = style.summarizeStyle(selection, episode.speakerCount);
+  let doc = editor.createFromStyle(applied, episode, selection);
+  const titleLayer = doc.layers.find((layer) => layer.type === "title");
+  assert.ok(titleLayer, "expected a title layer");
+
+  doc = editor.updateLayers(doc, layers.toggleLock(doc.layers, doc.layers.indexOf(titleLayer)));
+  const locked = doc.layers.find((layer) => layer.id === titleLayer.id);
+  assert.strictEqual(locked.locked, true);
+  const lockedBounds = layers.layerBounds(locked);
+  const lockedIndex = doc.layers.findIndex((layer) => layer.id === titleLayer.id);
+
+  doc = editor.dragLayer(doc, titleLayer.id, 12, 8);
+  doc = editor.resizeLayer(doc, titleLayer.id, 10, 10);
+  assert.deepStrictEqual(layers.layerBounds(doc.layers.find((layer) => layer.id === titleLayer.id)), lockedBounds);
+
+  const illegalReorder = layers.moveLayer(doc.layers, lockedIndex - 1, 1);
+  doc = editor.updateLayers(doc, illegalReorder);
+  assert.strictEqual(doc.layers[lockedIndex].id, titleLayer.id);
+
+  doc = editor.updateLayers(doc, layers.toggleLock(doc.layers, lockedIndex));
+  doc = editor.dragLayer(doc, titleLayer.id, 4, 3);
+  const unlockedBounds = layers.layerBounds(doc.layers.find((layer) => layer.id === titleLayer.id));
+  assert.notDeepStrictEqual(unlockedBounds, lockedBounds);
+});
+
 console.log(`\ncanvas editor: ${passed} assertions passed`);
