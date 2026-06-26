@@ -33,7 +33,7 @@ function completeUploadDraft() {
 function completeContext(episode) {
   const selection = style.createSelection();
   const appliedStyle = style.summarizeStyle(selection, episode.speakerCount);
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  const polish = audio.summarizePolish(audio.processPolish(audio.createPolish(episode)));
   const board = moments.createBoard(episode);
   const withMoment = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   const momentsSummary = moments.summarizeBoard(withMoment);

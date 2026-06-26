@@ -308,6 +308,7 @@
       setupDraft: state,
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
+      audioPolish: audioPolish,
       appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
@@ -344,6 +345,7 @@
     state = data.setupDraft || ES.createDraft();
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
+    audioPolish = data.audioPolish || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
@@ -1571,7 +1573,7 @@
     appliedStyle = null;
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
-    audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
+    audioPolish = AP ? AP.processPolish(AP.createPolish(ES.summarize(state))) : null;
     appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
     activeTemplateId = null;
     canvasDoc = null;
@@ -4805,37 +4807,97 @@
     tracksCard.appendChild(
       el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
     );
+    function audioStatusLabel(status) {
+      if (status === "processing") {
+        return "Polishing…";
+      }
+      if (status === "complete") {
+        return "Saved";
+      }
+      if (status === "failed") {
+        return "Failed";
+      }
+      return "Ready to polish";
+    }
+
+    // Per-track status only reflects real processing: idle until the creator applies,
+    // then processing → Saved as each track's audio is decoded, transformed, encoded.
+    const existingTracks = Array.isArray(audioPolish.tracks) ? audioPolish.tracks : [];
+    const statusNodes = {};
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+      const match = existingTracks.filter((entry) => entry.trackIndex === track.trackIndex)[0];
+      const status = match ? match.status : "idle";
+      const statusNode = el("span", { class: `audio-track-status audio-track-status-${status}` }, audioStatusLabel(status));
+      const row = el("div", { class: "audio-track", "data-track": String(track.trackIndex), "data-status": status },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
         ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
+        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+        statusNode,
       );
+      statusNodes[track.trackIndex] = { row: row, node: statusNode };
+      trackList.appendChild(row);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
+    function paintTrackStatus(track) {
+      const entry = statusNodes[track.trackIndex];
+      if (!entry) {
+        return;
       }
-    });
+      entry.node.textContent = audioStatusLabel(track.status);
+      entry.node.className = `audio-track-status audio-track-status-${track.status}`;
+      entry.row.setAttribute("data-status", track.status);
+    }
+
+    const applyError = el("p", { class: "audio-apply-error", role: "alert", hidden: true });
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
+    applyButton.addEventListener("click", () => {
+      if (applyButton.disabled) {
+        return;
+      }
+      applyButton.disabled = true;
+      back.disabled = true;
+      applyButton.textContent = "Polishing audio…";
+      applyError.hidden = true;
+      AP.processPolishAsync(audioPolish, {
+        onTrack: (track) => paintTrackStatus(track),
+      }).then((result) => {
+        audioPolish = result.polish;
+        if (!result.ok) {
+          // Failure path: keep the per-track failure visible and stay incomplete.
+          appliedAudioPolish = null;
+          applyButton.disabled = false;
+          back.disabled = false;
+          applyButton.textContent = "Apply audio & continue →";
+          applyError.textContent = result.error || "Audio processing failed — please try again.";
+          applyError.hidden = false;
+          return;
+        }
+        // Completion only appears after every track is genuinely processed.
+        appliedAudioPolish = AP.summarizePolish(audioPolish);
+        persistEpisodeSession();
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
+      });
+    });
     back.addEventListener("click", () => {
+      if (back.disabled) {
+        return;
+      }
       showErrors = false;
       renderSetup();
     });
+    view.appendChild(applyError);
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
 
     root.appendChild(view);

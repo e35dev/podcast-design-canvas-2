@@ -1983,6 +1983,40 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-track-status {
+  display: inline-block;
+  margin-top: 8px;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #5b6072;
+  background: rgba(91, 96, 114, 0.1);
+}
+
+.audio-track-status-processing {
+  color: #8a5a00;
+  background: rgba(214, 158, 46, 0.16);
+}
+
+.audio-track-status-complete {
+  color: #0b7a4b;
+  background: rgba(16, 185, 129, 0.16);
+}
+
+.audio-track-status-failed {
+  color: #b42318;
+  background: rgba(217, 45, 32, 0.14);
+}
+
+.audio-apply-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #b42318;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;
