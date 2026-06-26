@@ -58,7 +58,7 @@ test("buildImportHandoff reflects uploaded speaker files per bucket", () => {
   assert.strictEqual(handoff.sourceLabel, "Uploaded speaker files");
   assert.deepStrictEqual(
     handoff.speakers.map((speaker) => speaker.sourceLabel),
-    ["host-synced.mp4", "guest-1-synced.mp4", "guest-2-synced.mp4"],
+    ["host-synced.wav", "guest-1-synced.wav", "guest-2-synced.wav"],
   );
 });
 

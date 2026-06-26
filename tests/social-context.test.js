@@ -40,6 +40,19 @@ function draftWithSocial() {
   return draft;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 test("createReview derives brand and spelling hints from social links", () => {
   const episode = setup.summarize(draftWithSocial());
   const review = context.createReview(episode);
@@ -191,7 +204,7 @@ test("ACCEPTANCE: social links → approve context → moments and export reflec
 
   const selection = style.createSelection();
   const exportCtx = {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: polishedAudio(episode),
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: "Founders Unfiltered",
     momentsSummary: moments.summarizeBoard(board),

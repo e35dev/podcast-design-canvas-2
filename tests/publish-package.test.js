@@ -30,6 +30,19 @@ function completeDraft() {
   return draft;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 function buildContext(episode) {
   let board = moments.createBoard(episode);
   board = moments.addMoment(board, "title", { time: "1:30", text: "Building in public" });
@@ -38,7 +51,7 @@ function buildContext(episode) {
   return {
     showName: "Founders Unfiltered",
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: polishedAudio(episode),
     momentsBoard: board,
     brandKit: brandKit.createBrandKit("show-1", {
       logoLabel: "Founders mark",
