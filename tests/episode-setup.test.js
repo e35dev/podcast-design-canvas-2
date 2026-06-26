@@ -74,12 +74,12 @@ test("riverside mode rejects a link that is not a URL", () => {
   assert.ok(/doesn't look right/i.test(result.errors.riversideLink || ""));
 });
 
-test("upload mode requires a video file for each speaker", () => {
+test("upload mode requires a media file for each speaker", () => {
   const draft = completeUploadDraft();
   draft.speakers[1].fileName = "";
   const result = setup.validateDraft(draft);
   assert.ok(result.errors["speaker:1:source"], "expected a missing-file error on speaker 1");
-  assert.ok(/video file/i.test(result.errors["speaker:1:source"]));
+  assert.ok(/media file/i.test(result.errors["speaker:1:source"]));
 });
 
 test("every speaker needs a name", () => {

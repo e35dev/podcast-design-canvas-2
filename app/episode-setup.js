@@ -12,7 +12,7 @@
   const SPEAKER_BUCKETS = ["Host", "Co-host", "Guest 1", "Guest 2", "Guest 3", "Guest 4"];
 
   // How the raw recording comes in. Either one Riverside recording link, or a separate
-  // synced video file per speaker. Labels are creator-facing — no pipeline jargon.
+  // synced media file per speaker. Labels are creator-facing — no pipeline jargon.
   const SOURCE_MODES = [
     { key: "riverside", label: "Riverside link" },
     { key: "upload", label: "Uploaded speaker files" },
@@ -55,12 +55,55 @@
     return { website: "", twitter: "", instagram: "", linkedin: "" };
   }
 
-  function base64FromText(text) {
-    const value = String(text || "");
+  function base64FromBytes(bytes) {
     if (typeof Buffer !== "undefined") {
-      return Buffer.from(value, "utf8").toString("base64");
+      return Buffer.from(bytes).toString("base64");
     }
-    return btoa(unescape(encodeURIComponent(value)));
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      const chunk = bytes.subarray(index, index + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  }
+
+  function writeAscii(view, offset, value) {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  }
+
+  function placeholderWavBytes(seedText) {
+    const sampleRate = 8000;
+    const sampleCount = sampleRate;
+    const buffer = new ArrayBuffer(44 + sampleCount * 2);
+    const view = new DataView(buffer);
+    let seed = 0;
+    String(seedText || "").split("").forEach((char) => {
+      seed = (seed + char.charCodeAt(0)) % 997;
+    });
+    const frequency = 180 + (seed % 220);
+    writeAscii(view, 0, "RIFF");
+    view.setUint32(4, 36 + sampleCount * 2, true);
+    writeAscii(view, 8, "WAVE");
+    writeAscii(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, "data");
+    view.setUint32(40, sampleCount * 2, true);
+    for (let index = 0; index < sampleCount; index += 1) {
+      const t = index / sampleRate;
+      const sample = Math.sin(2 * Math.PI * frequency * t) * 0.38
+        + Math.sin(2 * Math.PI * (frequency * 1.5) * t) * 0.12;
+      view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+    }
+    return new Uint8Array(buffer);
   }
 
   function createSourceAsset(fileName, mimeType, dataUri, byteLength, sourceKind, options) {
@@ -87,15 +130,16 @@
       "Podcast Design Canvas synced placeholder source",
       `role=${trim(role) || "Speaker"}`,
       `file=${name}`,
-      "This sandbox source stands in for imported media bytes.",
+      "This sandbox WAV source stands in for imported media bytes.",
     ].join("\n");
+    const bytes = placeholderWavBytes(text);
     return createSourceAsset(
       name,
-      "video/mp4",
-      `data:video/mp4;base64,${base64FromText(text)}`,
-      text.length,
+      "audio/wav",
+      `data:audio/wav;base64,${base64FromBytes(bytes)}`,
+      bytes.length,
       "placeholder",
-      { capturedByteLength: text.length },
+      { capturedByteLength: bytes.length },
     );
   }
 
@@ -124,12 +168,12 @@
   }
 
   const PLACEHOLDER_FILES = {
-    Host: "host-synced.mp4",
-    "Co-host": "cohost-synced.mp4",
-    "Guest 1": "guest-1-synced.mp4",
-    "Guest 2": "guest-2-synced.mp4",
-    "Guest 3": "guest-3-synced.mp4",
-    "Guest 4": "guest-4-synced.mp4",
+    Host: "host-synced.wav",
+    "Co-host": "cohost-synced.wav",
+    "Guest 1": "guest-1-synced.wav",
+    "Guest 2": "guest-2-synced.wav",
+    "Guest 3": "guest-3-synced.wav",
+    "Guest 4": "guest-4-synced.wav",
   };
 
   function placeholderFileName(role) {
@@ -138,7 +182,7 @@
       return PLACEHOLDER_FILES[bucket];
     }
     const slug = bucket.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "speaker";
-    return `${slug}-synced.mp4`;
+    return `${slug}-synced.wav`;
   }
 
   function defaultSpeakerRoleForIndex(index) {
@@ -271,7 +315,7 @@
       }
 
       if (mode === "upload" && !trim(speaker.fileName)) {
-        fail(`speaker:${index}:source`, `Choose a video file for ${who}.`);
+        fail(`speaker:${index}:source`, `Choose a media file for ${who}.`);
       }
 
       const social = (speaker && speaker.social) || {};

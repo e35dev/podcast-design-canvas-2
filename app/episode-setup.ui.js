@@ -2284,7 +2284,7 @@
       }
     } else {
       sourceCard.appendChild(
-        el("p", { class: "hint" }, "Add a separate synced video file for each speaker in the cards below — or attach placeholder files to try the flow without real uploads."),
+        el("p", { class: "hint" }, "Add a separate synced media file for each speaker in the cards below — or attach placeholder files to try the flow without real uploads."),
       );
     }
     form.appendChild(sourceCard);
@@ -2437,7 +2437,7 @@
       const fileInput = el("input", {
         id: `f-sp-${index}-source`,
         type: "file",
-        accept: "video/*",
+        accept: "video/*,audio/*",
         "aria-invalid": isInvalid(`speaker:${index}:source`) ? "true" : null,
       });
       const chosen = el(
@@ -2449,7 +2449,7 @@
         const file = e.target.files && e.target.files[0];
         captureSpeakerSourceFile(speaker, index, file, chosen);
       });
-      sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
+      sourceBlock.appendChild(field("Speaker media file", fileInput, `speaker:${index}:source`));
       sourceBlock.appendChild(chosen);
       const placeholderBtn = el(
         "button",

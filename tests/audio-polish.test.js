@@ -20,22 +20,48 @@ function completeUploadDraft() {
   draft.episodeName = "Founders Unfiltered #7";
   draft.sourceMode = "upload";
   draft.speakers = [
-    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "sam.mp4" }),
-    Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.mp4" }),
-    Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.mp4" }),
+    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "sam.wav" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.wav" }),
+    Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.wav" }),
   ];
   draft.speakers.forEach((speaker, index) => {
-    speaker.sourceAsset = sourceAsset(speaker.fileName, `source bytes for ${speaker.name} ${index}`);
+    speaker.sourceAsset = sourceAsset(speaker.fileName, 220 + index * 110);
   });
   return draft;
 }
 
-function sourceAsset(fileName, text) {
-  const bytes = Buffer.from(text, "utf8");
+function sourceWavBytes(frequency, durationSeconds = 1.2) {
+  const sampleRate = 8000;
+  const sampleCount = Math.round(sampleRate * durationSeconds);
+  const buffer = Buffer.alloc(44 + sampleCount * 2);
+  buffer.write("RIFF", 0, "ascii");
+  buffer.writeUInt32LE(36 + sampleCount * 2, 4);
+  buffer.write("WAVE", 8, "ascii");
+  buffer.write("fmt ", 12, "ascii");
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36, "ascii");
+  buffer.writeUInt32LE(sampleCount * 2, 40);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const t = index / sampleRate;
+    const envelope = 0.74 + 0.18 * Math.sin(2 * Math.PI * 2 * t);
+    const sample = Math.sin(2 * Math.PI * frequency * t) * 0.42 * envelope;
+    buffer.writeInt16LE(Math.max(-1, Math.min(1, sample)) * 0x7fff, 44 + index * 2);
+  }
+  return buffer;
+}
+
+function sourceAsset(fileName, frequency, durationSeconds) {
+  const bytes = sourceWavBytes(frequency, durationSeconds);
   return setup.createSourceAsset(
     fileName,
-    "video/mp4",
-    `data:video/mp4;base64,${bytes.toString("base64")}`,
+    "audio/wav",
+    `data:audio/wav;base64,${bytes.toString("base64")}`,
     bytes.length,
     "upload",
     { capturedByteLength: bytes.length, capturedAt: 1700000000000 },
@@ -70,7 +96,7 @@ test("createPolish seeds speaker tracks from the episode summary", () => {
   assert.strictEqual(polish.presetId, "clean");
   assert.strictEqual(polish.speakers.length, 3);
   assert.deepStrictEqual(polish.speakers.map((track) => track.role), ["Host", "Guest 1", "Guest 2"]);
-  assert.strictEqual(polish.speakers[0].sourceLabel, "sam.mp4");
+  assert.strictEqual(polish.speakers[0].sourceLabel, "sam.wav");
 });
 
 test("applyPreset updates all polish controls", () => {
@@ -119,6 +145,8 @@ test("processPolish saves durable WAV assets for every speaker track", () => {
     assert.ok(track.assetId.startsWith("polished-"));
     assert.ok(track.fileName.endsWith("-studio-polished.wav"));
     assert.ok(track.byteLength > 44);
+    assert.strictEqual(track.sampleRate, 8000);
+    assert.strictEqual(track.durationSeconds, 1.2);
     const header = wavHeader(track.dataUri);
     assert.strictEqual(header.riff, "RIFF");
     assert.strictEqual(header.wave, "WAVE");
@@ -131,7 +159,7 @@ test("processPolish derives output from imported source bytes", () => {
   const first = audio.summarizePolish(processPolish(episode));
   const changedEpisode = Object.assign({}, episode, {
     speakers: episode.speakers.map((speaker, index) => index === 0
-      ? Object.assign({}, speaker, { sourceAsset: sourceAsset("sam.mp4", "different imported host media bytes") })
+      ? Object.assign({}, speaker, { sourceAsset: sourceAsset("sam.wav", 660) })
       : speaker),
   });
   const changed = audio.summarizePolish(processPolish(changedEpisode));
