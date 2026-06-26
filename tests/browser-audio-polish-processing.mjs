@@ -33,10 +33,10 @@ const testScript = `
     throw new Error("Timed out waiting for " + label + " in " + text);
   };
   const button = (pattern) => Array.from(document.querySelectorAll("button")).find((item) => pattern.test(item.textContent || ""));
+  const visibleText = () => (document.body && document.body.innerText ? document.body.innerText : "").replace(/\\s+/g, " ");
   const click = (target, label) => {
     if (!target) {
-      const text = (document.body && document.body.innerText ? document.body.innerText : "").replace(/\\s+/g, " ").slice(0, 1200);
-      throw new Error("Missing clickable target: " + label + " in " + text);
+      throw new Error("Missing clickable target: " + label + " in " + visibleText().slice(0, 1200));
     }
     target.click();
   };
@@ -195,6 +195,23 @@ const testScript = `
     log(saved.sourceFileNames.join("|") === "avery-host.wav|blake-guest.wav|casey-guest.wav", "Polished tracks reference the uploaded source files");
     log(saved.sourceByteLengths.every((size) => size > 0), "Polished tracks record imported source byte lengths");
     log(saved.workingStatuses.every((status) => status === "complete"), "Working polish state keeps per-track completion status");
+
+    click(button(/^Continue/), "Continue after visible saved audio");
+    await waitFor(() => /Production workspace/i.test(visibleText()), "workspace after applying audio");
+    const workspaceText = visibleText();
+    log(/Audio polish/i.test(workspaceText) && /3 polished WAV assets saved/.test(workspaceText), "Workspace checklist consumes saved polished audio");
+    const reviewButton = Array.from(document.querySelectorAll("#workspace-primary-next, .workspace-checklist-open"))
+      .find((item) => /Review episode/.test(item.textContent || ""));
+    click(reviewButton, "Review episode");
+    await waitFor(() => /Publish review/.test(visibleText()), "publish review");
+    log(/Audio polished/.test(visibleText()) && /3 polished WAV assets saved/.test(visibleText()), "Publish review consumes saved polished audio");
+    click(button(/Approve for export/), "Approve for export");
+    await waitFor(() => /Approved for export/.test(visibleText()), "approved publish review");
+    click(button(/Continue to publish package/), "Continue to publish package");
+    await waitFor(() => /Publish package/.test(visibleText()), "publish package");
+    click(button(/Continue to export/), "Continue to export");
+    await waitFor(() => /Final episode summary/.test(visibleText()), "export summary");
+    log(/Polished audio: Studio/.test(visibleText()) && /3 polished WAV assets saved/.test(visibleText()), "Export summary consumes saved polished audio");
 
     sessionStorage.setItem("audio-polish-checks", JSON.stringify(checks));
     sessionStorage.setItem("audio-polish-saved", JSON.stringify({ ids: saved.ids }));
