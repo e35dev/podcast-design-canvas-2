@@ -55,6 +55,50 @@
     return { website: "", twitter: "", instagram: "", linkedin: "" };
   }
 
+  function base64FromText(text) {
+    const value = String(text || "");
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(value, "utf8").toString("base64");
+    }
+    return btoa(unescape(encodeURIComponent(value)));
+  }
+
+  function createSourceAsset(fileName, mimeType, dataUri, byteLength, sourceKind, options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const name = trim(fileName) || "speaker-source";
+    const type = trim(mimeType) || "application/octet-stream";
+    const uri = typeof dataUri === "string" ? dataUri : "";
+    const capturedBytes = Number(opts.capturedByteLength) || Number(byteLength) || 0;
+    return {
+      fileName: name,
+      mimeType: type,
+      dataUri: uri,
+      byteLength: Number(byteLength) || capturedBytes,
+      capturedByteLength: capturedBytes,
+      sourceKind: trim(sourceKind) || "upload",
+      truncated: Boolean(opts.truncated),
+      capturedAt: opts.capturedAt || null,
+    };
+  }
+
+  function createPlaceholderSourceAsset(role, fileName) {
+    const name = trim(fileName) || placeholderFileName(role);
+    const text = [
+      "Podcast Design Canvas synced placeholder source",
+      `role=${trim(role) || "Speaker"}`,
+      `file=${name}`,
+      "This sandbox source stands in for imported media bytes.",
+    ].join("\n");
+    return createSourceAsset(
+      name,
+      "video/mp4",
+      `data:video/mp4;base64,${base64FromText(text)}`,
+      text.length,
+      "placeholder",
+      { capturedByteLength: text.length },
+    );
+  }
+
   // A single speaker source: who is talking, which role bucket they fill, the recording
   // that carries them (a file in upload mode, an optional channel label in link mode),
   // and any optional social links.
@@ -64,6 +108,7 @@
       role: role || "",
       fileName: "",
       fileSize: 0,
+      sourceAsset: null,
       trackLabel: "",
       social: emptySocial(),
     };
@@ -149,6 +194,7 @@
     const next = speaker && typeof speaker === "object" ? speaker : createSpeaker("Host");
     next.fileName = placeholderFileName(next.role);
     next.fileSize = 1280000;
+    next.sourceAsset = createPlaceholderSourceAsset(next.role, next.fileName);
     return next;
   }
 
@@ -249,6 +295,27 @@
     return trim(speaker && speaker.trackLabel) || "Riverside recording";
   }
 
+  function summarizeSourceAsset(speaker) {
+    const asset = speaker && speaker.sourceAsset && typeof speaker.sourceAsset === "object"
+      ? speaker.sourceAsset
+      : null;
+    if (!asset || !asset.dataUri) {
+      return null;
+    }
+    return createSourceAsset(
+      asset.fileName || speaker.fileName,
+      asset.mimeType,
+      asset.dataUri,
+      asset.byteLength || speaker.fileSize,
+      asset.sourceKind,
+      {
+        capturedByteLength: asset.capturedByteLength,
+        truncated: asset.truncated,
+        capturedAt: asset.capturedAt,
+      },
+    );
+  }
+
   // Derive exactly what the workspace screen displays. Everything here is computed from
   // the draft — no fabricated state — so the summary always reflects what was entered.
   function summarize(draft) {
@@ -263,6 +330,7 @@
         role: trim(speaker.role),
         name: trim(speaker.name),
         sourceLabel: sourceLabel(mode, speaker),
+        sourceAsset: summarizeSourceAsset(speaker),
         social,
       };
     });
@@ -489,6 +557,8 @@
     speakerBucketCueClass,
     placeholderFileName,
     attachPlaceholderFile,
+    createSourceAsset,
+    createPlaceholderSourceAsset,
     defaultSpeakerRoleForIndex,
     normalizeDefaultSpeakerRoles,
     usedSpeakerRoles,
