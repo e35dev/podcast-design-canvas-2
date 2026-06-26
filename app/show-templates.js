@@ -149,6 +149,9 @@
     const STY = styleApi();
     const episode = episodeSummary || {};
     const selection = styleSelection || {};
+    // Saved layouts may carry speaker names from the template episode — always rebuild
+    // preview frames from the current episode's assigned Host/Guest buckets.
+    canvas.speakerFrames = [];
     if (CE && typeof CE.refreshSpeakerFrames === "function") {
       return CE.refreshSpeakerFrames(canvas, episode, selection);
     }

@@ -112,11 +112,21 @@
     return next;
   }
 
+  function hasAssignedSpeakers(draft) {
+    const speakers = draft && Array.isArray(draft.speakers) ? draft.speakers : [];
+    return speakers.some((speaker) => {
+      const name = trim(speaker && speaker.name);
+      const fileName = trim(speaker && speaker.fileName);
+      const trackLabel = trim(speaker && speaker.trackLabel);
+      return Boolean(name || fileName || trackLabel);
+    });
+  }
+
   function applyDefaultSpeakers(draft, show) {
     const ES = setupApi();
     const next = clone(draft || ES.createDraft());
     const defaults = show && Array.isArray(show.defaultSpeakers) ? show.defaultSpeakers : [];
-    if (!defaults.length) {
+    if (!defaults.length || hasAssignedSpeakers(next)) {
       return sanitizeSetupDraft(next, show);
     }
     next.speakers = defaults.map((item) => {
@@ -272,9 +282,31 @@
     };
   }
 
+  function applyTemplateToEpisode(show, templateStore, setupDraft, options) {
+    const opts = options || {};
+    const ES = setupApi();
+    const draft = sanitizeSetupDraft(clone(setupDraft || ES.createDraft()), show);
+    const presentation = buildAppliedPresentation(
+      show,
+      templateStore,
+      draft,
+      opts.templateId,
+    );
+    return {
+      setupDraft: draft,
+      styleSelection: presentation.styleSelection,
+      appliedStyle: presentation.appliedStyle,
+      canvasDoc: presentation.canvasDoc,
+      templateId: presentation.templateId,
+      templateName: presentation.templateName,
+      brandKit: presentation.brandKit,
+      summary: presentation.summary,
+    };
+  }
+
   function buildEpisodeStart(show, templateStore, options) {
     const opts = options || {};
-    const setupDraft = buildSetupDraft(show);
+    const setupDraft = opts.setupDraft ? sanitizeSetupDraft(clone(opts.setupDraft), show) : buildSetupDraft(show);
     const presentation = buildAppliedPresentation(show, templateStore, setupDraft, opts.templateId);
     const identity = summarizeShowIdentity(show, presentation);
 
@@ -332,6 +364,8 @@
     buildEpisodeStart,
     buildBlankEpisodeStart,
     applyDefaultSpeakers,
+    hasAssignedSpeakers,
+    applyTemplateToEpisode,
   };
 
   if (typeof module !== "undefined" && module.exports) {

@@ -1787,6 +1787,16 @@
     }
     state.episodeName = episode.name;
 
+    if (activeTemplateId && TM && SI) {
+      const applied = SI.applyTemplateToEpisode(show, templateStore, state, { templateId: activeTemplateId });
+      state = applied.setupDraft;
+      styleSelection = applied.styleSelection;
+      appliedStyle = applied.appliedStyle;
+      canvasDoc = applied.canvasDoc;
+    } else if (canvasDoc && CE) {
+      canvasDoc = CE.refreshSpeakerFrames(canvasDoc, ES.summarize(state), styleSelection);
+    }
+
     const destination = FLOW ? FLOW.resumeDestination(snapshot || buildEpisodeSessionSnapshot()) : "setup";
     setPageIntro("episode-setup");
     if (destination === "workspace") {
@@ -3992,25 +4002,39 @@
       return;
     }
     const episodeSummary = summary || ES.summarize(state);
-    const fromCanvas = GAL.styleSelectionFromListing(listing);
-    styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
-    canvasDoc = GAL.applyListingForEpisode(listing, episodeSummary, styleSelection);
-    activeGalleryListingId = listing.id;
-    activeTemplateId = listing.sourceTemplateId || null;
-    if (STY && styleSelection) {
-      appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
-      if (getActiveBrandKit() && BK) {
-        appliedStyle = BK.applyToStyleSummary(appliedStyle, getActiveBrandKit());
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    if (SI && show && listing.sourceTemplateId) {
+      const applied = SI.applyTemplateToEpisode(show, templateStore, state, {
+        templateId: listing.sourceTemplateId,
+      });
+      state = applied.setupDraft;
+      styleSelection = applied.styleSelection;
+      appliedStyle = applied.appliedStyle;
+      canvasDoc = applied.canvasDoc;
+      activeTemplateId = applied.templateId;
+    } else {
+      const fromCanvas = GAL.styleSelectionFromListing(listing);
+      styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
+      canvasDoc = GAL.applyListingForEpisode(listing, episodeSummary, styleSelection);
+      activeTemplateId = listing.sourceTemplateId || null;
+      if (STY && styleSelection) {
+        appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
+        if (getActiveBrandKit() && BK) {
+          appliedStyle = BK.applyToStyleSummary(appliedStyle, getActiveBrandKit());
+        }
+      }
+      if (canvasDoc && getActiveBrandKit() && BK) {
+        canvasDoc = BK.applyToCanvas(canvasDoc, getActiveBrandKit());
       }
     }
-    if (canvasDoc && getActiveBrandKit() && BK) {
-      canvasDoc = BK.applyToCanvas(canvasDoc, getActiveBrandKit());
-    }
+    activeGalleryListingId = listing.id;
+    publishReviewApproved = false;
+    publishReview = null;
     const returnTo = options && options.returnTo;
     if (returnTo === "style") {
-      renderStyle(episodeSummary);
+      renderStyle(ES.summarize(state));
     } else if (summary) {
-      renderWorkspace(episodeSummary);
+      renderWorkspace(ES.summarize(state));
     } else {
       renderSetup();
     }
@@ -4097,19 +4121,31 @@
       return;
     }
     const episodeSummary = summary || ES.summarize(state);
-    const fromCanvas = TM.styleSelectionFromCanvas(template.canvas);
-    styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
-    canvasDoc = TM.applyTemplateForEpisode(template, episodeSummary, styleSelection);
-    activeTemplateId = template.id;
-    activeGalleryListingId = null;
-    if (STY && styleSelection) {
-      appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    if (SI && show) {
+      const applied = SI.applyTemplateToEpisode(show, templateStore, state, { templateId: template.id });
+      state = applied.setupDraft;
+      styleSelection = applied.styleSelection;
+      appliedStyle = applied.appliedStyle;
+      canvasDoc = applied.canvasDoc;
+      activeTemplateId = applied.templateId;
+    } else {
+      const fromCanvas = TM.styleSelectionFromCanvas(template.canvas);
+      styleSelection = fromCanvas || styleSelection || (STY ? STY.createSelection() : null);
+      canvasDoc = TM.applyTemplateForEpisode(template, episodeSummary, styleSelection);
+      activeTemplateId = template.id;
+      if (STY && styleSelection) {
+        appliedStyle = STY.summarizeStyle(styleSelection, episodeSummary.speakerCount);
+      }
     }
+    activeGalleryListingId = null;
+    publishReviewApproved = false;
+    publishReview = null;
     const returnTo = options && options.returnTo;
     if (returnTo === "style") {
       renderStyle(episodeSummary);
     } else if (summary) {
-      renderWorkspace(episodeSummary);
+      renderWorkspace(ES.summarize(state));
     } else {
       renderSetup();
     }
