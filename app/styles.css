@@ -3473,3 +3473,37 @@ button.ghost:hover,
   line-height: 1.5;
 }
 
+
+/* Episode import handoff recap — make the captured social context visible per
+   speaker so the workspace clearly confirms the import drove the setup (#142). */
+.episode-import-recap-lead {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+  color: var(--text, #1c2330);
+}
+.episode-import-recap-speaker {
+  margin-bottom: 0.4rem;
+}
+.episode-import-recap-speaker-social {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.episode-import-recap-speaker-social li {
+  margin: 0;
+}
+.episode-import-recap-speaker-social a {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--chip-bg, #eef1f6);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+.episode-import-recap-speaker-nosocial {
+  color: var(--muted, #6b7280);
+  font-size: 0.85rem;
+}

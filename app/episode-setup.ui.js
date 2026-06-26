@@ -539,29 +539,65 @@
     const styleLine = importStyleSummaryLine();
     const speakerItems = summary.speakers.map((speaker) => {
       const label = speaker.name ? `${speaker.name} (${speaker.role})` : speaker.role;
-      return el(
-        "li",
-        { class: "episode-import-recap-speaker" },
-        el("strong", {}, label),
-        " — ",
-        speaker.sourceLabel,
-      );
+      const children = [el("strong", {}, label), " — ", speaker.sourceLabel];
+      // Surface the actual social context captured for this speaker so the
+      // handoff visibly confirms the links were accepted and now drive the
+      // setup — instead of hiding them behind an opaque aggregate count.
+      if (speaker.social && speaker.social.length) {
+        const links = el("ul", {
+          class: "episode-import-recap-speaker-social",
+        });
+        speaker.social.forEach((entry) => {
+          links.appendChild(
+            el(
+              "li",
+              {},
+              el(
+                "a",
+                {
+                  href: entry.url,
+                  target: "_blank",
+                  rel: "noreferrer noopener",
+                },
+                entry.label,
+              ),
+            ),
+          );
+        });
+        children.push(links);
+      } else {
+        children.push(
+          el(
+            "span",
+            { class: "episode-import-recap-speaker-nosocial" },
+            " · no social context yet",
+          ),
+        );
+      }
+      return el("li", { class: "episode-import-recap-speaker" }, ...children);
     });
 
+    const socialTotal = summary.socialLinkCount;
+    const sourceText = `${summary.sourceModeLabel}${summary.riversideLink ? `: ${summary.riversideLink}` : ""}`;
     return el(
       "section",
       { class: "card episode-import-recap" },
       el("h3", {}, "Episode import summary"),
-      el("p", { class: "episode-import-recap-source" }, `${summary.sourceModeLabel}${summary.riversideLink ? `: ${summary.riversideLink}` : ""}`),
+      el(
+        "p",
+        { class: "hint episode-import-recap-lead" },
+        "Your import is in — these sources, speakers, and context are now driving the episode setup.",
+      ),
+      el("p", { class: "episode-import-recap-source" }, `Source: ${sourceText}`),
       el("p", { class: "episode-import-recap-style" }, `Episode look: ${styleLine}`),
       el("ul", { class: "episode-import-recap-speakers" }, speakerItems),
-      summary.socialLinkCount > 0
-        ? el(
-          "p",
-          { class: "hint episode-import-recap-social" },
-          `${summary.socialLinkCount} social link${summary.socialLinkCount === 1 ? "" : "s"} saved for speaker context`,
-        )
-        : null,
+      el(
+        "p",
+        { class: "hint episode-import-recap-social" },
+        socialTotal > 0
+          ? `${socialTotal} social link${socialTotal === 1 ? "" : "s"} captured to sharpen names, transcripts, and visual moments.`
+          : "No social links added yet — you can add them back in setup any time.",
+      ),
     );
   }
 
