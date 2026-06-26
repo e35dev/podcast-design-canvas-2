@@ -31,6 +31,19 @@ function completeDraft() {
   return draft;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 function exportContext(episode, options) {
   const opts = options || {};
   const selection = style.createSelection();
@@ -38,8 +51,9 @@ function exportContext(episode, options) {
   board = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   let contextReview = contextApi.createReview(episode);
   contextReview = contextApi.approveReview(contextReview);
+  const audioSummary = polishedAudio(episode);
   let publishReview = review.createReview(episode, {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audioSummary,
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: "Founders Look",
     hasCanvas: true,
@@ -53,7 +67,7 @@ function exportContext(episode, options) {
     publishReview = review.approveReview(publishReview).review;
   }
   return {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audioSummary,
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: "Founders Look",
     momentsSummary: moments.summarizeBoard(board),

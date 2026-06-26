@@ -56,6 +56,19 @@ function buildBoard(episode) {
   return board;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 test("createCorrectionReview populates lines from social context and visual moments", () => {
   const episode = setup.summarize(draftWithSocial());
   const contextReview = context.approveReview(context.createReview(episode));
@@ -146,7 +159,7 @@ test("summarizeCorrection feeds export metadata after approval", () => {
   const summary = correction.summarizeCorrection(review);
 
   const exportSummary = exportApi.buildFinalSummary(episode, {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: polishedAudio(episode),
     appliedStyle: style.summarizeStyle(style.createSelection(), episode.speakerCount),
     correctionSummary: summary,
   }, exportApi.createExport(episode));

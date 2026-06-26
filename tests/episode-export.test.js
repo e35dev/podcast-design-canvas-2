@@ -30,10 +30,24 @@ function completeUploadDraft() {
   return draft;
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  const processed = audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 });
+  return audio.summarizePolish(processed);
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 function completeContext(episode) {
   const selection = style.createSelection();
   const appliedStyle = style.summarizeStyle(selection, episode.speakerCount);
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  const polish = polishedAudio(episode);
   const board = moments.createBoard(episode);
   const withMoment = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   const momentsSummary = moments.summarizeBoard(withMoment);
@@ -60,6 +74,13 @@ test("validateReadiness requires audio polish and visual style", () => {
 
   const ctx = completeContext(episode);
   assert.strictEqual(exportApi.validateReadiness(ctx).ok, true);
+
+  const presetOnly = Object.assign({}, ctx, {
+    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+  });
+  const blocked = exportApi.validateReadiness(presetOnly);
+  assert.strictEqual(blocked.ok, false);
+  assert.ok(blocked.missing.includes("audio"));
 });
 
 test("updateOption changes platform, resolution, caption mode, and template", () => {
@@ -82,7 +103,7 @@ test("buildFinalSummary rolls speakers, audio, style, moments, and export choice
   const summary = exportApi.buildFinalSummary(episode, ctx, job);
 
   assert.strictEqual(summary.episodeName, "Founders Unfiltered #7");
-  assert.ok(summary.lines.some((line) => line.indexOf("Audio:") === 0));
+  assert.ok(summary.lines.some((line) => line.indexOf("Polished audio:") === 0));
   assert.ok(summary.lines.some((line) => line.indexOf("Visual style:") === 0));
   assert.ok(summary.lines.some((line) => line.indexOf("Show template:") === 0));
   assert.ok(summary.lines.some((line) => line.indexOf("Visual moments:") === 0));
@@ -141,10 +162,12 @@ test("runExport completes with a ready-to-download filename", () => {
   assert.strictEqual(result.state.status, "ready");
   assert.strictEqual(result.state.progress, 100);
   assert.strictEqual(result.state.downloadName, "Founders-Unfiltered-7-1080p.mp4");
+  assert.strictEqual(result.state.audioAssetIds.length, episode.speakerCount);
 
   const summary = exportApi.summarizeExport(result.state);
   assert.strictEqual(summary.ready, true);
   assert.strictEqual(summary.downloadName, "Founders-Unfiltered-7-1080p.mp4");
+  assert.strictEqual(summary.audioAssetCount, episode.speakerCount);
 });
 
 test("ACCEPTANCE: review episode choices, pick export options, start export, reach ready state", () => {
