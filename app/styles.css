@@ -1996,6 +1996,11 @@ button.ghost:hover,
   background: rgba(21, 115, 71, 0.12);
 }
 
+.audio-track-status-processing {
+  color: #725400;
+  background: rgba(177, 132, 0, 0.14);
+}
+
 .audio-track-status-failed {
   color: #b42318;
   background: rgba(180, 35, 24, 0.12);
