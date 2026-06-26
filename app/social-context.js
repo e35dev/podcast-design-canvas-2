@@ -214,10 +214,18 @@
     }
     let next = original;
     ctx.spellingHints.forEach((hint) => {
-      if (!hint || hint.toLowerCase() === ctx.displayName.toLowerCase()) {
+      const lowerHint = hint ? hint.toLowerCase() : "";
+      const lowerName = ctx.displayName.toLowerCase();
+      // Skip the name itself, and any hint that is a substring of the confirmed
+      // name. Replacing such a hint (e.g. the "Sam River" prefix inside
+      // "Sam Rivera") rewrites characters in the name and corrupts it into e.g.
+      // "Sam Riveraa". Hints correct variant spellings, never the speaker name.
+      if (!hint || lowerHint === lowerName || lowerName.indexOf(lowerHint) !== -1) {
         return;
       }
-      next = next.replace(new RegExp(escapeRegExp(hint), "gi"), ctx.displayName);
+      // Match the hint only as a standalone token so it can never consume part
+      // of an already-correct name that merely contains it.
+      next = next.replace(new RegExp("\\b" + escapeRegExp(hint) + "\\b", "gi"), ctx.displayName);
     });
     return next;
   }

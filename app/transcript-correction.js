@@ -68,7 +68,12 @@
     const replacements = [];
     (speakers || []).forEach((speaker) => {
       (speaker.spellingHints || []).forEach((hint) => {
-        if (hint && speaker.label && hint.toLowerCase() !== speaker.label.toLowerCase()) {
+        // Never build a speaker-name replacement from a hint that is a substring
+        // of the confirmed label (e.g. "Sam River" inside "Sam Rivera"): applying
+        // it would rewrite the correct name into e.g. "Sam Riveraa".
+        const lh = hint ? hint.toLowerCase() : "";
+        const ll = speaker.label ? speaker.label.toLowerCase() : "";
+        if (hint && speaker.label && lh !== ll && ll.indexOf(lh) === -1) {
           replacements.push({ from: hint, to: speaker.label, kind: "speaker" });
         }
       });
