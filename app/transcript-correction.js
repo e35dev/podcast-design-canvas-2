@@ -39,13 +39,21 @@
     const speakers = Array.isArray(episode.speakers) ? episode.speakers : [];
     const SC = socialContextApi();
     if (contextReview && Array.isArray(contextReview.speakers) && contextReview.speakers.length) {
-      return contextReview.speakers.map((entry) => ({
-        role: entry.role,
-        label: entry.displayName,
-        brand: entry.brand || "",
-        topicTerms: Array.isArray(entry.topics) ? entry.topics.slice() : [],
-        spellingHints: Array.isArray(entry.spellingHints) ? entry.spellingHints.slice() : [],
-      }));
+      return contextReview.speakers.map((entry) => {
+        const setupSpeaker = speakers.find((speaker) => speaker.role === entry.role);
+        const setupName = trim(setupSpeaker && setupSpeaker.name);
+        const contextName = trim(entry.displayName);
+        const label = setupName && contextName && contextName !== setupName
+          ? contextName
+          : (setupName || contextName);
+        return {
+          role: entry.role,
+          label: label,
+          brand: entry.brand || "",
+          topicTerms: Array.isArray(entry.topics) ? entry.topics.slice() : [],
+          spellingHints: Array.isArray(entry.spellingHints) ? entry.spellingHints.slice() : [],
+        };
+      });
     }
     return speakers.map((speaker) => {
       const derived = SC ? SC.deriveSpeakerContext(speaker) : {};
@@ -96,17 +104,31 @@
     });
   }
 
+  function shouldSkipReplacement(from, to, text) {
+    const SC = socialContextApi();
+    if (SC && typeof SC.shouldSkipHintReplacement === "function") {
+      return SC.shouldSkipHintReplacement(from, to, text);
+    }
+    return false;
+  }
+
   function applyReplacements(text, replacements) {
     let next = trim(text);
     if (!next) {
       return next;
     }
-    (replacements || []).forEach((item) => {
-      if (!item.from || !item.to) {
-        return;
-      }
-      next = next.replace(new RegExp(escapeRegExp(item.from), "gi"), item.to);
-    });
+    (replacements || [])
+      .slice()
+      .sort((a, b) => trim(b.from).length - trim(a.from).length)
+      .forEach((item) => {
+        if (!item.from || !item.to) {
+          return;
+        }
+        if (shouldSkipReplacement(item.from, item.to, next)) {
+          return;
+        }
+        next = next.replace(new RegExp(escapeRegExp(item.from), "gi"), item.to);
+      });
     return next;
   }
 
