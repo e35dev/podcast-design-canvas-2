@@ -124,9 +124,11 @@
         socialHandle = handleFromSocialUrl(link.url);
       }
     });
-    const displayName = trim(sp.name) || socialHandle || "Unnamed speaker";
+    const setupName = trim(sp.name);
+    const displayName = setupName || socialHandle || "Unnamed speaker";
     return {
       role: trim(sp.role) || "Speaker",
+      setupName: setupName,
       displayName: displayName,
       brand: brand,
       topics: defaultTopics(sp, brand),
@@ -203,6 +205,26 @@
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  // Skip prefix hints (e.g. "Sam River" → "Sam Rivera") when the text already contains
+  // the confirmed canonical name — otherwise replacement appends stray characters
+  // ("Sam Rivera" → "Sam Riveraa").
+  function shouldSkipHintReplacement(hint, canonical, text) {
+    const from = trim(hint);
+    const to = trim(canonical);
+    const haystack = trim(text);
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) {
+      return true;
+    }
+    if (
+      to.toLowerCase().startsWith(from.toLowerCase()) &&
+      from.length < to.length &&
+      haystack.toLowerCase().includes(to.toLowerCase())
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   function applyHintsToText(text, review, speakerRole, speakerName) {
     const original = trim(text);
     if (!original || !review || !review.approved) {
@@ -213,8 +235,11 @@
       return original;
     }
     let next = original;
-    ctx.spellingHints.forEach((hint) => {
-      if (!hint || hint.toLowerCase() === ctx.displayName.toLowerCase()) {
+    const hints = (ctx.spellingHints || [])
+      .slice()
+      .sort((a, b) => trim(b).length - trim(a).length);
+    hints.forEach((hint) => {
+      if (shouldSkipHintReplacement(hint, ctx.displayName, next)) {
         return;
       }
       next = next.replace(new RegExp(escapeRegExp(hint), "gi"), ctx.displayName);
@@ -328,6 +353,7 @@
     updateSpeaker,
     approveReview,
     findSpeakerContext,
+    shouldSkipHintReplacement,
     applyHintsToText,
     enrichMomentText,
     applyReviewToMoments,

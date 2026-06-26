@@ -2271,6 +2271,20 @@ button.ghost:hover,
   margin-top: 0;
 }
 
+.context-setup-name-line {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.context-setup-name-label {
+  color: var(--ink-soft);
+}
+
+.context-setup-name {
+  font-weight: 700;
+}
+
 .context-summary-line {
   font-weight: 600;
   margin: 0 0 4px;

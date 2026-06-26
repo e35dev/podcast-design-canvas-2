@@ -2518,6 +2518,18 @@
       return false;
     }
     const summary = ES.summarize(state);
+    if (SC && summary.socialLinkCount > 0 && !contextApproved) {
+      contextReview = SC.createReview(summary);
+      if (AP && !audioPolish) {
+        audioPolish = AP.createPolish(summary);
+      }
+      if (STY && styleSelection) {
+        appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
+      }
+      persistEpisodeSession();
+      renderContextReview(summary);
+      return true;
+    }
     if (SC && !contextApproved) {
       contextReview = SC.createReview(summary);
     }
@@ -3138,7 +3150,7 @@
         card.appendChild(field(label, input, null, hint));
       }
 
-      bindSpeakerInput("On-screen name", "label", speaker.label, "How this speaker's name appears in captions and credits.");
+      bindSpeakerInput("On-screen name", "label", speaker.label, "Defaults to the name from episode setup. Change only if you want a different on-screen spelling.");
       bindSpeakerInput("Brand or show", "brand", speaker.brand, "Company, show, or personal brand spelling.");
       bindSpeakerInput(
         "Topic terms",
@@ -4406,10 +4418,29 @@
 
     const grid = el("div", { class: "context-layout" });
     contextReview.speakers.forEach((speaker, index) => {
+      const setupSpeaker = (summary.speakers || []).find((entry) => entry.role === speaker.role);
+      const setupName = setupSpeaker ? setupSpeaker.name : "";
       const card = el("section", { class: "card context-speaker-card" });
       card.appendChild(
         el("h3", {}, `${speaker.role}${speaker.socialLinkCount ? " · social links" : ""}`),
       );
+      if (setupName) {
+        card.appendChild(
+          el(
+            "p",
+            { class: "context-setup-name-line" },
+            el("span", { class: "context-setup-name-label" }, "Name from setup: "),
+            el(
+              "strong",
+              {
+                class: "context-setup-name",
+                "data-speaker-role": speaker.role,
+              },
+              setupName,
+            ),
+          ),
+        );
+      }
 
       function bindInput(label, key, value, hint) {
         const input = el("input", { id: `ctx-${index}-${key}`, type: "text", value: value || "" });
@@ -4419,14 +4450,14 @@
         card.appendChild(field(label, input, null, hint));
       }
 
-      bindInput("Approved name", "displayName", speaker.displayName, "How this speaker's name should appear on screen.");
+      bindInput("Approved name", "displayName", speaker.displayName, "Defaults to the name you entered during setup. Change only if you want a different on-screen spelling.");
       bindInput("Brand or show", "brand", speaker.brand, "Company, show, or personal brand tied to this speaker.");
       bindInput("Topics", "topics", (speaker.topics || []).join(", "), "Comma-separated topics for smarter titles and callouts.");
       bindInput(
         "Spelling hints",
         "spellingHints",
         (speaker.spellingHints || []).join(", "),
-        "Common misspellings to auto-fix in captions and overlays.",
+        "Common transcript misspellings to auto-fix in captions and overlays — not your confirmed setup name.",
       );
       grid.appendChild(card);
     });
