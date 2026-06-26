@@ -514,7 +514,7 @@
     const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
     const showLabel = show ? show.name : (document.getElementById("f-show-name") || {}).value || "—";
     const sourceLabel = state.sourceMode === "upload" ? "Synced speaker files" : "Riverside link";
-    const bucketLine = state.speakers.map((speaker) => speaker.role || "Unassigned").join(" · ");
+    const bucketLine = ES.buildRoleSummary(ES.canonicalSpeakers(ES.summarize(state)));
 
     return el(
       "section",
@@ -562,6 +562,9 @@
     const opts = setupContext && typeof setupContext === "object" ? setupContext : {};
     const speakerItems = handoff.speakers.map((speaker) => {
       const bucketClass = ES.speakerBucketCueClass(speaker.role);
+      const displayName = speaker.name && !ES.isRolePlaceholderName(speaker.name, speaker.role)
+        ? speaker.name
+        : "";
       const socialItems = speaker.social.length
         ? speaker.social.map((entry) => el("li", {}, `${entry.label}: ${entry.url}`))
         : [el("li", { class: "episode-import-handoff-social-empty" }, "No social links added")];
@@ -570,7 +573,7 @@
         { class: `episode-import-handoff-speaker ${bucketClass}` },
         el("div", { class: "episode-import-handoff-speaker-head" },
           el("span", { class: `speaker-role-badge ${bucketClass}` }, speaker.role),
-          el("strong", {}, speaker.name || speaker.role),
+          displayName ? el("strong", {}, displayName) : null,
         ),
         el("p", { class: "episode-import-handoff-source" }, speaker.sourceLabel),
         el("ul", { class: "episode-import-handoff-social" }, socialItems),

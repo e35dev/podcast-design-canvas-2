@@ -40,6 +40,9 @@ test("ACCEPTANCE: import readability styles improve spacing and helper text legi
   assert.ok(/\.setup-import \.field-hint[\s\S]*line-height:\s*1\.55/.test(styles));
   assert.ok(/\.setup-first-episode-import \.setup-import-head h2[\s\S]*max-width:\s*none/.test(styles));
   const draft = setup.prepareSandboxPresetHandoff(setup.createDraft(), "Readable Show");
+  draft.speakers.forEach((speaker, index) => {
+    speaker.name = `Speaker ${index + 1}`;
+  });
   assert.strictEqual(setup.validateDraft(draft).ok, true);
 });
 

@@ -297,6 +297,81 @@
     return "https://riverside.fm/studio/podcast-canvas-demo";
   }
 
+  function isSandboxDemoRiversideLink(link) {
+    return trim(link).toLowerCase().indexOf("podcast-canvas-demo") >= 0;
+  }
+
+  function isRolePlaceholderName(name, role) {
+    const normalizedName = trim(name);
+    const normalizedRole = trim(role);
+    return !normalizedName || normalizedName === normalizedRole;
+  }
+
+  function speakerIdentityLine(speaker) {
+    const role = trim(speaker && speaker.role);
+    const name = trim(speaker && speaker.name);
+    if (name && !isRolePlaceholderName(name, role)) {
+      return role ? `${name} · ${role}` : name;
+    }
+    return role || name || "Unassigned";
+  }
+
+  function displaySourceDetail(summary) {
+    const data = summary && typeof summary === "object" ? summary : {};
+    const mode = normalizeMode(data.sourceMode);
+    if (mode === "riverside") {
+      const link = trim(data.riversideLink);
+      if (isSandboxDemoRiversideLink(link)) {
+        return "Riverside recording (sandbox review link)";
+      }
+      return link || "Riverside recording link saved";
+    }
+    return "Synced speaker files attached per bucket";
+  }
+
+  // One Host / Guest bucket per role for setup recap and workspace handoff.
+  function canonicalSpeakers(summary) {
+    const data = summary && typeof summary === "object" ? summary : {};
+    const mode = normalizeMode(data.sourceMode);
+    const list = Array.isArray(data.speakers) ? data.speakers : [];
+    const byRole = new Map();
+    list.forEach((raw) => {
+      const speaker = raw && typeof raw === "object" ? raw : {};
+      const role = trim(speaker.role);
+      if (!role || byRole.has(role)) {
+        return;
+      }
+      const social = Array.isArray(speaker.social) ? speaker.social : socialEntries(speaker);
+      byRole.set(role, {
+        role: role,
+        name: trim(speaker.name),
+        identityLine: speakerIdentityLine(speaker),
+        sourceLabel: trim(speaker.sourceLabel) || sourceLabel(mode, speaker),
+        social: social,
+        socialLine: social.length
+          ? social.map((entry) => `${entry.label}: ${entry.url}`).join(" · ")
+          : "No social links added",
+      });
+    });
+    const order = ["Host", "Co-host", "Guest 1", "Guest 2", "Guest 3", "Guest 4"];
+    const canonical = [];
+    order.forEach((role) => {
+      if (byRole.has(role)) {
+        canonical.push(byRole.get(role));
+        byRole.delete(role);
+      }
+    });
+    byRole.forEach((speaker) => {
+      canonical.push(speaker);
+    });
+    return canonical;
+  }
+
+  function buildRoleSummary(speakers) {
+    const list = Array.isArray(speakers) ? speakers : [];
+    return list.map((speaker) => speaker.identityLine).filter(Boolean).join(" · ");
+  }
+
   // When a creator picks a preset but has not pasted a Riverside link yet, attach a
   // review-friendly demo link so Continue can complete setup (same spirit as placeholder files).
   function applySandboxHandoffSource(draft) {
@@ -335,42 +410,18 @@
     if (!trim(data.episodeName)) {
       data.episodeName = `${showName} — Episode 1`;
     }
-    (Array.isArray(data.speakers) ? data.speakers : []).forEach((raw) => {
-      const speaker = raw && typeof raw === "object" ? raw : createSpeaker("Host");
-      if (!trim(speaker.name) && trim(speaker.role)) {
-        speaker.name = speaker.role;
-      }
-    });
     return data;
   }
 
   function buildImportHandoff(summary) {
     const data = summary && typeof summary === "object" ? summary : {};
-    const mode = normalizeMode(data.sourceMode);
-    const speakers = Array.isArray(data.speakers) ? data.speakers : [];
-    const sourceDetail = mode === "riverside"
-      ? trim(data.riversideLink) || "Riverside recording link saved"
-      : "Synced speaker files attached per bucket";
+    const speakers = canonicalSpeakers(data);
 
     return {
       confirmationLead: "Your imported sources, speaker buckets, and social context are saved and driving this episode setup.",
-      sourceLabel: data.sourceModeLabel || modeLabel(mode),
-      sourceDetail,
-      speakers: speakers.map((speaker) => {
-        const social = Array.isArray(speaker.social) ? speaker.social : [];
-        return {
-          role: trim(speaker.role),
-          name: trim(speaker.name),
-          identityLine: trim(speaker.name)
-            ? `${trim(speaker.name)} · ${trim(speaker.role)}`
-            : trim(speaker.role),
-          sourceLabel: trim(speaker.sourceLabel) || sourceLabel(mode, speaker),
-          social,
-          socialLine: social.length
-            ? social.map((entry) => `${entry.label}: ${entry.url}`).join(" · ")
-            : "No social links added",
-        };
-      }),
+      sourceLabel: data.sourceModeLabel || modeLabel(data.sourceMode),
+      sourceDetail: displaySourceDetail(data),
+      speakers: speakers,
       socialLinkCount: Number(data.socialLinkCount) || 0,
     };
   }
@@ -386,8 +437,8 @@
       completionLead: presetSummary
         ? "Your preset, recording source, speaker roles, and social context are saved and driving this episode in the production workspace."
         : handoff.confirmationLead,
-      roleSummary: handoff.speakers.map((speaker) => speaker.identityLine).filter(Boolean).join(" · "),
-      handoff,
+      roleSummary: buildRoleSummary(handoff.speakers),
+      handoff: handoff,
     };
   }
 
@@ -415,6 +466,12 @@
     importSocialContextCueLine,
     defaultImportShowName,
     sandboxDemoRiversideLink,
+    isSandboxDemoRiversideLink,
+    isRolePlaceholderName,
+    speakerIdentityLine,
+    displaySourceDetail,
+    canonicalSpeakers,
+    buildRoleSummary,
     applySandboxHandoffSource,
     prepareSandboxPresetHandoff,
     canApplyImportContinueDefaults,

@@ -25,6 +25,43 @@
     COMPLETE: "complete",
   };
 
+  function setupApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./episode-setup.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcEpisodeSetup;
+  }
+
+  function buildSetupStageSummary(episode, context) {
+    const ES = setupApi();
+    const parts = [];
+    if (episode.riversideLink && ES && ES.isSandboxDemoRiversideLink(episode.riversideLink)) {
+      parts.push(`${episode.sourceModeLabel || "Riverside link"}: ${ES.displaySourceDetail(episode)}`);
+    } else if (episode.riversideLink) {
+      parts.push(`${episode.sourceModeLabel || "Riverside link"}: ${episode.riversideLink}`);
+    } else if (episode.sourceModeLabel) {
+      parts.push(episode.sourceModeLabel);
+    }
+    const speakers = ES && typeof ES.canonicalSpeakers === "function"
+      ? ES.canonicalSpeakers(episode)
+      : (episode.speakers || []);
+    const identities = speakers.map(function (speaker) {
+      if (speaker.name && ES && ES.isRolePlaceholderName(speaker.name, speaker.role)) {
+        return speaker.role;
+      }
+      return speaker.name ? `${speaker.name} (${speaker.role})` : speaker.role;
+    }).filter(Boolean);
+    if (identities.length) {
+      parts.push(identities.join(" · "));
+    }
+    if (episode.socialLinkCount > 0) {
+      parts.push(`${episode.socialLinkCount} social link${episode.socialLinkCount === 1 ? "" : "s"} saved`);
+      parts.push(context.contextApproved ? "context approved" : "context ready to review");
+    }
+    return parts.join(" · ");
+  }
+
   function stage(id, label, status, summary, actionLabel, actionTarget) {
     return {
       id: id,
@@ -45,23 +82,7 @@
     const setupComplete = Boolean(episode.episodeName) && (episode.speakerCount || 0) > 0;
     let setupSummary = "Add your episode name, sources, and speaker roles.";
     if (setupComplete) {
-      const parts = [];
-      if (episode.riversideLink) {
-        parts.push(`${episode.sourceModeLabel || "Riverside link"}: ${episode.riversideLink}`);
-      } else if (episode.sourceModeLabel) {
-        parts.push(episode.sourceModeLabel);
-      }
-      const identities = (episode.speakers || []).map(function (speaker) {
-        return speaker.name ? `${speaker.name} (${speaker.role})` : speaker.role;
-      }).filter(Boolean);
-      if (identities.length) {
-        parts.push(identities.join(" · "));
-      }
-      if (episode.socialLinkCount > 0) {
-        parts.push(`${episode.socialLinkCount} social link${episode.socialLinkCount === 1 ? "" : "s"} saved`);
-        parts.push(context.contextApproved ? "context approved" : "context ready to review");
-      }
-      setupSummary = parts.join(" · ");
+      setupSummary = buildSetupStageSummary(episode, context);
     }
     stages.push(stage(
       "setup",

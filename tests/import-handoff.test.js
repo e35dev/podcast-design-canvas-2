@@ -73,7 +73,7 @@ test("workspace setup stage summary names imported speakers and source", () => {
   assert.ok(setupStage.summary.includes("context ready to review"));
 });
 
-test("applyImportContinueDefaults completes a riverside draft when names are still blank", () => {
+test("applyImportContinueDefaults fills episode title but keeps speaker names blank", () => {
   const draft = setup.createDraft();
   draft.riversideLink = "https://riverside.fm/studio/review-path";
   assert.strictEqual(setup.canApplyImportContinueDefaults(draft), true);
@@ -81,9 +81,9 @@ test("applyImportContinueDefaults completes a riverside draft when names are sti
   assert.strictEqual(ready.episodeName, "Review Show — Episode 1");
   assert.deepStrictEqual(
     ready.speakers.map((speaker) => speaker.name),
-    ["Host", "Guest 1", "Guest 2"],
+    ["", "", ""],
   );
-  assert.strictEqual(setup.validateDraft(ready).ok, true);
+  assert.strictEqual(setup.validateDraft(ready).ok, false);
 });
 
 test("buildSetupCompletionHandoff marks setup complete for workspace recap", () => {
@@ -118,6 +118,9 @@ test("ACCEPTANCE: completing import produces workspace handoff data and blocks i
   const riversideOnly = setup.createDraft();
   riversideOnly.riversideLink = "https://riverside.fm/studio/probe-path";
   const ready = setup.applyImportContinueDefaults(riversideOnly, { showName: "Probe Show" });
+  ready.speakers.forEach((speaker, index) => {
+    speaker.name = `Speaker ${index + 1}`;
+  });
   assert.strictEqual(setup.validateDraft(ready).ok, true);
   const completion = setup.buildSetupCompletionHandoff(setup.summarize(ready), {
     presetSummary: "Studio Spotlight",

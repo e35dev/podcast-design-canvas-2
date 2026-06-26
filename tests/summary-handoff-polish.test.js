@@ -17,6 +17,9 @@ function test(name, fn) {
 function readyEpisode() {
   const draft = setup.prepareSandboxPresetHandoff(setup.createDraft(), "Founders Unfiltered");
   draft.episodeName = "Founders Unfiltered — Episode 1";
+  draft.speakers.forEach((speaker, index) => {
+    speaker.name = ["Sam Rivera", "Dana Kim", "Alex Chen"][index];
+  });
   return setup.summarize(draft);
 }
 
@@ -49,7 +52,7 @@ test("ACCEPTANCE: workspace handoff separates recap, primary action, and grouped
   assert.ok(current.actionLabel.length > 0);
   assert.strictEqual(ws.stages.filter((stage) => stage.status === "complete").length, 2);
   const completion = setup.buildSetupCompletionHandoff(summary, { presetSummary: "Studio Spotlight" });
-  assert.ok(completion.handoff.sourceDetail.includes("riverside.fm"));
+  assert.ok(completion.handoff.sourceDetail.toLowerCase().includes("riverside"));
 });
 
 console.log(`\nsummary handoff polish: ${passed} assertions passed`);
