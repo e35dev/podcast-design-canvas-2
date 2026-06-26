@@ -8,7 +8,7 @@
 // and episode import polish (#77, #86, #89), visual style preset cards (#94, #102),
 // and creator template gallery (#106), home screen focus (#112),
 // gallery copy polish (#117), first-episode import (#130), import handoff (#142),
-// and preset-first import setup (#147).
+// and preset-first import setup (#147), and setup completion handoff (#149).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -538,9 +538,9 @@
     );
   }
 
-  function renderEpisodeImportRecap(summary) {
-    const handoff = ES.buildImportHandoff(summary);
-    const styleLine = importStyleSummaryLine();
+  function renderEpisodeImportRecap(summary, setupContext) {
+    const completion = ES.buildSetupCompletionHandoff(summary, setupContext || {});
+    const handoff = completion.handoff;
     const speakerItems = handoff.speakers.map((speaker) => {
       const bucketClass = ES.speakerBucketCueClass(speaker.role);
       const socialItems = speaker.social.length
@@ -560,23 +560,29 @@
 
     return el(
       "section",
-      { class: "card episode-import-recap episode-import-handoff" },
-      el("p", { class: "eyebrow episode-import-handoff-eyebrow" }, "Import accepted"),
+      { class: "card episode-import-recap episode-import-handoff setup-completion-recap" },
+      el("p", { class: "eyebrow episode-import-handoff-eyebrow" }, completion.completionEyebrow),
       el("h3", {}, "Episode setup summary"),
-      el("p", { class: "hint episode-import-handoff-lead" }, handoff.confirmationLead),
+      el("p", { class: "hint episode-import-handoff-lead" }, completion.completionLead),
       el(
         "dl",
         { class: "episode-import-handoff-grid" },
         el("div", { class: "episode-import-handoff-item" },
+          el("dt", {}, "Episode"),
+          el("dd", {}, completion.episodeTitle),
+        ),
+        el("div", { class: "episode-import-handoff-item" },
+          el("dt", {}, "Episode look"),
+          el("dd", {}, completion.presetSummary),
+        ),
+        el("div", { class: "episode-import-handoff-item" },
           el("dt", {}, "Imported source"),
           el("dd", {}, `${handoff.sourceLabel}: ${handoff.sourceDetail}`),
         ),
-        styleLine
-          ? el("div", { class: "episode-import-handoff-item" },
-            el("dt", {}, "Episode look"),
-            el("dd", {}, styleLine),
-          )
-          : null,
+        el("div", { class: "episode-import-handoff-item" },
+          el("dt", {}, "Speaker roles"),
+          el("dd", {}, completion.roleSummary || "Assign speakers during setup"),
+        ),
       ),
       el("h4", { class: "episode-import-handoff-speakers-title" }, "Speakers driving this episode"),
       el("ul", { class: "episode-import-handoff-speakers" }, speakerItems),
@@ -1711,6 +1717,57 @@
       || ES.defaultImportShowName();
     state = ES.applyImportContinueDefaults(state, { showName });
     writeSetupFormFromState();
+    ensureSetupStyleApplied();
+  }
+
+  function ensureSetupStyleApplied() {
+    if (!STY) {
+      return;
+    }
+    if (!styleSelection) {
+      styleSelection = STY.createSelection();
+    }
+    appliedStyle = STY.summarizeStyle(styleSelection, state.speakers.length);
+  }
+
+  function setupContinueSummaryLine() {
+    const episodeLine = trim(state.episodeName) || "Episode name pending";
+    const presetLine = importStyleSummaryLine();
+    const sourceLine = ES.normalizeMode(state.sourceMode) === "upload"
+      ? "Uploaded speaker files"
+      : (trim(state.riversideLink) ? "Riverside link ready" : "Recording source pending");
+    return `${episodeLine} · ${presetLine} · ${sourceLine}`;
+  }
+
+  function renderSetupContinueBar() {
+    const bar = el("div", { class: "actions setup-actions setup-cta-bar setup-cta-bar-sticky" });
+    const summary = el(
+      "div",
+      { class: "setup-continue-summary" },
+      el("p", { class: "setup-continue-eyebrow" }, "Hand off to workspace"),
+      el("p", { class: "hint setup-continue-line" }, setupContinueSummaryLine()),
+    );
+    bar.appendChild(summary);
+    if (activeShowId) {
+      const backShow = el("button", { type: "button", class: "btn-secondary", id: "setup-back-show" }, "← Back to show");
+      backShow.addEventListener("click", () => {
+        persistEpisodeSession();
+        renderShowDetail(activeShowId);
+      });
+      bar.appendChild(backShow);
+    }
+    bar.appendChild(
+      el(
+        "button",
+        {
+          type: "submit",
+          class: "btn-primary setup-continue-btn",
+          id: "setup-complete-continue",
+        },
+        "Complete setup & open workspace →",
+      ),
+    );
+    return bar;
   }
 
   function syncImportReadyBanner() {
@@ -1736,7 +1793,7 @@
       el(
         "p",
         { class: "hint" },
-        "Click Continue to save this source, keep each speaker bucket, and open the workspace import summary. Any blank show, episode, or speaker names use friendly defaults until you rename them.",
+        "Click Complete setup to save this source, keep each speaker bucket, and open the production workspace. Any blank show, episode, or speaker names use friendly defaults until you rename them.",
       ),
     );
     if (actions) {
@@ -2041,25 +2098,13 @@
       );
     }
 
-    form.appendChild(
-      el(
-        "div",
-        { class: "actions setup-actions setup-cta-bar" },
-        activeShowId
-          ? el("button", { type: "button", class: "btn-secondary", id: "setup-back-show" }, "← Back to show")
-          : null,
-        el("button", { type: "submit", class: "btn-primary setup-continue-btn" }, "Continue to audio polish →"),
-      ),
-    );
+    form.appendChild(renderSetupContinueBar());
 
     root.appendChild(form);
     clearSpeakerAutofillLeak();
     const backShow = document.getElementById("setup-back-show");
-    if (backShow) {
-      backShow.addEventListener("click", () => {
-        persistEpisodeSession();
-        renderShowDetail(activeShowId);
-      });
+    if (backShow && !activeShowId) {
+      backShow.remove();
     }
 
     if (showErrors) {
@@ -2259,6 +2304,7 @@
     }
     readSetupFormState();
     applyReadyImportDefaults();
+    ensureSetupStyleApplied();
     const result = ES.validateDraft(state);
     errors = result.errors;
     showErrors = true;
@@ -2537,11 +2583,11 @@
         { class: "workspace-head" },
         el("p", { class: "eyebrow" }, "Production workspace"),
         el("h2", {}, summary.episodeName),
-        el("p", { class: "hint" }, "Your import is saved below — sources, speaker buckets, names, and social context are driving this episode setup."),
+        el("p", { class: "hint" }, "Setup is complete — your preset, recording source, speaker roles, and social context are driving the stages below."),
       ),
     );
 
-    view.appendChild(renderEpisodeImportRecap(summary));
+    view.appendChild(renderEpisodeImportRecap(summary, { presetSummary: importStyleSummaryLine() }));
 
     if (WS) {
       ensureMomentsBoard(summary);

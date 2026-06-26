@@ -86,12 +86,22 @@ test("applyImportContinueDefaults completes a riverside draft when names are sti
   assert.strictEqual(setup.validateDraft(ready).ok, true);
 });
 
+test("buildSetupCompletionHandoff marks setup complete for workspace recap", () => {
+  const summary = setup.summarize(completeRiversideDraft());
+  const completion = setup.buildSetupCompletionHandoff(summary, { presetSummary: "Studio Spotlight" });
+  assert.strictEqual(completion.completionEyebrow, "Setup complete");
+  assert.ok(completion.presetSummary.includes("Studio Spotlight"));
+});
+
 test("import handoff UI lands in workspace immediately after setup continue", () => {
   const continueBlock = ui.slice(ui.indexOf("function onContinue()"), ui.indexOf("function focusFirstError()"));
   assert.ok(continueBlock.includes("renderWorkspace(summary)"));
   assert.ok(!/if \(SC && !contextApproved\)[\s\S]*renderContextReview\(summary\)/.test(continueBlock));
   assert.ok(ui.includes("episode-import-handoff"));
-  assert.ok(ui.includes("Import accepted"));
+  assert.ok(ui.includes("buildSetupCompletionHandoff"));
+  assert.ok(ui.includes("completion.completionEyebrow"));
+  assert.ok(ui.includes("Complete setup & open workspace"));
+  assert.ok(ui.includes("setup-cta-bar-sticky"));
   assert.ok(ui.includes("applyReadyImportDefaults"));
   assert.ok(ui.includes("setup-import-ready-banner"));
 });
