@@ -51,9 +51,28 @@
       status: "draft",
       progress: 0,
       downloadName: "",
+      // #197: the polished speaker tracks this render consumes as its audio
+      // source instead of the raw imported originals.
+      audioTracks: [],
       startedAt: null,
       completedAt: null,
     };
+  }
+
+  // The saved polished WAV assets the export must render from (not the raw
+  // imported originals).
+  function polishedAudioTracks(context) {
+    const ctx = context || {};
+    const ap = ctx.audioPolish || {};
+    const refs = Array.isArray(ap.polishedAssets) ? ap.polishedAssets : [];
+    return refs
+      .filter((ref) => ref && ref.assetId)
+      .map((ref) => ({
+        role: ref.role || "",
+        name: ref.name || "",
+        assetId: ref.assetId,
+        byteLength: ref.byteLength || 0,
+      }));
   }
 
   function missingMessage(missing) {
@@ -159,6 +178,14 @@
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
       lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
     }
+    const audioTracks = job.audioTracks && job.audioTracks.length
+      ? job.audioTracks
+      : polishedAudioTracks(ctx);
+    if (audioTracks.length) {
+      lines.push(
+        `Audio source: rendering from ${audioTracks.length} polished track${audioTracks.length === 1 ? "" : "s"} (${audioTracks.map((track) => track.assetId).join(", ")})`,
+      );
+    }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
         `Visual style: ${ctx.appliedStyle.presetName} · ${ctx.appliedStyle.layoutLabel || "layout"} · ${ctx.appliedStyle.pacingLabel || "pacing"}`,
@@ -215,6 +242,9 @@
     next.startedAt = Date.now();
     next.completedAt = null;
     next.downloadName = "";
+    // Bind the render to the polished tracks so the output consumes treated
+    // audio, not the raw imported sources.
+    next.audioTracks = polishedAudioTracks(context);
     return { ok: true, state: next };
   }
 
@@ -241,6 +271,7 @@
     const platform = getPlatform(job.platform);
     const resolution = getResolution(job.resolution);
     const captions = getCaptionMode(job.captionMode);
+    const audioTracks = Array.isArray(job.audioTracks) ? job.audioTracks : [];
     return {
       status: job.status || "draft",
       progress: job.progress || 0,
@@ -249,6 +280,11 @@
       captionLabel: captions.label,
       templateName: job.templateName || "",
       downloadName: job.downloadName || "",
+      audioTracks: audioTracks,
+      audioTrackCount: audioTracks.length,
+      audioSourceLine: audioTracks.length
+        ? `Rendered from ${audioTracks.length} polished track${audioTracks.length === 1 ? "" : "s"}: ${audioTracks.map((track) => track.assetId).join(", ")}`
+        : "",
       ready: job.status === "ready",
       rendering: job.status === "rendering",
     };

@@ -115,6 +115,31 @@ test("export readiness requires saved polished tracks, not just a chosen preset"
   );
 });
 
+test("the export output renders from the saved polished track assets, not raw originals", () => {
+  const episode = uploadEpisode();
+  const applied = audio.summarizePolish(audio.processPolish(audio.createPolish(episode)));
+  const expectedAssetIds = applied.polishedAssets.map((ref) => ref.assetId);
+  assert.strictEqual(expectedAssetIds.length, 3);
+
+  const context = { audioPolish: applied, appliedStyle: { presetName: "Studio" }, publishReviewApproved: true };
+  const result = exportApi.runExport(exportApi.createExport(episode), episode, context);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.state.status, "ready");
+
+  // The completed render carries the exact polished WAV assets as its audio source.
+  assert.deepStrictEqual(result.state.audioTracks.map((track) => track.assetId), expectedAssetIds);
+
+  const summary = exportApi.summarizeExport(result.state);
+  assert.strictEqual(summary.audioTrackCount, 3);
+  expectedAssetIds.forEach((id) => assert.ok(summary.audioSourceLine.indexOf(id) >= 0, `${id} is named in the output`));
+
+  const finalSummary = exportApi.buildFinalSummary(episode, context, result.state);
+  assert.ok(
+    finalSummary.lines.some((line) => /Audio source: rendering from 3 polished tracks/.test(line)),
+    "final episode summary states the polished tracks are the audio source",
+  );
+});
+
 test("ACCEPTANCE: apply audio polish persists real assets that survive a session round trip", async () => {
   const episode = uploadEpisode();
   let polish = audio.applyPreset(audio.createPolish(episode), "studio");

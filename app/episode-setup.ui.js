@@ -3699,6 +3699,11 @@
       statusCard.appendChild(
         el("p", { class: "hint" }, `${exportSummary.platformName} · ${exportSummary.resolutionLabel} · ${exportSummary.captionLabel}`),
       );
+      if (exportSummary.audioSourceLine) {
+        statusCard.appendChild(
+          el("p", { class: "hint export-audio-source" }, exportSummary.audioSourceLine),
+        );
+      }
     } else {
       statusCard.appendChild(
         el("p", { class: "hint" }, "Start export when your publishing options look right."),

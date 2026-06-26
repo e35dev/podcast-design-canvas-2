@@ -112,6 +112,9 @@ async function main() {
     await page.getByRole("button", { name: "Start export →" }).click();
     log(await page.getByRole("button", { name: "Done — back to workspace" }).isVisible(), "Export completes after publish review approval");
 
+    const audioSource = await page.locator(".export-audio-source").innerText();
+    log(/polished tracks?:/.test(audioSource) && /\.wav/.test(audioSource), `Export output renders from the polished tracks: "${audioSource.trim()}"`);
+
     await page.screenshot({ path: join(root, "tests", "export-review-gate-export.png"), fullPage: false });
     log(true, "Screenshot saved to tests/export-review-gate-export.png");
   } catch (err) {
