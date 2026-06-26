@@ -58,6 +58,26 @@ test("time parsing accepts M:SS, raw seconds, and clamps junk to 0:00", () => {
   assert.strictEqual(moments.normalizeTime(""), "0:00");
 });
 
+test("time parsing and formatting handle hour-plus episodes (H:MM:SS)", () => {
+  // Regression: hour-plus podcasts must not collapse to minutes. "1:02:03" is 1h2m3s.
+  assert.strictEqual(moments.parseTime("1:02:03"), 3723);
+  assert.strictEqual(moments.normalizeTime("1:02:03"), "1:02:03");
+  assert.strictEqual(moments.formatTime(3723), "1:02:03");
+  // Round trips at and beyond the hour boundary.
+  assert.strictEqual(moments.normalizeTime("1:00:00"), "1:00:00");
+  assert.strictEqual(moments.normalizeTime("2:15:09"), "2:15:09");
+  // Sub-hour input is still rendered as M:SS.
+  assert.strictEqual(moments.normalizeTime("59:59"), "59:59");
+});
+
+test("a moment placed at an hour-plus mark keeps its real time", () => {
+  let board = moments.createBoard(completeEpisode());
+  board = moments.addMoment(board, "caption", { time: "1:05:30", text: "Hour-plus moment" });
+  const placed = moments.listMoments(board)[0];
+  assert.strictEqual(placed.seconds, 3930);
+  assert.strictEqual(placed.time, "1:05:30");
+});
+
 test("adding moments places them in timeline order with stable ids", () => {
   let board = moments.createBoard(completeEpisode());
   board = moments.addMoment(board, "callout", { time: "3:00", text: "Big insight" });

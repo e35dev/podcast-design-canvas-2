@@ -64,15 +64,21 @@
     return n < 10 ? `0${n}` : String(n);
   }
 
+  // Render "M:SS" for sub-hour times and "H:MM:SS" once an episode passes the hour mark.
+  // Podcasts are routinely hour-plus, so a moment at 1h2m3s must read "1:02:03", not "62:03".
   function formatTime(totalSeconds) {
     const safe = Math.max(0, Math.floor(totalSeconds || 0));
-    const minutes = Math.floor(safe / 60);
+    const hours = Math.floor(safe / 3600);
+    const minutes = Math.floor((safe % 3600) / 60);
     const seconds = safe % 60;
+    if (hours > 0) {
+      return `${hours}:${pad2(minutes)}:${pad2(seconds)}`;
+    }
     return `${minutes}:${pad2(seconds)}`;
   }
 
-  // Accept creator input like "1:30", "90", or "  2:05 " and normalize to "M:SS". Invalid
-  // input clamps to 0:00 rather than throwing, so the timeline can never break.
+  // Accept creator input like "1:30", "90", "  2:05 ", or hour-plus "1:02:03" and normalize.
+  // Invalid input clamps to 0:00 rather than throwing, so the timeline can never break.
   function parseTime(value) {
     if (typeof value === "number" && isFinite(value)) {
       return Math.max(0, Math.floor(value));
@@ -83,9 +89,17 @@
     }
     if (text.indexOf(":") >= 0) {
       const parts = text.split(":");
-      const minutes = parseInt(parts[0], 10) || 0;
-      const seconds = parseInt(parts[1], 10) || 0;
-      return Math.max(0, minutes * 60 + Math.min(59, Math.max(0, seconds)));
+      const clampUnit = (n) => Math.min(59, Math.max(0, n));
+      // Three parts → "H:MM:SS"; minutes and seconds are sub-unit values (0–59).
+      if (parts.length >= 3) {
+        const hours = Math.max(0, parseInt(parts[0], 10) || 0);
+        const minutes = clampUnit(parseInt(parts[1], 10) || 0);
+        const seconds = clampUnit(parseInt(parts[2], 10) || 0);
+        return hours * 3600 + minutes * 60 + seconds;
+      }
+      const minutes = Math.max(0, parseInt(parts[0], 10) || 0);
+      const seconds = clampUnit(parseInt(parts[1], 10) || 0);
+      return minutes * 60 + seconds;
     }
     const asSeconds = parseInt(text, 10);
     return isFinite(asSeconds) ? Math.max(0, asSeconds) : 0;
