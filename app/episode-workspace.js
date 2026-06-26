@@ -44,6 +44,21 @@
     return g.PdcEpisodeSetup;
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
+  function audioPolishReady(audioPolish) {
+    const AP = audioPolishApi();
+    return AP && AP.hasCompletePolishedTracks
+      ? AP.hasCompletePolishedTracks(audioPolish)
+      : Boolean(audioPolish && audioPolish.readyForExport);
+  }
+
   function buildStages(episodeSummary, ctx) {
     const episode = episodeSummary || {};
     const context = ctx || {};
@@ -103,7 +118,7 @@
     ));
 
     // Audio -------------------------------------------------------------------
-    const audioApplied = context.audioPolish && context.audioPolish.presetName;
+    const audioApplied = audioPolishReady(context.audioPolish);
     stages.push(stage(
       "audio",
       "Audio polish",
@@ -111,8 +126,8 @@
         ? STATUS.COMPLETE
         : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
       audioApplied
-        ? `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"}`
-        : "Choose a sound quality preset for every speaker track.",
+        ? `${context.audioPolish.presetName} - ${context.audioPolish.assetLine || context.audioPolish.treatmentLine || "polished assets saved"}`
+        : "Apply polish to save an output for every speaker track.",
       audioApplied ? "Change audio" : "Polish audio",
       ACTION_TARGETS.audio,
     ));

@@ -57,6 +57,19 @@ function assertNoCorruption(label, value) {
   assert.ok(!text.includes("Sam Riveraa"), `${label} must not contain Sam Riveraa`);
 }
 
+function polishedAudio(episode) {
+  const withAssets = withSourceAssets(episode);
+  return audio.summarizePolish(audio.processPolish(audio.createPolish(withAssets), withAssets, { now: 1700000000000 }));
+}
+
+function withSourceAssets(episode) {
+  return Object.assign({}, episode, {
+    speakers: (episode.speakers || []).map((speaker) => Object.assign({}, speaker, {
+      sourceAsset: speaker.sourceAsset || setup.createPlaceholderSourceAsset(speaker.role, speaker.sourceLabel),
+    })),
+  });
+}
+
 test("ACCEPTANCE: Sam Rivera stays exact from setup through templates and export", () => {
   templates._resetTemplateCounter();
   const draft = draftWithSamRiveraSocial();
@@ -167,7 +180,7 @@ test("ACCEPTANCE: Sam Rivera stays exact from setup through templates and export
     templateName: savedTemplate.name,
   });
   const exportSummary = exportApi.buildFinalSummary(episode, {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: polishedAudio(episode),
     appliedStyle: appliedStyle,
     templateName: savedTemplate.name,
     momentsSummary: momentsSummary,

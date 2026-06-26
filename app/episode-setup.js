@@ -12,7 +12,7 @@
   const SPEAKER_BUCKETS = ["Host", "Co-host", "Guest 1", "Guest 2", "Guest 3", "Guest 4"];
 
   // How the raw recording comes in. Either one Riverside recording link, or a separate
-  // synced video file per speaker. Labels are creator-facing — no pipeline jargon.
+  // synced media file per speaker. Labels are creator-facing — no pipeline jargon.
   const SOURCE_MODES = [
     { key: "riverside", label: "Riverside link" },
     { key: "upload", label: "Uploaded speaker files" },
@@ -55,6 +55,94 @@
     return { website: "", twitter: "", instagram: "", linkedin: "" };
   }
 
+  function base64FromBytes(bytes) {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(bytes).toString("base64");
+    }
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      const chunk = bytes.subarray(index, index + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  }
+
+  function writeAscii(view, offset, value) {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  }
+
+  function placeholderWavBytes(seedText) {
+    const sampleRate = 8000;
+    const sampleCount = sampleRate;
+    const buffer = new ArrayBuffer(44 + sampleCount * 2);
+    const view = new DataView(buffer);
+    let seed = 0;
+    String(seedText || "").split("").forEach((char) => {
+      seed = (seed + char.charCodeAt(0)) % 997;
+    });
+    const frequency = 180 + (seed % 220);
+    writeAscii(view, 0, "RIFF");
+    view.setUint32(4, 36 + sampleCount * 2, true);
+    writeAscii(view, 8, "WAVE");
+    writeAscii(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, "data");
+    view.setUint32(40, sampleCount * 2, true);
+    for (let index = 0; index < sampleCount; index += 1) {
+      const t = index / sampleRate;
+      const sample = Math.sin(2 * Math.PI * frequency * t) * 0.38
+        + Math.sin(2 * Math.PI * (frequency * 1.5) * t) * 0.12;
+      view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+    }
+    return new Uint8Array(buffer);
+  }
+
+  function createSourceAsset(fileName, mimeType, dataUri, byteLength, sourceKind, options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const name = trim(fileName) || "speaker-source";
+    const type = trim(mimeType) || "application/octet-stream";
+    const uri = typeof dataUri === "string" ? dataUri : "";
+    const capturedBytes = Number(opts.capturedByteLength) || Number(byteLength) || 0;
+    return {
+      fileName: name,
+      mimeType: type,
+      dataUri: uri,
+      byteLength: Number(byteLength) || capturedBytes,
+      capturedByteLength: capturedBytes,
+      sourceKind: trim(sourceKind) || "upload",
+      truncated: Boolean(opts.truncated),
+      capturedAt: opts.capturedAt || null,
+    };
+  }
+
+  function createPlaceholderSourceAsset(role, fileName) {
+    const name = trim(fileName) || placeholderFileName(role);
+    const text = [
+      "Podcast Design Canvas synced placeholder source",
+      `role=${trim(role) || "Speaker"}`,
+      `file=${name}`,
+      "This sandbox WAV source stands in for imported media bytes.",
+    ].join("\n");
+    const bytes = placeholderWavBytes(text);
+    return createSourceAsset(
+      name,
+      "audio/wav",
+      `data:audio/wav;base64,${base64FromBytes(bytes)}`,
+      bytes.length,
+      "placeholder",
+      { capturedByteLength: bytes.length },
+    );
+  }
+
   // A single speaker source: who is talking, which role bucket they fill, the recording
   // that carries them (a file in upload mode, an optional channel label in link mode),
   // and any optional social links.
@@ -64,6 +152,7 @@
       role: role || "",
       fileName: "",
       fileSize: 0,
+      sourceAsset: null,
       trackLabel: "",
       social: emptySocial(),
     };
@@ -79,12 +168,12 @@
   }
 
   const PLACEHOLDER_FILES = {
-    Host: "host-synced.mp4",
-    "Co-host": "cohost-synced.mp4",
-    "Guest 1": "guest-1-synced.mp4",
-    "Guest 2": "guest-2-synced.mp4",
-    "Guest 3": "guest-3-synced.mp4",
-    "Guest 4": "guest-4-synced.mp4",
+    Host: "host-synced.wav",
+    "Co-host": "cohost-synced.wav",
+    "Guest 1": "guest-1-synced.wav",
+    "Guest 2": "guest-2-synced.wav",
+    "Guest 3": "guest-3-synced.wav",
+    "Guest 4": "guest-4-synced.wav",
   };
 
   function placeholderFileName(role) {
@@ -93,7 +182,7 @@
       return PLACEHOLDER_FILES[bucket];
     }
     const slug = bucket.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "speaker";
-    return `${slug}-synced.mp4`;
+    return `${slug}-synced.wav`;
   }
 
   function defaultSpeakerRoleForIndex(index) {
@@ -149,6 +238,7 @@
     const next = speaker && typeof speaker === "object" ? speaker : createSpeaker("Host");
     next.fileName = placeholderFileName(next.role);
     next.fileSize = 1280000;
+    next.sourceAsset = createPlaceholderSourceAsset(next.role, next.fileName);
     return next;
   }
 
@@ -225,7 +315,7 @@
       }
 
       if (mode === "upload" && !trim(speaker.fileName)) {
-        fail(`speaker:${index}:source`, `Choose a video file for ${who}.`);
+        fail(`speaker:${index}:source`, `Choose a media file for ${who}.`);
       }
 
       const social = (speaker && speaker.social) || {};
@@ -249,6 +339,27 @@
     return trim(speaker && speaker.trackLabel) || "Riverside recording";
   }
 
+  function summarizeSourceAsset(speaker) {
+    const asset = speaker && speaker.sourceAsset && typeof speaker.sourceAsset === "object"
+      ? speaker.sourceAsset
+      : null;
+    if (!asset || !asset.dataUri) {
+      return null;
+    }
+    return createSourceAsset(
+      asset.fileName || speaker.fileName,
+      asset.mimeType,
+      asset.dataUri,
+      asset.byteLength || speaker.fileSize,
+      asset.sourceKind,
+      {
+        capturedByteLength: asset.capturedByteLength,
+        truncated: asset.truncated,
+        capturedAt: asset.capturedAt,
+      },
+    );
+  }
+
   // Derive exactly what the workspace screen displays. Everything here is computed from
   // the draft — no fabricated state — so the summary always reflects what was entered.
   function summarize(draft) {
@@ -263,6 +374,7 @@
         role: trim(speaker.role),
         name: trim(speaker.name),
         sourceLabel: sourceLabel(mode, speaker),
+        sourceAsset: summarizeSourceAsset(speaker),
         social,
       };
     });
@@ -489,6 +601,8 @@
     speakerBucketCueClass,
     placeholderFileName,
     attachPlaceholderFile,
+    createSourceAsset,
+    createPlaceholderSourceAsset,
     defaultSpeakerRoleForIndex,
     normalizeDefaultSpeakerRoles,
     usedSpeakerRoles,

@@ -50,6 +50,7 @@
   let layoutCustomized = false;
   let audioPolish = null;
   let appliedAudioPolish = null;
+  let audioPolishError = "";
   const TPL_STORAGE_KEY = "pdc-show-templates";
   const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
@@ -308,6 +309,7 @@
       setupDraft: state,
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
+      audioPolish: audioPolish,
       appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
@@ -344,7 +346,9 @@
     state = data.setupDraft || ES.createDraft();
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
+    audioPolish = data.audioPolish || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
+    audioPolishError = "";
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
     publishReviewApprovedAt = data.publishReviewApprovedAt || null;
@@ -353,6 +357,15 @@
     if (SI && activeShowId && LIB) {
       state = SI.sanitizeSetupDraft(state, LIB.getShow(showLibrary, activeShowId));
     }
+  }
+
+  function invalidateAudioPolishResult() {
+    appliedAudioPolish = null;
+    audioPolishError = "";
+    publishReview = null;
+    publishReviewApproved = false;
+    publishReviewApprovedAt = null;
+    exportJob = null;
   }
 
   // Tiny DOM helper: el("div", {class:"x", onclick:fn}, child, child...).
@@ -1501,6 +1514,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishError = "";
     activeTemplateId = null;
     canvasDoc = null;
     canvasLayerCounter = 20;
@@ -1572,7 +1586,8 @@
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
     audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
-    appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
+    appliedAudioPolish = null;
+    audioPolishError = "";
     activeTemplateId = null;
     canvasDoc = null;
     exportJob = null;
@@ -1665,6 +1680,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishError = "";
     activeTemplateId = null;
     activeGalleryListingId = null;
     canvasDoc = null;
@@ -1839,6 +1855,60 @@
         nameInput.value = speaker.name;
       }
     });
+  }
+
+  function captureSpeakerSourceFile(speaker, index, file, chosen) {
+    function currentSpeaker() {
+      return state.speakers[index] || speaker;
+    }
+
+    const target = currentSpeaker();
+    if (!file) {
+      target.fileName = "";
+      target.fileSize = 0;
+      target.sourceAsset = null;
+      if (chosen) {
+        chosen.textContent = "No file chosen yet";
+      }
+      return;
+    }
+    target.fileName = file.name;
+    target.fileSize = file.size;
+    target.sourceAsset = null;
+    if (chosen) {
+      chosen.textContent = `Selected: ${target.fileName} · reading source bytes…`;
+    }
+    if (typeof FileReader === "undefined") {
+      if (chosen) {
+        chosen.textContent = `Selected: ${target.fileName} · source bytes unavailable`;
+      }
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const latest = currentSpeaker();
+      latest.fileName = file.name;
+      latest.fileSize = file.size;
+      latest.sourceAsset = ES.createSourceAsset(
+        file.name,
+        file.type || "application/octet-stream",
+        String(reader.result || ""),
+        file.size,
+        "upload",
+        { capturedByteLength: file.size, capturedAt: Date.now() },
+      );
+      if (chosen) {
+        chosen.textContent = `Selected: ${latest.fileName} · ${file.size} bytes ready for polish`;
+      }
+      persistEpisodeSession();
+    });
+    reader.addEventListener("error", () => {
+      currentSpeaker().sourceAsset = null;
+      if (chosen) {
+        chosen.textContent = `Selected: ${currentSpeaker().fileName} · source bytes could not be read`;
+      }
+    });
+    reader.readAsDataURL(file);
   }
 
   function applyPendingShowNameDefault() {
@@ -2214,7 +2284,7 @@
       }
     } else {
       sourceCard.appendChild(
-        el("p", { class: "hint" }, "Add a separate synced video file for each speaker in the cards below — or attach placeholder files to try the flow without real uploads."),
+        el("p", { class: "hint" }, "Add a separate synced media file for each speaker in the cards below — or attach placeholder files to try the flow without real uploads."),
       );
     }
     form.appendChild(sourceCard);
@@ -2367,7 +2437,7 @@
       const fileInput = el("input", {
         id: `f-sp-${index}-source`,
         type: "file",
-        accept: "video/*",
+        accept: "video/*,audio/*",
         "aria-invalid": isInvalid(`speaker:${index}:source`) ? "true" : null,
       });
       const chosen = el(
@@ -2377,11 +2447,16 @@
       );
       fileInput.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
-        speaker.fileName = file ? file.name : "";
-        speaker.fileSize = file ? file.size : 0;
-        chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
+        captureSpeakerSourceFile(speaker, index, file, chosen);
       });
-      sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
+      sourceBlock.appendChild(
+        field(
+          "Speaker media file",
+          fileInput,
+          `speaker:${index}:source`,
+          "Use browser-playable audio or video for each speaker; WAV files have a built-in fallback decoder.",
+        ),
+      );
       sourceBlock.appendChild(chosen);
       const placeholderBtn = el(
         "button",
@@ -2393,7 +2468,7 @@
       );
       placeholderBtn.addEventListener("click", () => {
         readSetupFormState();
-        ES.attachPlaceholderFile(speaker);
+        ES.attachPlaceholderFile(state.speakers[index] || speaker);
         renderSetup();
       });
       sourceBlock.appendChild(
@@ -2476,6 +2551,7 @@
     if (AP) {
       audioPolish = AP.createPolish(summary);
       appliedAudioPolish = null;
+      audioPolishError = "";
     }
     contextApproved = false;
     contextReview = SC ? SC.createReview(summary) : null;
@@ -4743,10 +4819,102 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
+  function audioTrackStatusLabel(status) {
+    if (status === "complete") {
+      return "Saved";
+    }
+    if (status === "processing") {
+      return "Processing";
+    }
+    if (status === "failed") {
+      return "Failed";
+    }
+    return "Pending";
+  }
+
+  function continueAfterAudioPolish(summary) {
+    if (STY && !appliedStyle) {
+      renderStyle(summary);
+    } else {
+      renderWorkspace(summary);
+    }
+  }
+
+  function markAudioPolishProcessing(summary) {
+    const base = audioPolish || AP.createPolish(summary);
+    const speakers = Array.isArray(base.speakers) && base.speakers.length
+      ? base.speakers
+      : AP.buildSpeakerTracks(summary);
+    audioPolish = Object.assign({}, base, {
+      speakers: speakers.map((track, index) => {
+        const next = Object.assign({}, track, {
+          trackIndex: Number(track && track.trackIndex) || index + 1,
+          status: AP.PROCESSING_STATUSES.PROCESSING,
+          error: "",
+        });
+        delete next.processedAsset;
+        delete next.completedAt;
+        return next;
+      }),
+      processingStatus: AP.PROCESSING_STATUSES.PROCESSING,
+      processingResult: null,
+    });
+  }
+
+  async function applyAudioPolishAndStay(summary) {
+    audioPolishError = "";
+    const sourcePolish = audioPolish || AP.createPolish(summary);
+    markAudioPolishProcessing(summary);
+    renderAudioPolish(summary);
+
+    const processor = typeof AP.processPolishAsync === "function"
+      ? AP.processPolishAsync
+      : (polishState, episodeSummary) => Promise.resolve(AP.processPolish(polishState, episodeSummary));
+    try {
+      audioPolish = await processor(sourcePolish, summary);
+    } catch (err) {
+      audioPolish = Object.assign({}, sourcePolish, {
+        processingStatus: AP.PROCESSING_STATUSES.FAILED,
+        processingResult: {
+          ok: false,
+          status: AP.PROCESSING_STATUSES.FAILED,
+          completeTrackCount: 0,
+          failedTrackCount: Array.isArray(sourcePolish.speakers) ? sourcePolish.speakers.length : 0,
+          error: err && err.message ? err.message : "Audio polish could not process the imported speaker media.",
+        },
+      });
+    }
+
+    const applied = AP.summarizePolish(audioPolish);
+    if (!AP.hasCompletePolishedTracks(applied)) {
+      appliedAudioPolish = null;
+      publishReview = null;
+      publishReviewApproved = false;
+      publishReviewApprovedAt = null;
+      exportJob = null;
+      audioPolishError = applied.processingResult && applied.processingResult.error
+        ? applied.processingResult.error
+        : "Audio polish did not save every speaker track. Try again before continuing.";
+      persistEpisodeSession();
+      renderAudioPolish(summary);
+      return;
+    }
+
+    appliedAudioPolish = applied;
+    publishReview = null;
+    publishReviewApproved = false;
+    publishReviewApprovedAt = null;
+    exportJob = null;
+    persistEpisodeSession();
+    renderAudioPolish(summary);
+  }
+
   function renderAudioPolish(summary) {
     if (!audioPolish) {
       audioPolish = AP.createPolish(summary);
     }
+    const polishSummary = AP.summarizePolish(audioPolish);
+    const isProcessing = polishSummary.processingStatus === AP.PROCESSING_STATUSES.PROCESSING;
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -4755,7 +4923,7 @@
       el("div", { class: "workspace-head" },
         el("p", { class: "eyebrow" }, "Audio polish"),
         el("h2", {}, `Shape the sound for ${summary.episodeName}`),
-        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Each speaker track below will get this treatment."),
+        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Applying saves a polished WAV output for each speaker track."),
       ),
     );
 
@@ -4777,6 +4945,7 @@
       );
       card.addEventListener("click", () => {
         audioPolish = AP.applyPreset(audioPolish, preset.id);
+        invalidateAudioPolishResult();
         renderAudioPolish(summary);
       });
       presetGrid.appendChild(card);
@@ -4795,6 +4964,7 @@
       });
       select.addEventListener("change", (e) => {
         audioPolish = AP.updateControl(audioPolish, control.id, e.target.value);
+        invalidateAudioPolishResult();
         renderAudioPolish(summary);
       });
       controls.appendChild(field(control.label, select, null, control.hint));
@@ -4803,40 +4973,95 @@
 
     const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+      el("p", { class: "hint" }, polishSummary.assetLine),
     );
     const trackList = el("div", { class: "audio-track-list" });
-    audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+    audioPolish.speakers.forEach((track, index) => {
+      const trackSummary = AP.summarizePolishedTrack(track);
+      const status = trackSummary.status || "pending";
+      const trackEl = el(
+        "div",
+        { class: `audio-track audio-track-${status}` },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
+          el("span", { class: `audio-track-status audio-track-status-${status}`, "data-audio-track-status": String(index) }, audioTrackStatusLabel(status)),
         ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
+        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
       );
+      if (trackSummary.status === "complete") {
+        trackEl.appendChild(
+          el(
+            "p",
+            { class: "audio-track-asset", "data-audio-asset": String(index) },
+            `${trackSummary.fileName} · ${trackSummary.byteLength} bytes · ${trackSummary.mimeType}`,
+          ),
+        );
+      } else if (trackSummary.status === "failed") {
+        trackEl.appendChild(el("p", { class: "field-error" }, trackSummary.error || "This track could not be polished."));
+      } else if (trackSummary.status === "processing") {
+        trackEl.appendChild(el("p", { class: "hint audio-track-asset" }, "Processing imported media into a polished WAV asset…"));
+      } else {
+        trackEl.appendChild(el("p", { class: "hint audio-track-asset" }, "Ready to process when you apply audio."));
+      }
+      trackList.appendChild(trackEl);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
-      }
-    });
+    if (audioPolishError) {
+      view.appendChild(el("p", { class: "field-error audio-polish-result", role: "alert" }, audioPolishError));
+    } else if (isProcessing) {
+      view.appendChild(el("p", { class: "hint audio-polish-result", role: "status" }, "Processing imported speaker media and saving polished track assets…"));
+    } else if (polishSummary.readyForExport) {
+      view.appendChild(el("p", { class: "hint audio-polish-result" }, `${polishSummary.presetName} settings saved · ${polishSummary.assetLine}`));
+    }
+
+    const actions = el("div", { class: "actions" });
+    if (isProcessing) {
+      actions.appendChild(el("button", {
+        id: "audio-processing-button",
+        type: "button",
+        class: "primary",
+        disabled: true,
+      }, "Processing audio…"));
+    } else if (polishSummary.readyForExport) {
+      const continueButton = el("button", {
+        id: "audio-continue-button",
+        type: "button",
+        class: "primary",
+      }, "Continue →");
+      continueButton.addEventListener("click", () => continueAfterAudioPolish(summary));
+      const reapplyButton = el("button", {
+        id: "audio-reapply-button",
+        type: "button",
+        class: "ghost",
+      }, "Re-apply audio");
+      reapplyButton.addEventListener("click", () => {
+        applyAudioPolishAndStay(summary);
+      });
+      actions.appendChild(continueButton);
+      actions.appendChild(reapplyButton);
+    } else {
+      const applyButton = el("button", {
+        id: "audio-apply-button",
+        type: "button",
+        class: "primary",
+      }, "Apply audio & continue →");
+      applyButton.addEventListener("click", () => {
+        applyAudioPolishAndStay(summary);
+      });
+      actions.appendChild(applyButton);
+    }
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    actions.appendChild(back);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });

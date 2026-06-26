@@ -38,6 +38,21 @@
     return moments.filter((moment) => moment.type === "caption" && moment.visible !== false).length;
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
+  function audioPolishReady(audioPolish) {
+    const AP = audioPolishApi();
+    return AP && AP.hasCompletePolishedTracks
+      ? AP.hasCompletePolishedTracks(audioPolish)
+      : Boolean(audioPolish && audioPolish.readyForExport);
+  }
+
   function runChecks(episodeSummary, ctx) {
     const episode = episodeSummary || {};
     const context = ctx || {};
@@ -98,13 +113,13 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    if (audioPolishReady(context.audioPolish)) {
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${context.audioPolish.presetName} · ${context.audioPolish.assetLine || context.audioPolish.treatmentLine || "polished assets saved"}`,
         null,
       ));
     } else {
@@ -113,7 +128,7 @@
         "audio",
         "blocker",
         "Audio polish missing",
-        "Choose a sound quality preset so the episode audio is publish-ready.",
+        "Apply audio polish so every speaker track has a saved polished audio output.",
         { label: "Polish audio", target: FIX_TARGETS.audio },
       ));
     }
@@ -218,7 +233,7 @@
       ));
     }
 
-    const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+    const exportReady = Boolean(audioPolishReady(context.audioPolish)
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(
@@ -286,7 +301,9 @@
         id: "audio",
         label: "Audio polish",
         time: "15:00",
-        summary: context.audioPolish ? context.audioPolish.presetName : "Not set",
+        summary: context.audioPolish && audioPolishReady(context.audioPolish)
+          ? (context.audioPolish.assetLine || context.audioPolish.presetName)
+          : "Not applied",
         status: sectionStatus("audio"),
       },
       {
