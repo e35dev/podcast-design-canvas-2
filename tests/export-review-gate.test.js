@@ -11,6 +11,7 @@ const moments = require("../app/visual-moments.js");
 const contextApi = require("../app/social-context.js");
 const review = require("../app/publish-review.js");
 const exportApi = require("../app/episode-export.js");
+const fixture = require("./audio-fixture.js");
 
 let passed = 0;
 function test(name, fn) {
@@ -28,7 +29,7 @@ function completeDraft() {
     Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.mp4" }),
     Object.assign(setup.createSpeaker("Guest 2"), { name: "Alex Chen", fileName: "alex.mp4" }),
   ];
-  return draft;
+  return fixture.attachMediaToDraft(draft);
 }
 
 function exportContext(episode, options) {
@@ -39,7 +40,7 @@ function exportContext(episode, options) {
   let contextReview = contextApi.createReview(episode);
   contextReview = contextApi.approveReview(contextReview);
   let publishReview = review.createReview(episode, {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audio.summarizePolish(audio.processPolish(audio.createPolish(episode))),
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: "Founders Look",
     hasCanvas: true,
@@ -53,7 +54,7 @@ function exportContext(episode, options) {
     publishReview = review.approveReview(publishReview).review;
   }
   return {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audio.summarizePolish(audio.processPolish(audio.createPolish(episode))),
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: "Founders Look",
     momentsSummary: moments.summarizeBoard(board),

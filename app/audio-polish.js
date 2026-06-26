@@ -99,6 +99,12 @@
       name: (speaker && speaker.name) || "Unnamed speaker",
       sourceLabel: (speaker && speaker.sourceLabel) || "Source track",
       trackIndex: index + 1,
+      // Captured audio from the imported speaker media (see episode-setup capture).
+      media: (speaker && speaker.media) || "",
+      mediaName: (speaker && speaker.mediaName) || "",
+      mediaBytes: (speaker && speaker.mediaBytes) || 0,
+      mediaDurationSeconds: (speaker && speaker.mediaDurationSeconds) || 0,
+      mediaSourceHash: (speaker && speaker.mediaSourceHash) || "",
     }));
   }
 
@@ -142,6 +148,497 @@
     return `${preset.name} treatment · ${name}`;
   }
 
+  // ---- Real per-track audio processing (#197) ---------------------------------
+  //
+  // The polish step processes the actual imported speaker media. The setup screen
+  // captures each speaker's uploaded audio (decoded from the real file, resampled and
+  // bounded into speaker.media — see episode-setup capture), and this module decodes
+  // that captured audio, runs preset/level-keyed DSP over every sample, and re-encodes
+  // a standards-compliant 16-bit-mono WAV tied back to the source via a byte fingerprint.
+  // Nothing is synthesized from metadata. DOM-free so the polish UI and Node tests share
+  // one code path (the pure-JS WAV decode path; the browser also uses AudioContext for
+  // non-WAV uploads upstream at capture time).
+  const WAV_HEADER_BYTES = 44;
+  const TARGET_SAMPLE_RATE = 8000;
+  const MAX_CAPTURE_SECONDS = 2;
+  const WAV_DATA_URI_PREFIX = "data:audio/wav;base64,";
+
+  // Each control level maps to a processing strength; "strong" pushes the DSP hardest.
+  const LEVEL_STRENGTH = { light: 0.34, balanced: 0.67, strong: 1 };
+
+  function levelStrength(levelId) {
+    return Object.prototype.hasOwnProperty.call(LEVEL_STRENGTH, levelId)
+      ? LEVEL_STRENGTH[levelId]
+      : LEVEL_STRENGTH.balanced;
+  }
+
+  function bytesToBase64(bytes) {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+    }
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  function base64ToBytes(b64) {
+    const text = typeof b64 === "string" ? b64 : "";
+    if (typeof Buffer !== "undefined") {
+      return new Uint8Array(Buffer.from(text, "base64"));
+    }
+    const binary = atob(text);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      out[i] = binary.charCodeAt(i);
+    }
+    return out;
+  }
+
+  function base64ByteLength(b64) {
+    const text = typeof b64 === "string" ? b64 : "";
+    const len = text.length;
+    if (!len) {
+      return 0;
+    }
+    let padding = 0;
+    if (text.charAt(len - 1) === "=") {
+      padding += 1;
+    }
+    if (text.charAt(len - 2) === "=") {
+      padding += 1;
+    }
+    return Math.floor((len * 3) / 4) - padding;
+  }
+
+  // Standards-compliant 16-bit mono PCM WAV encoder.
+  function encodeWav(samples, sampleRate) {
+    const rate = sampleRate || TARGET_SAMPLE_RATE;
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const bytesPerSample = bitsPerSample / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = rate * blockAlign;
+    const dataSize = samples.length * bytesPerSample;
+    const buffer = new ArrayBuffer(WAV_HEADER_BYTES + dataSize);
+    const view = new DataView(buffer);
+    let p = 0;
+    function writeString(text) {
+      for (let i = 0; i < text.length; i += 1) {
+        view.setUint8(p, text.charCodeAt(i));
+        p += 1;
+      }
+    }
+    writeString("RIFF");
+    view.setUint32(p, 36 + dataSize, true); p += 4;
+    writeString("WAVE");
+    writeString("fmt ");
+    view.setUint32(p, 16, true); p += 4;          // PCM fmt chunk size
+    view.setUint16(p, 1, true); p += 2;           // audio format: PCM
+    view.setUint16(p, numChannels, true); p += 2;
+    view.setUint32(p, rate, true); p += 4;
+    view.setUint32(p, byteRate, true); p += 4;
+    view.setUint16(p, blockAlign, true); p += 2;
+    view.setUint16(p, bitsPerSample, true); p += 2;
+    writeString("data");
+    view.setUint32(p, dataSize, true); p += 4;
+    for (let i = 0; i < samples.length; i += 1) {
+      let s = samples[i];
+      if (s > 1) {
+        s = 1;
+      } else if (s < -1) {
+        s = -1;
+      }
+      view.setInt16(p, Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), true);
+      p += 2;
+    }
+    return new Uint8Array(buffer);
+  }
+
+  // Complete RIFF/WAVE decoder: walks chunks, reads fmt, downmixes data to mono floats.
+  function decodeWav(input) {
+    let bytes;
+    if (input instanceof Uint8Array) {
+      bytes = input;
+    } else if (input instanceof ArrayBuffer) {
+      bytes = new Uint8Array(input);
+    } else if (input && input.buffer) {
+      bytes = new Uint8Array(input.buffer, input.byteOffset || 0, input.byteLength);
+    } else {
+      throw new Error("decodeWav expects WAV bytes");
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    function readString(offset, length) {
+      let out = "";
+      for (let i = 0; i < length; i += 1) {
+        out += String.fromCharCode(view.getUint8(offset + i));
+      }
+      return out;
+    }
+    if (view.byteLength < WAV_HEADER_BYTES || readString(0, 4) !== "RIFF" || readString(8, 4) !== "WAVE") {
+      throw new Error("Not a RIFF/WAVE stream");
+    }
+    let offset = 12;
+    let format = null;
+    let dataOffset = -1;
+    let dataSize = 0;
+    while (offset + 8 <= view.byteLength) {
+      const chunkId = readString(offset, 4);
+      const chunkSize = view.getUint32(offset + 4, true);
+      const body = offset + 8;
+      if (chunkId === "fmt ") {
+        format = {
+          audioFormat: view.getUint16(body, true),
+          numChannels: view.getUint16(body + 2, true),
+          sampleRate: view.getUint32(body + 4, true),
+          bitsPerSample: view.getUint16(body + 14, true),
+        };
+      } else if (chunkId === "data") {
+        dataOffset = body;
+        dataSize = Math.min(chunkSize, view.byteLength - body);
+      }
+      offset = body + chunkSize + (chunkSize % 2); // chunks are word-aligned
+    }
+    if (!format) {
+      throw new Error("WAV stream is missing its fmt chunk");
+    }
+    if (dataOffset < 0) {
+      throw new Error("WAV stream is missing its data chunk");
+    }
+    if (format.bitsPerSample !== 16) {
+      throw new Error("Only 16-bit PCM WAV is supported");
+    }
+    const channels = format.numChannels || 1;
+    const frames = Math.floor(dataSize / 2 / channels);
+    const samples = new Float32Array(frames);
+    for (let i = 0; i < frames; i += 1) {
+      let sum = 0;
+      for (let c = 0; c < channels; c += 1) {
+        const raw = view.getInt16(dataOffset + (i * channels + c) * 2, true);
+        sum += raw < 0 ? raw / 0x8000 : raw / 0x7fff;
+      }
+      samples[i] = sum / channels;
+    }
+    return {
+      sampleRate: format.sampleRate,
+      numChannels: channels,
+      bitsPerSample: format.bitsPerSample,
+      samples: samples,
+    };
+  }
+
+  // FNV-1a fingerprint of arbitrary bytes — ties a polished asset to the exact source
+  // bytes it was derived from, so review/export can prove they consume real media.
+  function sourceFingerprint(input) {
+    let bytes;
+    if (input instanceof Uint8Array) {
+      bytes = input;
+    } else if (input instanceof ArrayBuffer) {
+      bytes = new Uint8Array(input);
+    } else if (input && input.buffer) {
+      bytes = new Uint8Array(input.buffer, input.byteOffset || 0, input.byteLength);
+    } else if (typeof input === "string") {
+      return stringFingerprint(input);
+    } else {
+      return "";
+    }
+    let hash = 2166136261;
+    for (let i = 0; i < bytes.length; i += 1) {
+      hash ^= bytes[i];
+      hash = (hash * 16777619) >>> 0;
+    }
+    return `src-${(hash >>> 0).toString(16)}-${bytes.length}`;
+  }
+
+  function stringFingerprint(text) {
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = (hash * 16777619) >>> 0;
+    }
+    return `src-${(hash >>> 0).toString(16)}-${text.length}`;
+  }
+
+  // Linear-interpolation resampler — brings any decoded audio to the target rate so the
+  // captured/stored excerpt is a small, uniform mono stream regardless of source format.
+  function resampleAudio(samples, fromRate, toRate) {
+    const source = samples || new Float32Array(0);
+    if (!fromRate || !toRate || fromRate === toRate) {
+      return Float32Array.from(source);
+    }
+    const ratio = toRate / fromRate;
+    const outLength = Math.max(1, Math.round(source.length * ratio));
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i += 1) {
+      const srcPos = i / ratio;
+      const left = Math.floor(srcPos);
+      const right = Math.min(source.length - 1, left + 1);
+      const frac = srcPos - left;
+      out[i] = source[left] * (1 - frac) + source[right] * frac;
+    }
+    return out;
+  }
+
+  // Turn decoded PCM from an imported file into the durable captured-media artifact:
+  // a bounded, resampled, mono 16-bit WAV preview plus the metadata review/export show.
+  function buildCapturedMedia(samples, sampleRate, options) {
+    const opts = options || {};
+    const fromRate = sampleRate || TARGET_SAMPLE_RATE;
+    const resampled = resampleAudio(samples, fromRate, TARGET_SAMPLE_RATE);
+    const maxSamples = Math.round(TARGET_SAMPLE_RATE * MAX_CAPTURE_SECONDS);
+    const bounded = resampled.length > maxSamples ? resampled.subarray(0, maxSamples) : resampled;
+    const bytes = encodeWav(bounded, TARGET_SAMPLE_RATE);
+    const fullDuration = (samples ? samples.length : 0) / fromRate;
+    return {
+      media: encodeWavDataUri(bytes),
+      sampleRate: TARGET_SAMPLE_RATE,
+      capturedSeconds: bounded.length / TARGET_SAMPLE_RATE,
+      durationSeconds: fullDuration,
+      sourceBytes: typeof opts.sourceBytes === "number" ? opts.sourceBytes : bytes.length,
+      sourceHash: opts.sourceFingerprint || sourceFingerprint(bytes),
+    };
+  }
+
+  // Per-sample DSP keyed to the chosen preset/control levels. Each stage does real
+  // work: noise gate + high-pass, pre-emphasis clarity, RMS leveling, and a saturating
+  // enhancement makeup pass. Stronger levels push each stage harder.
+  function processSamples(samples, polish) {
+    const state = polish || {};
+    const noise = levelStrength(state.noiseCleanup);
+    const leveling = levelStrength(state.leveling);
+    const clarity = levelStrength(state.speechClarity);
+    const enhancement = levelStrength(state.enhancement);
+    const total = samples.length;
+    const stageOne = new Float32Array(total);
+
+    // Noise cleanup: one-pole high-pass drops rumble; a soft gate ducks quiet hiss.
+    const hpCoefficient = 0.9 + noise * 0.08;
+    const gateThreshold = noise * 0.06;
+    // Speech clarity: pre-emphasis lifts consonants/presence.
+    const preEmphasis = clarity * 0.7;
+    let prevInput = 0;
+    let prevHighpass = 0;
+    for (let i = 0; i < total; i += 1) {
+      let x = samples[i];
+      if (Math.abs(x) < gateThreshold) {
+        x *= 1 - noise * 0.8;
+      }
+      const highpass = hpCoefficient * (prevHighpass + x - prevInput);
+      prevInput = x;
+      const clarified = highpass - preEmphasis * prevHighpass;
+      prevHighpass = highpass;
+      stageOne[i] = clarified;
+    }
+
+    // Voice leveling: normalize RMS toward a broadcast-ish target.
+    let energy = 0;
+    for (let i = 0; i < total; i += 1) {
+      energy += stageOne[i] * stageOne[i];
+    }
+    const rms = Math.sqrt(energy / Math.max(1, total)) || 1e-6;
+    const target = 0.2;
+    const levelGain = 1 + leveling * (target / rms - 1);
+
+    // Overall enhancement: makeup drive + soft saturation for warmth/polish.
+    const drive = 1 + enhancement * 0.9;
+    const out = new Float32Array(total);
+    for (let i = 0; i < total; i += 1) {
+      let v = stageOne[i] * levelGain * drive;
+      const saturated = Math.tanh(v);
+      v = v * (1 - enhancement) + saturated * enhancement;
+      if (v > 1) {
+        v = 1;
+      } else if (v < -1) {
+        v = -1;
+      }
+      out[i] = v;
+    }
+    return out;
+  }
+
+  // A deterministic fingerprint of the exact preset + control levels a track was
+  // processed at, so readiness can detect when settings changed after processing.
+  function computeSettingsHash(polish) {
+    const state = polish || {};
+    const key = [
+      state.presetId || "",
+      state.noiseCleanup || "",
+      state.leveling || "",
+      state.speechClarity || "",
+      state.enhancement || "",
+    ].join("|");
+    let hash = 5381;
+    for (let i = 0; i < key.length; i += 1) {
+      hash = (((hash << 5) + hash) ^ key.charCodeAt(i)) >>> 0;
+    }
+    return `ap1-${hash.toString(16)}`;
+  }
+
+  function encodeWavDataUri(bytes) {
+    return `${WAV_DATA_URI_PREFIX}${bytesToBase64(bytes)}`;
+  }
+
+  function clonePolish(polish) {
+    const base = polish || createPolish({});
+    return {
+      presetId: base.presetId,
+      noiseCleanup: base.noiseCleanup,
+      leveling: base.leveling,
+      speechClarity: base.speechClarity,
+      enhancement: base.enhancement,
+      speakers: Array.isArray(base.speakers)
+        ? base.speakers.map((speaker) => Object.assign({}, speaker))
+        : [],
+    };
+  }
+
+  function buildTrackState(speaker) {
+    return {
+      trackIndex: speaker.trackIndex,
+      role: speaker.role,
+      name: speaker.name,
+      sourceLabel: speaker.sourceLabel,
+      mediaName: speaker.mediaName || "",
+      mediaBytes: speaker.mediaBytes || 0,
+      mediaDurationSeconds: speaker.mediaDurationSeconds || 0,
+      mediaSourceHash: speaker.mediaSourceHash || "",
+      status: "idle",
+      processedAsset: "",
+      settingsHash: "",
+      error: "",
+    };
+  }
+
+  // The per-track settings hash binds BOTH the chosen preset/levels and the source-bytes
+  // fingerprint, so a polished asset is only "complete" while it matches its real source.
+  function trackSettingsHash(polish, sourceHash) {
+    return `${computeSettingsHash(polish)}~${sourceHash || ""}`;
+  }
+
+  // Decode the imported speaker media (real captured audio), run the DSP, re-encode.
+  // Missing/undecodable media throws so the track fails rather than fabricating audio.
+  function processOneTrack(polish, speaker, track) {
+    const media = speaker.media;
+    if (typeof media !== "string" || media.indexOf(WAV_DATA_URI_PREFIX) !== 0) {
+      throw new Error("No imported audio captured for this speaker — attach a media file to polish it.");
+    }
+    // The fingerprint of the original imported bytes is the single source of truth that
+    // binds the polished asset to the real upload; never fall back to hashing the preview.
+    const sourceHash = speaker.mediaSourceHash;
+    if (!sourceHash) {
+      throw new Error("Imported audio is missing its source fingerprint — re-import this speaker's media.");
+    }
+    const sourceBytes = base64ToBytes(media.slice(WAV_DATA_URI_PREFIX.length));
+    const decoded = decodeWav(sourceBytes); // genuinely decode the imported audio
+    if (!decoded.samples || decoded.samples.length === 0) {
+      throw new Error("Imported audio contained no samples to polish.");
+    }
+    const processed = processSamples(decoded.samples, polish);
+    const outputBytes = encodeWav(processed, decoded.sampleRate || TARGET_SAMPLE_RATE);
+    track.processedAsset = encodeWavDataUri(outputBytes);
+    track.mediaSourceHash = sourceHash;
+    track.processedSampleCount = processed.length;
+    track.settingsHash = trackSettingsHash(polish, sourceHash);
+    track.status = "complete";
+    track.error = "";
+    return track;
+  }
+
+  // Synchronous processing for tests and seeded demos.
+  function processPolish(polish) {
+    const base = clonePolish(polish);
+    base.tracks = base.speakers.map((speaker) => processOneTrack(base, speaker, buildTrackState(speaker)));
+    return base;
+  }
+
+  // Async processing for the apply handler: each track moves idle → processing →
+  // complete with a callback per transition, and a single failure stops the run and
+  // reports back without marking the polish complete.
+  function processPolishAsync(polish, options) {
+    const opts = options || {};
+    const onTrack = typeof opts.onTrack === "function" ? opts.onTrack : function () {};
+    const shouldFail = typeof opts.failOn === "function" ? opts.failOn : function () { return false; };
+    const base = clonePolish(polish);
+    base.tracks = base.speakers.map(buildTrackState);
+    let failed = false;
+    let chain = Promise.resolve();
+    base.tracks.forEach((track, index) => {
+      const speaker = base.speakers[index];
+      chain = chain.then(() => {
+        if (failed) {
+          return undefined;
+        }
+        track.status = "processing";
+        onTrack(track, index, "processing");
+        return Promise.resolve().then(() => {
+          if (shouldFail(track, index)) {
+            track.status = "failed";
+            track.error = "Audio processing failed for this track.";
+            failed = true;
+            onTrack(track, index, "failed");
+            return;
+          }
+          try {
+            processOneTrack(base, speaker, track);
+          } catch (err) {
+            track.status = "failed";
+            track.error = (err && err.message) || "Audio processing failed for this track.";
+            failed = true;
+          }
+          onTrack(track, index, track.status);
+        });
+      });
+    });
+    return chain.then(() => {
+      if (failed) {
+        const failedTrack = base.tracks.filter((entry) => entry.status === "failed")[0] || null;
+        return {
+          ok: false,
+          polish: base,
+          failedTrack: failedTrack,
+          error: (failedTrack && failedTrack.error) || "Audio processing failed.",
+        };
+      }
+      return { ok: true, polish: base };
+    });
+  }
+
+  // Readiness gate: every speaker track must hold a genuinely processed WAV that is
+  // bound to its real captured source (settings + source-bytes fingerprint). Used by
+  // export, publish review, and the workspace so none of them consume placeholder audio.
+  function hasCompletePolishedTracks(audioPolish) {
+    const ap = audioPolish || {};
+    const tracks = Array.isArray(ap.tracks) ? ap.tracks : [];
+    const speakerCount = Array.isArray(ap.speakers)
+      ? ap.speakers.length
+      : typeof ap.speakerCount === "number"
+        ? ap.speakerCount
+        : 0;
+    if (!speakerCount || tracks.length !== speakerCount) {
+      return false;
+    }
+    return tracks.every((track) => {
+      if (!track || track.status !== "complete") {
+        return false;
+      }
+      // Must be derived from real captured source media...
+      if (!track.mediaSourceHash) {
+        return false;
+      }
+      // ...at the currently chosen settings, bound to that exact source.
+      if (track.settingsHash !== trackSettingsHash(ap, track.mediaSourceHash)) {
+        return false;
+      }
+      const asset = track.processedAsset;
+      if (typeof asset !== "string" || asset.indexOf(WAV_DATA_URI_PREFIX) !== 0) {
+        return false;
+      }
+      return base64ByteLength(asset.slice(WAV_DATA_URI_PREFIX.length)) > WAV_HEADER_BYTES;
+    });
+  }
+
   function summarizePolish(polish) {
     const state = polish || createPolish({});
     const preset = getPreset(state.presetId);
@@ -163,6 +660,25 @@
       enhancementLabel: getLevel(state.enhancement).label,
       speakerCount: Array.isArray(state.speakers) ? state.speakers.length : 0,
       treatmentLine: controlSummary.join(" · "),
+      // Carry the processed tracks (and the settings they were processed at) so the
+      // export/review/workspace readiness gates can validate the real polished audio.
+      tracks: Array.isArray(state.tracks)
+        ? state.tracks.map((track) => ({
+          trackIndex: track.trackIndex,
+          role: track.role,
+          name: track.name,
+          status: track.status,
+          processedAsset: track.processedAsset,
+          settingsHash: track.settingsHash,
+          mediaName: track.mediaName || "",
+          mediaBytes: track.mediaBytes || 0,
+          mediaDurationSeconds: track.mediaDurationSeconds || 0,
+          mediaSourceHash: track.mediaSourceHash || "",
+        }))
+        : [],
+      polishedTrackCount: Array.isArray(state.tracks)
+        ? state.tracks.filter((track) => track.status === "complete").length
+        : 0,
     };
   }
 
@@ -173,7 +689,10 @@
     const options = extras || {};
     const lines = [];
     if (audio.presetName) {
-      lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})`);
+      const polishedNote = audio.polishedTrackCount
+        ? ` · ${audio.polishedTrackCount} track${audio.polishedTrackCount === 1 ? "" : "s"} polished`
+        : "";
+      lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})${polishedNote}`);
     }
     if (options.styleName) {
       lines.push(`Visual style: ${options.styleName}`);
@@ -208,6 +727,17 @@
     speakerIndicator,
     summarizePolish,
     buildReviewSummary,
+    encodeWav,
+    decodeWav,
+    encodeWavDataUri,
+    processSamples,
+    resampleAudio,
+    sourceFingerprint,
+    buildCapturedMedia,
+    computeSettingsHash,
+    processPolish,
+    processPolishAsync,
+    hasCompletePolishedTracks,
   };
 
   if (typeof module !== "undefined" && module.exports) {
