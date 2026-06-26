@@ -290,6 +290,89 @@
     return bytes;
   }
 
+  function arrayBufferFromBytes(bytes) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+
+  function browserAudioContextCtor() {
+    return global.AudioContext || global.webkitAudioContext || null;
+  }
+
+  function audioBufferToMono(audioBuffer) {
+    if (!audioBuffer || !audioBuffer.length || !audioBuffer.sampleRate) {
+      throw new Error("Imported source media decoded without audio samples.");
+    }
+    const channels = Math.max(1, Number(audioBuffer.numberOfChannels) || 1);
+    const samples = new Float32Array(audioBuffer.length);
+    for (let channel = 0; channel < channels; channel += 1) {
+      const channelData = audioBuffer.getChannelData(channel);
+      for (let index = 0; index < samples.length; index += 1) {
+        samples[index] += channelData[index] / channels;
+      }
+    }
+    for (let index = 0; index < samples.length; index += 1) {
+      samples[index] = clampSample(samples[index]);
+    }
+    return {
+      samples,
+      sampleRate: audioBuffer.sampleRate,
+      durationSeconds: audioBuffer.duration || samples.length / audioBuffer.sampleRate,
+    };
+  }
+
+  function closeAudioContext(context) {
+    if (context && typeof context.close === "function") {
+      try {
+        context.close();
+      } catch (err) {
+        /* ignore cleanup errors */
+      }
+    }
+  }
+
+  function decodeWithBrowserAudio(sourceBytes) {
+    const Ctor = browserAudioContextCtor();
+    if (!Ctor) {
+      return Promise.reject(new Error("Browser media decoding is not available in this environment."));
+    }
+    let context;
+    try {
+      context = new Ctor();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      function finish(fn, value) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        closeAudioContext(context);
+        fn(value);
+      }
+      function resolveBuffer(buffer) {
+        try {
+          finish(resolve, audioBufferToMono(buffer));
+        } catch (err) {
+          finish(reject, err);
+        }
+      }
+      try {
+        const result = context.decodeAudioData(
+          arrayBufferFromBytes(sourceBytes),
+          resolveBuffer,
+          (err) => finish(reject, err),
+        );
+        if (result && typeof result.then === "function") {
+          result.then(resolveBuffer, (err) => finish(reject, err));
+        }
+      } catch (err) {
+        finish(reject, err);
+      }
+    });
+  }
+
   function readAscii(view, offset, length) {
     let value = "";
     for (let index = 0; index < length; index += 1) {
@@ -403,6 +486,24 @@
     return decodeWav(sourceBytes);
   }
 
+  async function decodeSourceAudioAsync(sourceBytes) {
+    if (!sourceBytes || !sourceBytes.length) {
+      throw new Error("Imported source bytes were empty for this track.");
+    }
+    if (!browserAudioContextCtor()) {
+      return decodeSourceAudio(sourceBytes);
+    }
+    try {
+      return await decodeWithBrowserAudio(sourceBytes);
+    } catch (browserErr) {
+      try {
+        return decodeSourceAudio(sourceBytes);
+      } catch (wavErr) {
+        throw new Error("This browser could not decode the imported speaker media. Upload browser-playable audio/video, or use a WAV speaker track.");
+      }
+    }
+  }
+
   function levelStrength(polish, controlId) {
     return LEVEL_STRENGTH[getLevel(polish && polish[controlId]).id] || LEVEL_STRENGTH.balanced;
   }
@@ -476,49 +577,52 @@
     return btoa(binary);
   }
 
-  function processSpeakerTrack(track, index, polish, episodeSummary, options) {
+  function completeSpeakerTrack(normalized, index, polish, episodeSummary, sourceAsset, sourceBytes, decoded, options) {
     const opts = options || {};
-    const normalized = cloneTrack(track, index);
     const preset = getPreset(polish && polish.presetId);
     const fingerprint = sourceFingerprint(normalized, episodeSummary);
     const setHash = settingsHash(polish);
     const now = typeof opts.now === "number" ? opts.now : Date.now();
 
+    const processedSamples = applyPolishToSamples(decoded.samples, polish);
+    const wavBytes = encodeWav(processedSamples, decoded.sampleRate);
+    const outputHash = hashBytes(wavBytes);
+    const episodeStem = safeFileStem((episodeSummary && episodeSummary.episodeName) || "episode");
+    const roleStem = safeFileStem(normalized.role || `speaker-${index + 1}`);
+    const fileName = `${episodeStem}-${roleStem}-${preset.id}-polished.wav`;
+    return Object.assign({}, normalized, {
+      status: PROCESSING_STATUSES.COMPLETE,
+      error: "",
+      completedAt: now,
+      processedAsset: {
+        id: `polished-${fingerprint}-${setHash}`,
+        fileName: fileName,
+        mimeType: "audio/wav",
+        dataUri: `data:audio/wav;base64,${base64FromBytes(wavBytes)}`,
+        byteLength: wavBytes.length,
+        durationSeconds: decoded.durationSeconds,
+        sampleRate: decoded.sampleRate,
+        sourceFingerprint: fingerprint,
+        sourceLabel: normalized.sourceLabel,
+        sourceFileName: sourceAsset.fileName || normalized.sourceLabel,
+        sourceMimeType: sourceAsset.mimeType || "",
+        sourceByteLength: sourceAsset.byteLength || sourceBytes.length,
+        sourceHash: hashBytes(sourceBytes),
+        settingsHash: setHash,
+        outputHash: outputHash,
+        settings: stableSettings(polish),
+        createdAt: now,
+      },
+    });
+  }
+
+  function processSpeakerTrack(track, index, polish, episodeSummary, options) {
+    const normalized = cloneTrack(track, index);
     try {
       const sourceAsset = normalized.sourceAsset || {};
       const sourceBytes = bytesFromDataUri(sourceAsset.dataUri);
-      const sourceHash = hashBytes(sourceBytes);
       const decoded = decodeSourceAudio(sourceBytes);
-      const processedSamples = applyPolishToSamples(decoded.samples, polish);
-      const wavBytes = encodeWav(processedSamples, decoded.sampleRate);
-      const outputHash = hashBytes(wavBytes);
-      const episodeStem = safeFileStem((episodeSummary && episodeSummary.episodeName) || "episode");
-      const roleStem = safeFileStem(normalized.role || `speaker-${index + 1}`);
-      const fileName = `${episodeStem}-${roleStem}-${preset.id}-polished.wav`;
-      return Object.assign({}, normalized, {
-        status: PROCESSING_STATUSES.COMPLETE,
-        error: "",
-        completedAt: now,
-        processedAsset: {
-          id: `polished-${fingerprint}-${setHash}`,
-          fileName: fileName,
-          mimeType: "audio/wav",
-          dataUri: `data:audio/wav;base64,${base64FromBytes(wavBytes)}`,
-          byteLength: wavBytes.length,
-          durationSeconds: decoded.durationSeconds,
-          sampleRate: decoded.sampleRate,
-          sourceFingerprint: fingerprint,
-          sourceLabel: normalized.sourceLabel,
-          sourceFileName: sourceAsset.fileName || normalized.sourceLabel,
-          sourceMimeType: sourceAsset.mimeType || "",
-          sourceByteLength: sourceAsset.byteLength || sourceBytes.length,
-          sourceHash: sourceHash,
-          settingsHash: setHash,
-          outputHash: outputHash,
-          settings: stableSettings(polish),
-          createdAt: now,
-        },
-      });
+      return completeSpeakerTrack(normalized, index, polish, episodeSummary, sourceAsset, sourceBytes, decoded, options);
     } catch (err) {
       return Object.assign({}, normalized, {
         status: PROCESSING_STATUSES.FAILED,
@@ -527,13 +631,22 @@
     }
   }
 
-  function processPolish(polish, episodeSummary, options) {
-    const base = polish || createPolish(episodeSummary);
-    const sourceSpeakers = Array.isArray(base.speakers) && base.speakers.length
-      ? base.speakers
-      : buildSpeakerTracks(episodeSummary);
-    const processedSpeakers = sourceSpeakers.map((track, index) =>
-      processSpeakerTrack(track, index, base, episodeSummary, options));
+  async function processSpeakerTrackAsync(track, index, polish, episodeSummary, options) {
+    const normalized = cloneTrack(track, index);
+    try {
+      const sourceAsset = normalized.sourceAsset || {};
+      const sourceBytes = bytesFromDataUri(sourceAsset.dataUri);
+      const decoded = await decodeSourceAudioAsync(sourceBytes);
+      return completeSpeakerTrack(normalized, index, polish, episodeSummary, sourceAsset, sourceBytes, decoded, options);
+    } catch (err) {
+      return Object.assign({}, normalized, {
+        status: PROCESSING_STATUSES.FAILED,
+        error: err && err.message ? err.message : "Could not save polished audio for this track.",
+      });
+    }
+  }
+
+  function completePolishState(base, processedSpeakers, options) {
     const completeTrackCount = processedSpeakers.filter((track) => track.status === PROCESSING_STATUSES.COMPLETE).length;
     const failedTrackCount = processedSpeakers.filter((track) => track.status === PROCESSING_STATUSES.FAILED).length;
     const ok = processedSpeakers.length > 0 && failedTrackCount === 0 && completeTrackCount === processedSpeakers.length;
@@ -554,6 +667,26 @@
       processingResult: result,
       processedAt: typeof options === "object" && typeof options.now === "number" ? options.now : Date.now(),
     });
+  }
+
+  function processPolish(polish, episodeSummary, options) {
+    const base = polish || createPolish(episodeSummary);
+    const sourceSpeakers = Array.isArray(base.speakers) && base.speakers.length
+      ? base.speakers
+      : buildSpeakerTracks(episodeSummary);
+    const processedSpeakers = sourceSpeakers.map((track, index) =>
+      processSpeakerTrack(track, index, base, episodeSummary, options));
+    return completePolishState(base, processedSpeakers, options);
+  }
+
+  async function processPolishAsync(polish, episodeSummary, options) {
+    const base = polish || createPolish(episodeSummary);
+    const sourceSpeakers = Array.isArray(base.speakers) && base.speakers.length
+      ? base.speakers
+      : buildSpeakerTracks(episodeSummary);
+    const processedSpeakers = await Promise.all(sourceSpeakers.map((track, index) =>
+      processSpeakerTrackAsync(track, index, base, episodeSummary, options)));
+    return completePolishState(base, processedSpeakers, options);
   }
 
   function summarizePolishedTrack(track) {
@@ -708,6 +841,7 @@
     stableSettings,
     settingsHash,
     processPolish,
+    processPolishAsync,
     summarizePolishedTrack,
     hasCompletePolishedTracks,
     summarizePolish,

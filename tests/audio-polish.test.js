@@ -9,10 +9,15 @@ const setup = require("../app/episode-setup.js");
 const audio = require("../app/audio-polish.js");
 
 let passed = 0;
+const asyncTests = [];
 function test(name, fn) {
   fn();
   passed += 1;
   console.log(`  ok ${name}`);
+}
+
+function testAsync(name, fn) {
+  asyncTests.push({ name, fn });
 }
 
 function completeUploadDraft() {
@@ -154,6 +159,78 @@ test("processPolish saves durable WAV assets for every speaker track", () => {
   });
 });
 
+testAsync("processPolishAsync can process browser-decoded imported media", async () => {
+  const previousAudioContext = global.AudioContext;
+  const sourceBytes = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]);
+  let decodeCalls = 0;
+  let closed = false;
+
+  class FakeAudioContext {
+    decodeAudioData(arrayBuffer, resolve) {
+      decodeCalls += 1;
+      assert.strictEqual(arrayBuffer.byteLength, sourceBytes.length);
+      const left = new Float32Array([0, 0.18, -0.25, 0.35, -0.12, 0.08]);
+      const right = new Float32Array([0.02, 0.2, -0.2, 0.3, -0.1, 0.1]);
+      const buffer = {
+        length: left.length,
+        numberOfChannels: 2,
+        sampleRate: 44100,
+        duration: left.length / 44100,
+        getChannelData(channel) {
+          return channel === 0 ? left : right;
+        },
+      };
+      resolve(buffer);
+      return Promise.resolve(buffer);
+    }
+
+    close() {
+      closed = true;
+      return Promise.resolve();
+    }
+  }
+
+  global.AudioContext = FakeAudioContext;
+  try {
+    const episode = {
+      episodeName: "Browser Media Weekly",
+      sourceMode: "upload",
+      speakers: [{
+        role: "Host",
+        name: "Avery",
+        sourceLabel: "avery-host.mp4",
+        sourceAsset: setup.createSourceAsset(
+          "avery-host.mp4",
+          "video/mp4",
+          `data:video/mp4;base64,${sourceBytes.toString("base64")}`,
+          sourceBytes.length,
+          "upload",
+          { capturedByteLength: sourceBytes.length, capturedAt: 1700000000000 },
+        ),
+      }],
+    };
+    const processed = await audio.processPolishAsync(
+      audio.applyPreset(audio.createPolish(episode), "studio"),
+      episode,
+      { now: 1700000000000 },
+    );
+    const summary = audio.summarizePolish(processed);
+    const [track] = summary.polishedTracks;
+
+    assert.strictEqual(summary.readyForExport, true);
+    assert.strictEqual(track.status, "complete");
+    assert.strictEqual(track.sourceFileName, "avery-host.mp4");
+    assert.strictEqual(track.sourceMimeType, "video/mp4");
+    assert.strictEqual(track.sourceByteLength, sourceBytes.length);
+    assert.strictEqual(track.sampleRate, 44100);
+    assert.ok(track.byteLength > 44);
+    assert.strictEqual(decodeCalls, 1);
+    assert.strictEqual(closed, true);
+  } finally {
+    global.AudioContext = previousAudioContext;
+  }
+});
+
 test("processPolish derives output from imported source bytes", () => {
   const episode = setup.summarize(completeUploadDraft());
   const first = audio.summarizePolish(processPolish(episode));
@@ -233,4 +310,16 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
   assert.ok(review.summaryLines[0].includes("polished WAV assets saved"));
 });
 
-console.log(`\naudio polish: ${passed} assertions passed`);
+async function runAsyncTests() {
+  for (const item of asyncTests) {
+    await item.fn();
+    passed += 1;
+    console.log(`  ok ${item.name}`);
+  }
+  console.log(`\naudio polish: ${passed} assertions passed`);
+}
+
+runAsyncTests().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

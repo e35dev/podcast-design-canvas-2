@@ -25,11 +25,12 @@ const testScript = `
   const log = (ok, msg) => checks.push({ ok: Boolean(ok), msg });
   const wait = () => new Promise((resolve) => setTimeout(resolve, 0));
   const waitFor = async (predicate, label) => {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
       if (predicate()) return;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    throw new Error("Timed out waiting for " + label);
+    const text = (document.body && document.body.innerText ? document.body.innerText : "").replace(/\\s+/g, " ").slice(0, 1200);
+    throw new Error("Timed out waiting for " + label + " in " + text);
   };
   const button = (pattern) => Array.from(document.querySelectorAll("button")).find((item) => pattern.test(item.textContent || ""));
   const click = (target, label) => {
@@ -166,7 +167,23 @@ const testScript = `
     click(studioButton, "Studio preset");
     await wait();
     click(button(/Apply audio/), "Apply audio");
-    await wait();
+    await waitFor(
+      () => document.querySelectorAll(".audio-track-status-complete").length === 3,
+      "rendered audio polish completion",
+    );
+    await waitFor(
+      () => document.querySelectorAll("[data-audio-asset]").length === 3,
+      "rendered saved audio asset rows",
+    );
+    const renderedStatuses = Array.from(document.querySelectorAll(".audio-track-status"))
+      .map((item) => (item.textContent || "").trim());
+    const renderedAssets = Array.from(document.querySelectorAll("[data-audio-asset]"))
+      .map((item) => item.textContent || "");
+    const renderedResult = document.querySelector(".audio-polish-result");
+    log(renderedStatuses.join("|") === "Saved|Saved|Saved", "Rendered audio polish step shows every track saved after Apply");
+    log(renderedAssets.length === 3 && renderedAssets.every((text) => /-studio-polished\\.wav/.test(text)), "Rendered audio polish step shows durable polished asset filenames");
+    log(Boolean(renderedResult && /settings saved/.test(renderedResult.textContent || "")), "Rendered audio polish step shows saved settings result");
+    log(Boolean(button(/^Continue/)), "Completion exposes a separate Continue action after saved assets are visible");
 
     const saved = sessionAudio();
     log(saved.presetId === "studio", "Applied Studio settings are persisted");
