@@ -17,6 +17,20 @@
   let showCounter = 0;
   let episodeCounter = 0;
 
+  // Largest numeric suffix on ids like "show-5", or 0 when none — used to
+  // restore counters after a reload so new ids never collide with saved ones.
+  function highestIdNumber(items, prefix) {
+    var max = 0;
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      var id = item && item.id;
+      if (typeof id === "string" && id.indexOf(prefix) === 0) {
+        var n = parseInt(id.slice(prefix.length), 10);
+        if (isFinite(n) && n > max) max = n;
+      }
+    });
+    return max;
+  }
+
   function trim(value) {
     return typeof value === "string" ? value.trim() : "";
   }
@@ -217,6 +231,11 @@
     try {
       const parsed = JSON.parse(json);
       if (!parsed || !Array.isArray(parsed.shows)) return createLibrary();
+      showCounter = Math.max(showCounter, highestIdNumber(parsed.shows, "show-"));
+      parsed.shows.forEach(function (show) {
+        var eps = show && Array.isArray(show.episodes) ? show.episodes : [];
+        episodeCounter = Math.max(episodeCounter, highestIdNumber(eps, "ep-"));
+      });
       return parsed;
     } catch (err) {
       return createLibrary();

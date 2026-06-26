@@ -7,6 +7,20 @@
 (function (global) {
   let templateCounter = 0;
 
+  // Largest numeric suffix on ids like "tpl-5", or 0 when none — used to
+  // restore counters after a reload so new ids never collide with saved ones.
+  function highestIdNumber(items, prefix) {
+    var max = 0;
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      var id = item && item.id;
+      if (typeof id === "string" && id.indexOf(prefix) === 0) {
+        var n = parseInt(id.slice(prefix.length), 10);
+        if (isFinite(n) && n > max) max = n;
+      }
+    });
+    return max;
+  }
+
   function styleApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
       return require("./episode-style.js");
@@ -152,6 +166,7 @@
       if (!parsed || !Array.isArray(parsed.templates)) {
         return createStore();
       }
+      templateCounter = Math.max(templateCounter, highestIdNumber(parsed.templates, "tpl-"));
       return { templates: parsed.templates };
     } catch (err) {
       return createStore();
