@@ -5,6 +5,8 @@
 // Run with: `node tests/show-identity.test.js`.
 
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const setup = require("../app/episode-setup.js");
 const style = require("../app/episode-style.js");
 const editor = require("../app/canvas-editor.js");
@@ -12,6 +14,7 @@ const templates = require("../app/show-templates.js");
 const library = require("../app/show-library.js");
 const brandKit = require("../app/show-brand-kit.js");
 const identity = require("../app/show-identity.js");
+const setupUi = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "utf8");
 
 let passed = 0;
 function test(name, fn) {
@@ -75,6 +78,18 @@ function foundersShow(store) {
   });
 }
 
+function currentCastDraft() {
+  const draft = setup.createDraft();
+  draft.episodeName = "Current Cast Episode";
+  draft.sourceMode = "upload";
+  draft.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Robin Park", fileName: "robin.mp4" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Taylor Stone", fileName: "taylor.mp4" }),
+    Object.assign(setup.createSpeaker("Guest 2"), { name: "Morgan Vale", fileName: "morgan.mp4" }),
+  ];
+  return draft;
+}
+
 test("buildSetupDraft prefills episode name, real speaker names, and social context", () => {
   library._resetCounters();
   const show = foundersShow(templateStoreForShow());
@@ -105,6 +120,41 @@ test("buildEpisodeStart carries saved template layout and brand kit into present
   assert.strictEqual(start.appliedStyle.background, "#0d1117");
   assert.strictEqual(start.brandKit.logoLabel, "Founders mark");
   assert.ok(start.identity.lines.some((line) => /Brand kit:/.test(line)));
+});
+
+test("buildEpisodeStart applies saved identity without replacing current episode speakers", () => {
+  library._resetCounters();
+  const store = templateStoreForShow();
+  const show = foundersShow(store);
+  const currentDraft = currentCastDraft();
+  const start = identity.buildEpisodeStart(show, store, { setupDraft: currentDraft });
+
+  assert.deepStrictEqual(
+    start.setupDraft.speakers.map((speaker) => `${speaker.role}:${speaker.name}`),
+    ["Host:Robin Park", "Guest 1:Taylor Stone", "Guest 2:Morgan Vale"],
+  );
+  assert.deepStrictEqual(
+    start.canvasDoc.speakerFrames.map((frame) => `${frame.role}:${frame.name}`),
+    ["Host:Robin Park", "Guest 1:Taylor Stone", "Guest 2:Morgan Vale"],
+  );
+  assert.strictEqual(start.templateName, "Founders Format");
+  assert.strictEqual(start.appliedStyle.presetName, "Split Stage");
+});
+
+test("UI refreshes saved template speaker frames from current episode assignments", () => {
+  const handoffBlock = setupUi.slice(
+    setupUi.indexOf("function tryCompleteSetupHandoff"),
+    setupUi.indexOf("function onContinue"),
+  );
+  const resumeBlock = setupUi.slice(
+    setupUi.indexOf("function resumeEpisodeFromShow"),
+    setupUi.indexOf("// ---- Setup view"),
+  );
+
+  assert.ok(setupUi.includes("function refreshCanvasSpeakersForSummary"));
+  assert.ok(handoffBlock.includes("refreshCanvasSpeakersForSummary(summary)"));
+  assert.ok(resumeBlock.includes("setupDraft: snapshot.setupDraft"));
+  assert.ok(resumeBlock.includes("refreshCanvasSpeakersForSummary(ES.summarize(state))"));
 });
 
 test("buildBlankEpisodeStart preserves the generic new-episode path", () => {

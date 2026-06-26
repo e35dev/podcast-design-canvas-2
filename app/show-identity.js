@@ -274,7 +274,9 @@
 
   function buildEpisodeStart(show, templateStore, options) {
     const opts = options || {};
-    const setupDraft = buildSetupDraft(show);
+    const setupDraft = opts.setupDraft
+      ? sanitizeSetupDraft(opts.setupDraft, show)
+      : buildSetupDraft(show);
     const presentation = buildAppliedPresentation(show, templateStore, setupDraft, opts.templateId);
     const identity = summarizeShowIdentity(show, presentation);
 

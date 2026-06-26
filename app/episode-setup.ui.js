@@ -1545,6 +1545,12 @@
     layoutCustomized = Boolean(styleSelection && styleSelection.layout && styleSelection.layout !== "auto");
   }
 
+  function refreshCanvasSpeakersForSummary(summary) {
+    if (canvasDoc && CE) {
+      canvasDoc = CE.refreshSpeakerFrames(canvasDoc, summary, styleSelection);
+    }
+  }
+
   function startBlankEpisode() {
     activeShowId = null;
     applyEpisodeStart(SI ? SI.buildBlankEpisodeStart() : null);
@@ -1767,7 +1773,10 @@
     activeEpisodeId = episodeId;
     const sessions = loadEpisodeSessions();
     const snapshot = sessions[episodeSessionKey(showId, episodeId)];
-    const start = SI.buildEpisodeStart(show, templateStore);
+    const startOptions = snapshot && snapshot.setupDraft
+      ? { setupDraft: snapshot.setupDraft, templateId: snapshot.activeTemplateId || undefined }
+      : null;
+    const start = SI.buildEpisodeStart(show, templateStore, startOptions);
 
     resetEpisodeSession();
     activeShowId = showId;
@@ -1786,6 +1795,7 @@
       state = SI.sanitizeSetupDraft(state, show);
     }
     state.episodeName = episode.name;
+    refreshCanvasSpeakersForSummary(ES.summarize(state));
 
     const destination = FLOW ? FLOW.resumeDestination(snapshot || buildEpisodeSessionSnapshot()) : "setup";
     setPageIntro("episode-setup");
@@ -2533,6 +2543,7 @@
     if (STY && styleSelection) {
       appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
     }
+    refreshCanvasSpeakersForSummary(summary);
     persistEpisodeSession();
     renderWorkspace(summary);
     return true;
