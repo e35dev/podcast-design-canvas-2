@@ -178,6 +178,20 @@
     }
   }
 
+  function listTemplatesForCurrentShow() {
+    if (!TM || !activeShowId) {
+      return [];
+    }
+    return TM.listTemplatesForShow(templateStore, activeShowId);
+  }
+
+  function listTemplatesForShowId(showId) {
+    if (!TM || !showId) {
+      return [];
+    }
+    return TM.listTemplatesForShow(templateStore, showId);
+  }
+
   function safeLoadShowLibrary() {
     try {
       return typeof localStorage !== "undefined" ? localStorage.getItem(LIB_STORAGE_KEY) : null;
@@ -856,6 +870,10 @@
         const meta = [];
         if (show.templateName) meta.push(show.templateName);
         if (show.presetName) meta.push(show.presetName);
+        const scopedTemplateCount = listTemplatesForShowId(show.id).length;
+        if (scopedTemplateCount) {
+          meta.push(`${scopedTemplateCount} saved layout${scopedTemplateCount === 1 ? "" : "s"}`);
+        }
         if (show.brandKit && BK) {
           const brandLine = BK.summarizeBrandKit(show.brandKit).identityLine;
           if (brandLine && brandLine !== "No brand kit configured") {
@@ -1181,6 +1199,8 @@
 
     const episodesCard = el("section", { class: "card show-episodes-card" }, el("h2", {}, "Episodes"), epListEl);
 
+    const templatesCard = renderShowDetailTemplatesCard(showId, show.name);
+
     const kit = show.brandKit;
     const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
     const brandCard = el("section", { class: "card brand-kit-card show-secondary-step-card" }, el("h2", {}, sections.secondary.title));
@@ -1198,8 +1218,57 @@
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
     brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
 
-    const view = el("div", { class: "workspace-root" }, header, primaryCard, episodesCard, brandCard);
+    const view = el("div", { class: "workspace-root show-detail-root" }, header, primaryCard, episodesCard, templatesCard, brandCard);
     root.appendChild(view);
+  }
+
+  function renderShowDetailTemplatesCard(showId, showName) {
+    const card = el("section", { class: "card show-templates-card show-scoped-section" });
+    card.appendChild(el("h2", {}, "Saved layouts"));
+    card.appendChild(
+      el(
+        "p",
+        { class: "hint show-scoped-section-lead" },
+        `Reusable templates saved for ${showName}. Start a new episode from this show to apply them — layouts from other shows stay separate.`,
+      ),
+    );
+    if (!TM) {
+      card.appendChild(el("p", { class: "hint" }, "Template library unavailable."));
+      return card;
+    }
+    const saved = listTemplatesForShowId(showId);
+    if (!saved.length) {
+      card.appendChild(
+        el(
+          "p",
+          { class: "hint show-templates-empty" },
+          "No saved layouts yet — customize a layout in the canvas editor during an episode, then save it here for this show.",
+        ),
+      );
+      return card;
+    }
+    const list = el("div", { class: "show-template-list template-list" });
+    saved.forEach((item) => {
+      const row = el(
+        "div",
+        { class: "show-template-row template-row" },
+        el("span", { class: "template-row-name" }, item.name),
+        el(
+          "span",
+          { class: "template-row-meta hint" },
+          `${item.presetName || "Custom"} · ${item.titleText || "Untitled"}`,
+        ),
+      );
+      const startBtn = el("button", { type: "button", class: "btn-secondary btn-sm" }, "Start episode with layout →");
+      startBtn.addEventListener("click", () => {
+        activeShowId = showId;
+        startEpisodeFromShow(showId);
+      });
+      row.appendChild(startBtn);
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+    return card;
   }
 
   function renderBrandKitEditor(showId) {
@@ -2792,7 +2861,7 @@
     view.appendChild(el("div", { class: "actions workspace-actions" }, editSetup));
 
     if (TM) {
-      const saved = TM.listTemplates(templateStore);
+      const saved = listTemplatesForCurrentShow();
       if (saved.length || GAL) {
         view.appendChild(renderSavedTemplatesCard(saved, summary));
       }
@@ -3360,7 +3429,7 @@
     optionsCard.appendChild(field("Captions", captionSelect, null, EXP.getCaptionMode(exportJob.captionMode).tagline));
 
     if (TM) {
-      const saved = TM.listTemplates(templateStore);
+      const saved = listTemplatesForCurrentShow();
       if (saved.length) {
         const templateSelect = el("select", { id: "export-template" });
         templateSelect.appendChild(el("option", { value: "" }, "No saved template"));
@@ -3840,13 +3909,16 @@
   }
 
   function renderSavedTemplatesCard(saved, summary, returnTo) {
-    const card = el("section", { class: "card template-picker template-library creator-template-area" });
-    card.appendChild(el("h3", {}, "Show template library"));
+    const show = activeShowId && LIB ? LIB.getShow(showLibrary, activeShowId) : null;
+    const card = el("section", { class: "card template-picker template-library creator-template-area show-scoped-section" });
+    card.appendChild(el("h3", {}, show ? `${show.name} template library` : "Show template library"));
     card.appendChild(
       el(
         "p",
-        { class: "hint" },
-        "Pick a saved layout and style — your current episode speakers stay assigned. Publish layouts to the creator gallery for other shows to browse.",
+        { class: "hint show-scoped-section-lead" },
+        show
+          ? `Pick a saved layout for ${show.name} — your current episode speakers stay assigned. Layouts from other shows are kept separate in the library.`
+          : "Pick a saved layout and style — your current episode speakers stay assigned. Publish layouts to the creator gallery for other shows to browse.",
       ),
     );
 
@@ -4188,7 +4260,7 @@
       disabled: evaluation.overall !== "ready" ? true : null,
     }, "Save show template →");
     saveButton.addEventListener("click", () => {
-      const nameResult = TM.validateTemplateName(templateStore, nameInput.value, activeTemplateId);
+      const nameResult = TM.validateTemplateName(templateStore, nameInput.value, activeTemplateId, activeShowId || "");
       const canvasResult = CE.validateForSave(canvasDoc);
       if (!nameResult.ok) {
         saveError.hidden = false;
@@ -4201,10 +4273,18 @@
         return;
       }
       saveError.hidden = true;
+      let reuseTemplateId;
+      if (activeTemplateId) {
+        const existing = TM.getTemplate(templateStore, activeTemplateId);
+        if (existing && (existing.showId || "") === (activeShowId || "")) {
+          reuseTemplateId = activeTemplateId;
+        }
+      }
       const template = TM.createTemplate(
         nameResult.name,
         canvasDoc,
-        activeTemplateId || undefined,
+        reuseTemplateId,
+        activeShowId || "",
       );
       templateStore = TM.saveTemplate(templateStore, template);
       activeTemplateId = template.id;
@@ -4920,7 +5000,7 @@
     view.appendChild(layoutGrid);
 
     if (TM) {
-      const saved = TM.listTemplates(templateStore);
+      const saved = listTemplatesForCurrentShow();
       if (saved.length || GAL) {
         view.appendChild(renderSavedTemplatesCard(saved, summary, "style"));
       }
@@ -4955,6 +5035,10 @@
   // Initialize show library from localStorage, then show the library dashboard first.
   if (LIB) {
     showLibrary = LIB.deserializeLibrary(safeLoadShowLibrary());
+  }
+  if (TM && LIB) {
+    templateStore = TM.reconcileTemplateShowIds(templateStore, showLibrary);
+    persistTemplates();
   }
   renderShowLibrary();
 }());
