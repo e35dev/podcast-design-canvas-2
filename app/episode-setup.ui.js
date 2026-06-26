@@ -1181,6 +1181,27 @@
 
     const episodesCard = el("section", { class: "card show-episodes-card" }, el("h2", {}, "Episodes"), epListEl);
 
+    const showTemplates = TM ? TM.listTemplatesForShow(templateStore, showId) : [];
+    const templatesCard = el("section", { class: "card show-templates-card" }, el("h2", {}, "Saved templates"));
+    if (!showTemplates.length) {
+      templatesCard.appendChild(
+        el("p", { class: "hint" }, "No saved templates for this show yet — save a layout from the canvas editor and it will be grouped here under this show."),
+      );
+    } else {
+      const tList = el("ul", { class: "show-template-list" });
+      showTemplates.forEach((template) => {
+        tList.appendChild(
+          el(
+            "li",
+            { class: "show-template-row" },
+            el("strong", {}, template.name),
+            template.presetName ? ` · ${template.presetName}` : "",
+          ),
+        );
+      });
+      templatesCard.appendChild(tList);
+    }
+
     const kit = show.brandKit;
     const kitSummary = BK && kit ? BK.summarizeBrandKit(kit) : null;
     const brandCard = el("section", { class: "card brand-kit-card show-secondary-step-card" }, el("h2", {}, sections.secondary.title));
@@ -1198,7 +1219,7 @@
     editBrandBtn.addEventListener("click", () => renderBrandKitEditor(showId));
     brandCard.appendChild(el("div", { class: "brand-kit-actions" }, editBrandBtn));
 
-    const view = el("div", { class: "workspace-root" }, header, primaryCard, episodesCard, brandCard);
+    const view = el("div", { class: "workspace-root" }, header, primaryCard, episodesCard, templatesCard, brandCard);
     root.appendChild(view);
   }
 
@@ -4205,6 +4226,7 @@
         nameResult.name,
         canvasDoc,
         activeTemplateId || undefined,
+        activeShowId || null,
       );
       templateStore = TM.saveTemplate(templateStore, template);
       activeTemplateId = template.id;

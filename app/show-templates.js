@@ -50,11 +50,12 @@
     return { ok: true, name: trimmed };
   }
 
-  function createTemplate(name, canvasDoc, id) {
+  function createTemplate(name, canvasDoc, id, showId) {
     templateCounter += 1;
     return {
       id: id || `tpl-${templateCounter}`,
       name: normalizeName(name),
+      showId: showId || null,
       createdAt: Date.now(),
       canvas: cloneCanvas(canvasDoc),
     };
@@ -84,7 +85,16 @@
       createdAt: template.createdAt,
       presetName: template.canvas && template.canvas.presetName,
       titleText: template.canvas && template.canvas.titleText,
+      showId: template.showId || null,
     }));
+  }
+
+  // Templates scoped to one show identity, so the library can group saved
+  // layouts under the correct podcast/show instead of a flat global list.
+  function listTemplatesForShow(store, showId) {
+    return listTemplates(store).filter(function (template) {
+      return template.showId === showId;
+    });
   }
 
   function getTemplate(store, id) {
@@ -180,6 +190,7 @@
     createTemplate,
     saveTemplate,
     listTemplates,
+    listTemplatesForShow,
     getTemplate,
     applyTemplate,
     applyTemplateForEpisode,
