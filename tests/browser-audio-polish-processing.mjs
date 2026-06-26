@@ -36,21 +36,20 @@ function startServer() {
   });
 }
 
-async function completeUploadSetup(page) {
+async function completeFreshSetup(page) {
   await page.getByRole("button", { name: "Start blank episode" }).click();
   await page.waitForSelector("form.setup-import");
-  await page.locator('input[name="sourceMode"][value="upload"]').check();
   await page.locator("#f-episodeName").fill(EPISODE_NAME);
+  await page.locator("#f-riversideLink").fill("https://riverside.fm/studio/indie-makers-ep3");
   for (let index = 0; index < SPEAKERS.length; index += 1) {
     await page.locator(`#f-sp-${index}-name`).fill(SPEAKERS[index]);
-    await page.locator(`#f-sp-${index}-source`).locator("xpath=ancestor::*[contains(@class,'speaker-card')]").locator(".file-placeholder-btn").click();
   }
   await page.locator(".setup-preset-card").first().click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
 
 async function polishAndApply(page) {
-  await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
+  await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/i }).first().click();
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").filter({ hasText: "Studio" }).click();
   await page.getByRole("button", { name: "Apply audio & continue →" }).click();
@@ -79,7 +78,7 @@ async function main() {
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: "networkidle" });
 
-    await completeUploadSetup(page);
+    await completeFreshSetup(page);
     await polishAndApply(page);
 
     const workspaceText = await page.locator(".guided-workspace").innerText();
@@ -89,15 +88,15 @@ async function main() {
     log(/polished track/i.test(checklistText) || /Studio/.test(checklistText), "Production checklist reflects saved polished audio");
 
     await page.reload({ waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /Indie Makers Weekly/i }).first().click();
-    await page.getByRole("button", { name: "Resume →" }).click();
+    await page.getByRole("button", { name: "Open" }).first().click();
+    await page.getByRole("button", { name: "Resume →" }).first().click();
     await page.locator(".guided-workspace").waitFor({ state: "visible" });
 
     const resumedText = await page.locator(".guided-workspace").innerText();
     log(resumedText.includes(EPISODE_NAME), "Reloaded episode resumes into the same workspace");
     log(/polished track/i.test(resumedText) || /Studio/.test(resumedText), "Reload preserves applied audio polish state");
 
-    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
+    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/i }).first().click();
     await page.locator(".audio-step").waitFor();
     const audioText = await page.locator(".audio-step").innerText();
     log(/Saved · .*polished\.wav/i.test(audioText), "Audio polish panel shows saved polished WAV outputs per track");
