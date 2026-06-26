@@ -115,7 +115,7 @@ test("serialize and deserialize preserve show-scoped template grouping", () => {
 
   simulateReload();
   lib = library.deserializeLibrary(library.serializeLibrary(lib));
-  store = templates.deserializeStore(templates.serializeStore(store));
+  store = templates.hydrateTemplateStore(templates.serializeStore(store), lib);
 
   const scoped = templates.listTemplatesForShow(store, show.id);
   assert.strictEqual(scoped.length, 1);
@@ -141,7 +141,7 @@ test("ACCEPTANCE: new episodes and templates stay under the same show after relo
 
   simulateReload();
   lib = library.deserializeLibrary(library.serializeLibrary(lib));
-  store = templates.deserializeStore(templates.serializeStore(store));
+  store = templates.hydrateTemplateStore(templates.serializeStore(store), lib);
 
   const nextEpisode = library.createEpisode(showA.id, "Episode 2");
   lib = library.addEpisode(lib, showA.id, nextEpisode);
@@ -158,6 +158,76 @@ test("ACCEPTANCE: new episodes and templates stay under the same show after relo
   const start = identity.buildEpisodeStart(library.getShow(lib, showA.id), store);
   assert.strictEqual(start.showId, showA.id);
   assert.ok(start.setupDraft.episodeName.includes("Founders Unfiltered"));
+});
+
+test("reconcileTemplateShowIds is idempotent", () => {
+  simulateReload();
+  let lib = library.createLibrary();
+  const show = library.createShow("Founders Unfiltered", { templateId: "tpl-legacy" });
+  lib = library.addShow(lib, show);
+
+  let store = templates.createStore();
+  store = templates.saveTemplate(store, templates.createTemplate("Founders Format", minimalCanvas("Founders"), "tpl-legacy", ""));
+
+  const once = templates.reconcileTemplateShowIds(store, lib);
+  const twice = templates.reconcileTemplateShowIds(once, lib);
+  assert.strictEqual(templates.listTemplatesForShow(twice, show.id).length, 1);
+  assert.strictEqual(templates.getTemplate(twice, "tpl-legacy").showId, show.id);
+  assert.deepStrictEqual(
+    templates.listTemplatesForShow(twice, show.id).map((item) => item.id),
+    templates.listTemplatesForShow(once, show.id).map((item) => item.id),
+  );
+});
+
+test("hydrateTemplateStore reconciles legacy templates after reload", () => {
+  simulateReload();
+  let lib = library.createLibrary();
+  const show = library.createShow("Creator Show", { templateId: "tpl-legacy" });
+  lib = library.addShow(lib, show);
+
+  let store = templates.createStore();
+  store = templates.saveTemplate(store, templates.createTemplate("Legacy Layout", minimalCanvas("Legacy"), "tpl-legacy", ""));
+
+  simulateReload();
+  lib = library.deserializeLibrary(library.serializeLibrary(lib));
+  store = templates.hydrateTemplateStore(templates.serializeStore(store), lib);
+
+  assert.strictEqual(templates.listTemplatesForShow(store, show.id).length, 1);
+  assert.strictEqual(templates.getTemplate(store, "tpl-legacy").showId, show.id);
+});
+
+test("buildEpisodeStart applies an explicit saved layout scoped to the show", () => {
+  simulateReload();
+  let lib = library.createLibrary();
+  const show = library.createShow("Founders Unfiltered");
+  lib = library.addShow(lib, show);
+
+  let store = templates.createStore();
+  store = templates.saveTemplate(store, templates.createTemplate("Default Look", minimalCanvas("Default"), "tpl-default", show.id));
+  store = templates.saveTemplate(store, templates.createTemplate("Alt Look", minimalCanvas("Alt"), "tpl-alt", show.id));
+
+  const start = identity.buildEpisodeStart(library.getShow(lib, show.id), store, { templateId: "tpl-alt" });
+  assert.strictEqual(start.showId, show.id);
+  assert.strictEqual(start.templateId, "tpl-alt");
+  assert.strictEqual(start.templateName, "Alt Look");
+  assert.ok(start.canvasDoc);
+});
+
+test("buildEpisodeStart ignores templates from another show", () => {
+  simulateReload();
+  let lib = library.createLibrary();
+  const showA = library.createShow("Show A");
+  const showB = library.createShow("Show B");
+  lib = library.addShow(lib, showA);
+  lib = library.addShow(lib, showB);
+
+  let store = templates.createStore();
+  store = templates.saveTemplate(store, templates.createTemplate("Show B Look", minimalCanvas("B"), "tpl-b", showB.id));
+
+  const start = identity.buildEpisodeStart(library.getShow(lib, showA.id), store, { templateId: "tpl-b" });
+  assert.strictEqual(start.showId, showA.id);
+  assert.strictEqual(start.templateId, "");
+  assert.strictEqual(start.templateName, "");
 });
 
 console.log(`\nshow scoped library: ${passed} test(s) passed.`);

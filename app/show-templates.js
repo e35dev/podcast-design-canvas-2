@@ -211,6 +211,14 @@
     }
   }
 
+  function hydrateTemplateStore(json, library) {
+    let store = deserializeStore(json);
+    if (library) {
+      store = reconcileTemplateShowIds(store, library);
+    }
+    return store;
+  }
+
   function _resetTemplateCounter() {
     templateCounter = 0;
   }
@@ -229,6 +237,7 @@
     styleSelectionFromCanvas,
     serializeStore,
     deserializeStore,
+    hydrateTemplateStore,
     _resetTemplateCounter,
   };
 

@@ -1261,8 +1261,7 @@
       );
       const startBtn = el("button", { type: "button", class: "btn-secondary btn-sm" }, "Start episode with layout →");
       startBtn.addEventListener("click", () => {
-        activeShowId = showId;
-        startEpisodeFromShow(showId);
+        startEpisodeFromShow(showId, item.id);
       });
       row.appendChild(startBtn);
       list.appendChild(row);
@@ -1649,7 +1648,7 @@
     renderSetup();
   }
 
-  function startEpisodeFromShow(showId) {
+  function startEpisodeFromShow(showId, templateId) {
     if (!LIB || !SI) {
       startBlankEpisode();
       return;
@@ -1659,7 +1658,8 @@
       renderShowLibrary();
       return;
     }
-    const start = SI.buildEpisodeStart(show, templateStore);
+    const startOptions = templateId ? { templateId: templateId } : null;
+    const start = SI.buildEpisodeStart(show, templateStore, startOptions);
     applyEpisodeStart(start);
 
     const episode = LIB.createEpisode(showId, state.episodeName, {
@@ -5036,8 +5036,8 @@
   if (LIB) {
     showLibrary = LIB.deserializeLibrary(safeLoadShowLibrary());
   }
-  if (TM && LIB) {
-    templateStore = TM.reconcileTemplateShowIds(templateStore, showLibrary);
+  if (TM) {
+    templateStore = TM.hydrateTemplateStore(safeLoadTemplates(), showLibrary);
     persistTemplates();
   }
   renderShowLibrary();
