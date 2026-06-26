@@ -11,6 +11,7 @@ const moments = require("../app/visual-moments.js");
 const workspace = require("../app/episode-workspace.js");
 const review = require("../app/publish-review.js");
 const exportApi = require("../app/episode-export.js");
+const fixture = require("./audio-fixture.js");
 
 let passed = 0;
 function test(name, fn) {
@@ -27,7 +28,7 @@ function completeDraft() {
     Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "sam.mp4" }),
     Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.mp4" }),
   ];
-  return draft;
+  return fixture.attachMediaToDraft(draft);
 }
 
 function baseCtx(episode, overrides) {
@@ -36,7 +37,7 @@ function baseCtx(episode, overrides) {
   board = moments.addMoment(board, "caption", { time: 30, text: "Welcome", speakerRole: "Host" });
   return Object.assign({
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audio.summarizePolish(audio.processPolish(audio.createPolish(episode))),
     templateName: "Founders Format",
     momentsSummary: moments.summarizeBoard(board),
     contextApproved: true,

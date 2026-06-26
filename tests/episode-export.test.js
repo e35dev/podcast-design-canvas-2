@@ -10,6 +10,7 @@ const style = require("../app/episode-style.js");
 const audio = require("../app/audio-polish.js");
 const moments = require("../app/visual-moments.js");
 const exportApi = require("../app/episode-export.js");
+const fixture = require("./audio-fixture.js");
 
 let passed = 0;
 function test(name, fn) {
@@ -27,13 +28,13 @@ function completeUploadDraft() {
     Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.mp4" }),
     Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.mp4" }),
   ];
-  return draft;
+  return fixture.attachMediaToDraft(draft);
 }
 
 function completeContext(episode) {
   const selection = style.createSelection();
   const appliedStyle = style.summarizeStyle(selection, episode.speakerCount);
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  const polish = audio.summarizePolish(audio.processPolish(audio.createPolish(episode)));
   const board = moments.createBoard(episode);
   const withMoment = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   const momentsSummary = moments.summarizeBoard(withMoment);

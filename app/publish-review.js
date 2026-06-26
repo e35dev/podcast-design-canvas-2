@@ -21,6 +21,14 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
   function check(id, sectionId, tone, title, message, action) {
     return {
       id: id,
@@ -42,6 +50,8 @@
     const episode = episodeSummary || {};
     const context = ctx || {};
     const checks = [];
+    const AP = audioPolishApi();
+    const audioReady = Boolean(AP && AP.hasCompletePolishedTracks(context.audioPolish));
     const speakers = Array.isArray(episode.speakers) ? episode.speakers : [];
 
     const unnamed = speakers.filter((speaker) => !speaker.name || !speaker.name.trim());
@@ -98,13 +108,17 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    if (audioReady) {
+      const bed = AP.buildPolishedAudioBed(context.audioPolish);
+      const polishedNote = bed.trackCount
+        ? ` · ${bed.trackCount} polished WAV track${bed.trackCount === 1 ? "" : "s"} ready as the export source`
+        : "";
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}${polishedNote}`,
         null,
       ));
     } else {
@@ -113,7 +127,7 @@
         "audio",
         "blocker",
         "Audio polish missing",
-        "Choose a sound quality preset so the episode audio is publish-ready.",
+        "Polish every speaker track so the episode audio is publish-ready.",
         { label: "Polish audio", target: FIX_TARGETS.audio },
       ));
     }
@@ -218,7 +232,7 @@
       ));
     }
 
-    const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+    const exportReady = Boolean(audioReady
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(
@@ -226,7 +240,7 @@
         "export",
         "ok",
         "Core export requirements met",
-        "Audio and visual style are set — approve this review to unlock export.",
+        "Polished audio and visual style are set — approve this review to unlock export.",
         null,
       ));
     } else {

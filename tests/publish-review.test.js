@@ -12,6 +12,7 @@ const moments = require("../app/visual-moments.js");
 const contextApi = require("../app/social-context.js");
 const review = require("../app/publish-review.js");
 const exportApi = require("../app/episode-export.js");
+const fixture = require("./audio-fixture.js");
 
 let passed = 0;
 function test(name, fn) {
@@ -33,7 +34,7 @@ function completeDraft() {
     Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.mp4" }),
     Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.mp4" }),
   ];
-  return draft;
+  return fixture.attachMediaToDraft(draft);
 }
 
 function fullContext(episode, options) {
@@ -44,7 +45,7 @@ function fullContext(episode, options) {
   let contextReview = contextApi.createReview(episode);
   contextReview = contextApi.approveReview(contextReview);
   return {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audio.summarizePolish(audio.processPolish(audio.createPolish(episode))),
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
     templateName: opts.templateName || "Founders Unfiltered",
     hasCanvas: opts.hasCanvas !== false,

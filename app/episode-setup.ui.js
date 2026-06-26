@@ -308,6 +308,7 @@
       setupDraft: state,
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
+      audioPolish: audioPolish,
       appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
@@ -344,6 +345,7 @@
     state = data.setupDraft || ES.createDraft();
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
+    audioPolish = data.audioPolish || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
@@ -1566,12 +1568,15 @@
       Object.assign(ES.createSpeaker("Guest 1"), { name: "Dana Kim" }),
       Object.assign(ES.createSpeaker("Guest 2"), { name: "Alex Chen" }),
     ];
+    // Demo jumps straight to the style picker, so attach sandbox audio clips and run the
+    // real polish over them up front (the demo presents audio as already applied).
+    state.speakers.forEach((speaker, index) => attachPlaceholderMedia(speaker, index));
     contextApproved = true;
     contextReview = null;
     appliedStyle = null;
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
-    audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
+    audioPolish = AP ? AP.processPolish(AP.createPolish(ES.summarize(state))) : null;
     appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
     activeTemplateId = null;
     canvasDoc = null;
@@ -2038,6 +2043,102 @@
     return section;
   }
 
+  // ---- Imported media capture (#197) ------------------------------------------
+  // The polish step processes the actual imported speaker media, so capture happens
+  // here: read the real uploaded file, decode its audio (pure-JS WAV, or AudioContext
+  // for other/video formats), and store a bounded, fingerprinted captured-media preview
+  // on the speaker. Nothing about the audio is invented from metadata.
+  function formatFileSize(bytes) {
+    const size = Number(bytes) || 0;
+    if (size >= 1024 * 1024) {
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+    if (size >= 1024) {
+      return `${Math.round(size / 1024)} KB`;
+    }
+    return `${size} B`;
+  }
+
+  function chosenFileLabel(speaker) {
+    if (speaker.media) {
+      const secs = Number(speaker.mediaDurationSeconds) || 0;
+      const dur = secs >= 1 ? ` · ${secs.toFixed(1)}s source` : "";
+      return `Captured audio from ${speaker.mediaName || speaker.fileName}${dur} (${formatFileSize(speaker.mediaBytes)})`;
+    }
+    return speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
+  }
+
+  function isWavBytes(bytes) {
+    return Boolean(bytes) && bytes.length >= 12
+      && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46  // "RIFF"
+      && bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45; // "WAVE"
+  }
+
+  // Decode an uploaded file's audio to PCM. WAV decodes with the pure-JS decoder (works
+  // in Node tests and the browser); other/video formats use the browser AudioContext,
+  // which also extracts the audio track from mp4/webm.
+  function decodeUploadedAudio(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (isWavBytes(bytes)) {
+      const decoded = AP.decodeWav(bytes);
+      return Promise.resolve({ samples: decoded.samples, sampleRate: decoded.sampleRate });
+    }
+    const Ctx = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+    if (!Ctx) {
+      return Promise.reject(new Error("Unsupported audio format in this environment."));
+    }
+    const ctx = new Ctx();
+    return ctx.decodeAudioData(arrayBuffer.slice(0)).then((audioBuffer) => {
+      const result = {
+        samples: Float32Array.from(audioBuffer.getChannelData(0)),
+        sampleRate: audioBuffer.sampleRate,
+      };
+      if (typeof ctx.close === "function") {
+        ctx.close();
+      }
+      return result;
+    });
+  }
+
+  function applyCapturedMedia(speaker, fileName, bytes, decoded) {
+    const captured = AP.buildCapturedMedia(decoded.samples, decoded.sampleRate, {
+      sourceBytes: bytes.length,
+      sourceFingerprint: AP.sourceFingerprint(bytes),
+    });
+    speaker.media = captured.media;
+    speaker.mediaName = fileName || speaker.fileName;
+    speaker.mediaBytes = bytes.length;
+    speaker.mediaDurationSeconds = captured.durationSeconds;
+    speaker.mediaSourceHash = captured.sourceHash;
+    return captured;
+  }
+
+  function clearCapturedMedia(speaker) {
+    speaker.media = "";
+    speaker.mediaName = "";
+    speaker.mediaBytes = 0;
+    speaker.mediaDurationSeconds = 0;
+    speaker.mediaSourceHash = "";
+  }
+
+  // Sandbox convenience: attach a short, genuinely-decodable audio clip as the speaker's
+  // media so the creator can try the full polish flow without a real file on hand. It is
+  // real WAV bytes the polish step decodes and transforms like any other upload.
+  function attachPlaceholderMedia(speaker, index) {
+    const rate = 16000;
+    const total = Math.round(rate * 2.5);
+    const samples = new Float32Array(total);
+    const freq = 150 + (index % 5) * 40;
+    let noise = (index + 1) * 99991;
+    for (let i = 0; i < total; i += 1) {
+      const t = i / rate;
+      noise = (noise * 1103515245 + 12345) & 0x7fffffff;
+      samples[i] = Math.sin(2 * Math.PI * freq * t) * 0.5 + (noise / 0x7fffffff * 2 - 1) * 0.18;
+    }
+    const bytes = AP.encodeWav(samples, rate);
+    applyCapturedMedia(speaker, speaker.fileName || `placeholder-${index + 1}.wav`, bytes, { samples: samples, sampleRate: rate });
+  }
+
   function renderSetup() {
     lastView = "setup";
     sanitizeSetupState();
@@ -2364,24 +2465,53 @@
 
     if (state.sourceMode === "upload") {
       const sourceBlock = el("div", { class: "speaker-source-block speaker-source-required" });
+      if (speaker.media) {
+        sourceBlock.setAttribute("data-media-ready", "true");
+      }
       const fileInput = el("input", {
         id: `f-sp-${index}-source`,
         type: "file",
-        accept: "video/*",
+        accept: "audio/*,video/*",
         "aria-invalid": isInvalid(`speaker:${index}:source`) ? "true" : null,
       });
-      const chosen = el(
-        "p",
-        { class: "chosen-file" },
-        speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet",
-      );
+      const chosen = el("p", { class: "chosen-file" }, chosenFileLabel(speaker));
       fileInput.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
-        speaker.fileName = file ? file.name : "";
-        speaker.fileSize = file ? file.size : 0;
-        chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
+        // Editing other fields (e.g. the episode name) re-clones state.speakers, so always
+        // write capture results to the LIVE speaker at this index, not the stale closure.
+        const liveSpeaker = () => (Array.isArray(state.speakers) ? state.speakers[index] : null) || speaker;
+        if (!file) {
+          const sp = liveSpeaker();
+          sp.fileName = "";
+          sp.fileSize = 0;
+          clearCapturedMedia(sp);
+          chosen.textContent = "No file chosen yet";
+          sourceBlock.removeAttribute("data-media-ready");
+          return;
+        }
+        const sp = liveSpeaker();
+        sp.fileName = file.name;
+        sp.fileSize = file.size;
+        chosen.textContent = `Reading ${file.name}…`;
+        sourceBlock.setAttribute("data-media-ready", "reading");
+        // Capture and transform the REAL imported bytes (async decode).
+        file.arrayBuffer()
+          .then((buffer) => decodeUploadedAudio(buffer).then((decoded) => {
+            const target = liveSpeaker();
+            target.fileName = file.name;
+            target.fileSize = file.size;
+            const captured = applyCapturedMedia(target, file.name, new Uint8Array(buffer), decoded);
+            chosen.textContent = `Captured ${captured.capturedSeconds.toFixed(1)}s of audio from ${file.name} (${formatFileSize(file.size)})`;
+            sourceBlock.setAttribute("data-media-ready", "true");
+            persistEpisodeSession();
+          }))
+          .catch((err) => {
+            clearCapturedMedia(liveSpeaker());
+            chosen.textContent = `Could not read audio from ${file.name} — try another file. (${err.message})`;
+            sourceBlock.setAttribute("data-media-ready", "error");
+          });
       });
-      sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
+      sourceBlock.appendChild(field("Speaker audio or video file", fileInput, `speaker:${index}:source`));
       sourceBlock.appendChild(chosen);
       const placeholderBtn = el(
         "button",
@@ -2394,6 +2524,7 @@
       placeholderBtn.addEventListener("click", () => {
         readSetupFormState();
         ES.attachPlaceholderFile(speaker);
+        attachPlaceholderMedia(speaker, index);
         renderSetup();
       });
       sourceBlock.appendChild(
@@ -4805,37 +4936,103 @@
     tracksCard.appendChild(
       el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
     );
+    function audioStatusLabel(status) {
+      if (status === "processing") {
+        return "Polishing…";
+      }
+      if (status === "complete") {
+        return "Saved";
+      }
+      if (status === "failed") {
+        return "Failed";
+      }
+      return "Ready to polish";
+    }
+
+    // Per-track status only reflects real processing: idle until the creator applies,
+    // then processing → Saved as each track's audio is decoded, transformed, encoded.
+    const existingTracks = Array.isArray(audioPolish.tracks) ? audioPolish.tracks : [];
+    const statusNodes = {};
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+      const match = existingTracks.filter((entry) => entry.trackIndex === track.trackIndex)[0];
+      const status = match ? match.status : "idle";
+      const hasMedia = Boolean(track.media);
+      const statusNode = el("span", { class: `audio-track-status audio-track-status-${status}` }, audioStatusLabel(status));
+      const captureSecs = Number(track.mediaDurationSeconds) || 0;
+      const captureLine = hasMedia
+        ? `Imported audio: ${track.mediaName || track.sourceLabel}${captureSecs >= 1 ? ` · ${captureSecs.toFixed(1)}s` : ""}`
+        : "No imported audio captured — attach a media file in setup to polish this track.";
+      const row = el("div", { class: `audio-track${hasMedia ? "" : " audio-track-no-media"}`, "data-track": String(track.trackIndex), "data-status": status, "data-has-media": hasMedia ? "true" : "false" },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
         ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
+        el("p", { class: `audio-track-capture${hasMedia ? "" : " is-missing"}` }, captureLine),
+        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+        statusNode,
       );
+      statusNodes[track.trackIndex] = { row: row, node: statusNode };
+      trackList.appendChild(row);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
+    function paintTrackStatus(track) {
+      const entry = statusNodes[track.trackIndex];
+      if (!entry) {
+        return;
       }
-    });
+      entry.node.textContent = audioStatusLabel(track.status);
+      entry.node.className = `audio-track-status audio-track-status-${track.status}`;
+      entry.row.setAttribute("data-status", track.status);
+    }
+
+    const applyError = el("p", { class: "audio-apply-error", role: "alert", hidden: true });
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
+    applyButton.addEventListener("click", () => {
+      if (applyButton.disabled) {
+        return;
+      }
+      applyButton.disabled = true;
+      back.disabled = true;
+      applyButton.textContent = "Polishing audio…";
+      applyError.hidden = true;
+      AP.processPolishAsync(audioPolish, {
+        onTrack: (track) => paintTrackStatus(track),
+      }).then((result) => {
+        audioPolish = result.polish;
+        if (!result.ok) {
+          // Failure path: keep the per-track failure visible and stay incomplete.
+          appliedAudioPolish = null;
+          applyButton.disabled = false;
+          back.disabled = false;
+          applyButton.textContent = "Apply audio & continue →";
+          applyError.textContent = result.error || "Audio processing failed — please try again.";
+          applyError.hidden = false;
+          return;
+        }
+        // Completion only appears after every track is genuinely processed.
+        appliedAudioPolish = AP.summarizePolish(audioPolish);
+        persistEpisodeSession();
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
+      });
+    });
     back.addEventListener("click", () => {
+      if (back.disabled) {
+        return;
+      }
       showErrors = false;
       renderSetup();
     });
+    view.appendChild(applyError);
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
 
     root.appendChild(view);

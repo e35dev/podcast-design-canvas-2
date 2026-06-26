@@ -33,13 +33,43 @@ function startServer() {
   });
 }
 
+// A real, decodable 16-bit mono WAV "upload", distinct per seed.
+function makeWavUpload(seed) {
+  const rate = 16000;
+  const total = Math.round(rate * 2);
+  const dataSize = total * 2;
+  const buf = Buffer.alloc(44 + dataSize);
+  buf.write("RIFF", 0); buf.writeUInt32LE(36 + dataSize, 4); buf.write("WAVE", 8);
+  buf.write("fmt ", 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22); buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34);
+  buf.write("data", 36); buf.writeUInt32LE(dataSize, 40);
+  for (let i = 0; i < total; i += 1) {
+    buf.writeInt16LE(Math.round(Math.sin(2 * Math.PI * (140 + seed * 30) * i / rate) * 16000), 44 + i * 2);
+  }
+  return buf;
+}
+
 async function completeSetup(page) {
+  const names = ["Sam Rivera", "Dana Kim", "Alex Chen"];
   await page.getByRole("button", { name: "Start blank episode" }).click();
   await page.waitForSelector("form.setup-import");
+  await page.locator("#mode-upload").check();
+  await page.waitForSelector("#f-sp-0-source[type=file]");
   await page.locator("#f-episodeName").fill("Founders Unfiltered #7");
-  await page.locator("#f-sp-0-name").fill("Sam Rivera");
-  await page.locator("#f-sp-1-name").fill("Dana Kim");
-  await page.locator("#f-sp-2-name").fill("Alex Chen");
+  for (let i = 0; i < names.length; i += 1) {
+    await page.locator(`#f-sp-${i}-name`).fill(names[i]);
+    await page.locator(`#f-sp-${i}-source`).setInputFiles({
+      name: `speaker-${i + 1}.wav`,
+      mimeType: "audio/wav",
+      buffer: makeWavUpload(i + 1),
+    });
+  }
+  await page.waitForFunction(
+    () => document.querySelectorAll('.speaker-source-block[data-media-ready="true"]').length >= 3,
+    null,
+    { timeout: 15000 },
+  );
   await page.locator(".setup-preset-card").first().click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
