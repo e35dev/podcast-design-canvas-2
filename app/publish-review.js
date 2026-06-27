@@ -98,14 +98,23 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    if (context.audioPolish && context.audioPolish.presetName && context.audioPolish.processingComplete) {
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${context.audioPolish.presetName} · ${context.audioPolish.polishedTrackLine || context.audioPolish.treatmentLine || "treatment applied"}`,
         null,
+      ));
+    } else if (context.audioPolish && context.audioPolish.presetName) {
+      checks.push(check(
+        "audio-incomplete",
+        "audio",
+        "blocker",
+        "Audio polish not applied",
+        "Apply your sound quality choices so polished speaker tracks are saved before publishing.",
+        { label: "Polish audio", target: FIX_TARGETS.audio },
       ));
     } else {
       checks.push(check(
@@ -219,6 +228,7 @@
     }
 
     const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+      && context.audioPolish.processingComplete
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(

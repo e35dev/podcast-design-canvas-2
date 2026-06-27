@@ -99,7 +99,7 @@ test("export summary includes the selected brand kit line", () => {
   const episode = setup.summarize(setup.createDraft());
   episode.episodeName = "Episode 12";
   const ctx = {
-    audioPolish: { presetName: "Studio", treatmentLine: "balanced" },
+    audioPolish: { presetName: "Studio", treatmentLine: "balanced", processingComplete: true },
     appliedStyle: style.summarizeStyle(style.createSelection(), episode.speakerCount),
     brandKitSummary: brandKit.summarizeBrandKit(sampleKit("show-1")),
   };
@@ -137,7 +137,7 @@ test("ACCEPTANCE: save, load, apply brand kit, and reflect it in export summary"
     draft.brandKit,
   );
   const exportSummary = exportApi.buildFinalSummary(episode, {
-    audioPolish: { presetName: "Studio", treatmentLine: "broadcast polish" },
+    audioPolish: { presetName: "Studio", treatmentLine: "broadcast polish", processingComplete: true },
     appliedStyle: brandedStyle,
     brandKitSummary: brandKit.summarizeBrandKit(draft.brandKit),
     templateName: draft.templateName,

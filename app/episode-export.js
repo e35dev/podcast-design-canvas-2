@@ -115,10 +115,30 @@
     return { ok: true };
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
+  function hasProcessedAudioPolish(audioPolish) {
+    const audio = audioPolish || {};
+    if (audio.processingComplete) {
+      return true;
+    }
+    const AP = audioPolishApi();
+    if (AP && typeof AP.isPolishApplied === "function") {
+      return AP.isPolishApplied(audio);
+    }
+    return Boolean(audio.presetName);
+  }
+
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    if (!hasProcessedAudioPolish(ctx.audioPolish)) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -155,7 +175,10 @@
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const trackNote = ctx.audioPolish.processingComplete && ctx.audioPolish.polishedTrackLine
+        ? ` · ${ctx.audioPolish.polishedTrackLine}`
+        : "";
+      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})${trackNote}`);
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(

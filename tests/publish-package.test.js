@@ -38,7 +38,7 @@ function buildContext(episode) {
   return {
     showName: "Founders Unfiltered",
     appliedStyle: style.summarizeStyle(selection, episode.speakerCount),
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audio.buildAppliedPolishSummary(episode),
     momentsBoard: board,
     brandKit: brandKit.createBrandKit("show-1", {
       logoLabel: "Founders mark",

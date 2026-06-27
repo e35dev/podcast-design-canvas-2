@@ -80,7 +80,7 @@ test("ACCEPTANCE: workspace checklist and audio tracks reflect the fresh setup s
 
   const ws = workspace.buildWorkspace(summary, {
     appliedStyle: appliedStyle,
-    audioPolish: audio.summarizePolish(polish),
+    audioPolish: audio.summarizePolish(audio.applyPolish(audio.createPolish(summary), summary).polish),
     contextApproved: false,
   });
   const setupStage = workspace.getStage(ws, "setup");

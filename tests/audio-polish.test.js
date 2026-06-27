@@ -1,7 +1,8 @@
 "use strict";
 
-// Audio polish smoke suite for Podcast Design Canvas (#15).
-// Guards quality presets, per-speaker tracks, control adjustments, and review summary.
+// Audio polish smoke suite for Podcast Design Canvas (#15, #197).
+// Guards quality presets, per-speaker tracks, control adjustments, processing handoff,
+// persistence, and review/export summaries.
 // Run with: `node tests/audio-polish.test.js`.
 
 const assert = require("assert");
@@ -43,6 +44,7 @@ test("createPolish seeds speaker tracks from the episode summary", () => {
   assert.strictEqual(polish.speakers.length, 3);
   assert.deepStrictEqual(polish.speakers.map((track) => track.role), ["Host", "Guest 1", "Guest 2"]);
   assert.strictEqual(polish.speakers[0].sourceLabel, "sam.mp4");
+  assert.strictEqual(polish.speakers[0].status, audio.TRACK_STATUS.PENDING);
 });
 
 test("applyPreset updates all polish controls", () => {
@@ -64,31 +66,58 @@ test("updateControl changes a single polish dimension", () => {
   assert.strictEqual(polish.leveling, "balanced");
 });
 
-test("summarizePolish reflects the chosen treatment", () => {
+test("applyPolish saves durable polished assets for each imported speaker track", () => {
   const episode = setup.summarize(completeUploadDraft());
-  const polish = audio.applyPreset(audio.createPolish(episode), "natural");
-  const summary = audio.summarizePolish(polish);
-  assert.strictEqual(summary.presetName, "Natural");
-  assert.strictEqual(summary.noiseCleanupLabel, "Light");
-  assert.ok(summary.treatmentLine.includes("Noise cleanup: Light"));
-  assert.strictEqual(summary.speakerCount, 3);
+  let polish = audio.applyPreset(audio.createPolish(episode), "studio");
+  const result = audio.applyPolish(polish, episode);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.polish.processingStatus, "complete");
+  assert.strictEqual(result.polish.speakers.length, 3);
+  result.polish.speakers.forEach((track) => {
+    assert.strictEqual(track.status, audio.TRACK_STATUS.COMPLETE);
+    assert.ok(track.polishedAssetId.includes("-studio-polished.wav"));
+    assert.ok(track.polishedAssetId.includes("episodes/founders-unfiltered-7/audio/"));
+  });
 });
 
-test("buildReviewSummary includes audio in the export path", () => {
+test("summarizePolish reflects processing completion and polished track references", () => {
   const episode = setup.summarize(completeUploadDraft());
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  const applied = audio.applyPolish(audio.createPolish(episode), episode).polish;
+  const summary = audio.summarizePolish(applied);
+  assert.strictEqual(summary.presetName, "Clean");
+  assert.strictEqual(summary.processingComplete, true);
+  assert.strictEqual(summary.usesPolishedAudio, true);
+  assert.strictEqual(summary.polishedTracks.length, 3);
+  assert.ok(summary.polishedTrackLine.includes("3 polished tracks"));
+  assert.ok(summary.audioSourceLine.includes("sam-studio-polished.wav"));
+});
+
+test("serializePolish and deserializePolish preserve applied settings and polished tracks", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const applied = audio.applyPolish(audio.applyPreset(audio.createPolish(episode), "natural"), episode).polish;
+  const restored = audio.deserializePolish(audio.serializePolish(applied), episode);
+  const summary = audio.summarizePolish(restored);
+  assert.strictEqual(summary.presetName, "Natural");
+  assert.strictEqual(summary.processingComplete, true);
+  assert.strictEqual(summary.polishedTracks[0].polishedAssetId, applied.speakers[0].polishedAssetId);
+});
+
+test("buildReviewSummary includes polished audio in the export path", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.summarizePolish(audio.applyPolish(audio.createPolish(episode), episode).polish);
   const review = audio.buildReviewSummary(episode, polish, {
     styleName: "Studio Spotlight",
     templateName: "Founders Unfiltered",
   });
   assert.strictEqual(review.episodeName, "Founders Unfiltered #7");
   assert.strictEqual(review.audioPreset, "Clean");
-  assert.strictEqual(review.styleName, "Studio Spotlight");
   assert.strictEqual(review.readyForExport, true);
+  assert.strictEqual(review.usesPolishedAudio, true);
   assert.ok(review.summaryLines.some((line) => line.indexOf("Audio:") === 0));
+  assert.ok(review.summaryLines.some((line) => line.includes("polished track")));
 });
 
-test("ACCEPTANCE: episode setup flows into audio polish and saves a review summary", () => {
+test("ACCEPTANCE: imported episode tracks are processed, persisted, and used downstream", () => {
   const draft = completeUploadDraft();
   assert.strictEqual(setup.validateDraft(draft).ok, true);
 
@@ -98,13 +127,25 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
 
   polish = audio.applyPreset(polish, "clean");
   polish = audio.updateControl(polish, "speechClarity", "strong");
-  const applied = audio.summarizePolish(polish);
+  const result = audio.applyPolish(polish, episode);
+  assert.strictEqual(result.ok, true);
+
+  const applied = audio.summarizePolish(result.polish);
   assert.strictEqual(applied.presetName, "Clean");
   assert.strictEqual(applied.speechClarityLabel, "Strong");
+  assert.strictEqual(applied.processingComplete, true);
+  assert.strictEqual(applied.polishedTracks.every((track) => Boolean(track.polishedAssetId)), true);
+
+  const restored = audio.deserializePolish(audio.serializePolish(result.polish), episode);
+  const restoredSummary = audio.summarizePolish(restored);
+  assert.strictEqual(restoredSummary.processingComplete, true);
+  assert.strictEqual(restoredSummary.polishedTracks[0].polishedAssetId, applied.polishedTracks[0].polishedAssetId);
 
   const review = audio.buildReviewSummary(episode, applied, {});
   assert.strictEqual(review.readyForExport, true);
+  assert.strictEqual(review.usesPolishedAudio, true);
   assert.ok(review.audioTreatment.includes("Speech clarity: Strong"));
+  assert.ok(!review.summaryLines.join(" ").includes("sam.mp4"));
 });
 
 console.log(`\naudio polish: ${passed} assertions passed`);
