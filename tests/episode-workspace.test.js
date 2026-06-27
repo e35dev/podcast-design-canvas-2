@@ -99,7 +99,7 @@ test("summarizeWorkspace reports progress across stages", () => {
   assert.ok(summary.workspaceLine.indexOf("Next:") === 0 || summary.currentStageLabel.length > 0);
 });
 
-test("workspace promotes canvas editor before audio when template is recommended", () => {
+test("workspace prioritizes audio polish before canvas when audio is still active", () => {
   const episode = setup.summarize(completeDraft());
   const selection = style.createSelection();
   const ctx = {
@@ -114,10 +114,10 @@ test("workspace promotes canvas editor before audio when template is recommended
     exportDownloadName: "",
   };
   const ws = workspace.buildWorkspace(episode, ctx);
-  assert.strictEqual(ws.currentStageId, "template");
+  assert.strictEqual(ws.currentStageId, "audio");
   const current = workspace.getStage(ws, ws.currentStageId);
-  assert.strictEqual(current.actionLabel, "Open canvas editor");
-  assert.strictEqual(current.actionTarget, "canvas");
+  assert.strictEqual(current.actionLabel, "Polish audio");
+  assert.strictEqual(current.actionTarget, "audio");
 });
 
 test("ACCEPTANCE: workspace tracks setup, style, review, and export progress", () => {

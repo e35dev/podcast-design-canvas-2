@@ -1983,6 +1983,18 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-polish-apply-bar {
+  margin-bottom: 14px;
+}
+
+.audio-polish-apply-actions {
+  margin-top: 10px;
+}
+
+.audio-polish-apply-top {
+  width: 100%;
+}
+
 .audio-track-status {
   display: block;
   margin-top: 6px;

@@ -94,10 +94,12 @@ test("buildSetupCompletionHandoff marks setup complete for workspace recap", () 
   assert.ok(completion.episodeTitle.includes("Episode 1"));
 });
 
-test("import handoff UI lands in workspace immediately after setup continue", () => {
+test("import handoff UI lands in workspace after setup continue", () => {
   const handoffBlock = ui.slice(ui.indexOf("function tryCompleteSetupHandoff"), ui.indexOf("function onContinue()"));
   const continueBlock = ui.slice(ui.indexOf("function onContinue()"), ui.indexOf("function focusFirstError()"));
   assert.ok(handoffBlock.includes("renderWorkspace(summary)"));
+  assert.ok(handoffBlock.includes("registerImportedSourcesForEpisode"));
+  assert.ok(!handoffBlock.includes("runInitialAudioPolishApply"));
   assert.ok(handoffBlock.includes("applySandboxHandoffSourceIfNeeded"));
   assert.ok(handoffBlock.includes("ensureSetupStyleApplied"));
   assert.ok(continueBlock.includes("tryCompleteSetupHandoff"));

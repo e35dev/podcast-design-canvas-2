@@ -442,6 +442,9 @@
     if (!AP || audioPolishProcessing) {
       return;
     }
+    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
+      return;
+    }
     if (LIB && typeof ensureFreshEpisodeRecord === "function") {
       ensureFreshEpisodeRecord(summary);
     }
@@ -4943,6 +4946,49 @@
       );
     }
 
+    const topActions = el("div", { class: "actions audio-polish-apply-actions" });
+    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
+      const topContinue = el(
+        "button",
+        {
+          type: "button",
+          class: "primary audio-polish-continue",
+          id: "audio-apply-continue",
+        },
+        "Continue to workspace →",
+      );
+      topContinue.addEventListener("click", () => {
+        continueAfterAudioPolish(summary);
+      });
+      topActions.appendChild(topContinue);
+    } else {
+      const topApply = el(
+        "button",
+        {
+          type: "button",
+          class: "primary audio-polish-apply-top",
+          id: "audio-apply-polish",
+          disabled: audioPolishProcessing ? "true" : null,
+        },
+        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio polish →",
+      );
+      topApply.addEventListener("click", () => {
+        if (audioPolishProcessing) {
+          return;
+        }
+        applyAudioPolishHandoff(summary);
+      });
+      topActions.appendChild(topApply);
+    }
+    view.appendChild(
+      el("div", { class: "audio-polish-apply-bar card" },
+        el("p", { class: "hint" }, appliedAudioPolish && appliedAudioPolish.allTracksReady
+          ? "Polished tracks are saved — continue to the production workspace or change the preset and apply again."
+          : "Choose a sound quality preset, then apply to process every imported speaker track into saved polished audio."),
+        topActions,
+      ),
+    );
+
     const grid = el("div", { class: "audio-layout" });
 
     const controls = el("section", { class: "card" }, el("h3", {}, "Sound quality"));
@@ -5025,17 +5071,15 @@
       });
       actions.appendChild(continueButton);
     } else {
-      const applyLabel = audioPolishProcessing
-        ? "Processing speaker tracks…"
-        : "Apply audio polish →";
       const applyButton = el(
         "button",
         {
           type: "button",
           class: "primary",
+          id: "audio-apply-polish-bottom",
           disabled: audioPolishProcessing ? "true" : null,
         },
-        applyLabel,
+        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio polish →",
       );
       applyButton.addEventListener("click", () => {
         if (audioPolishProcessing) {

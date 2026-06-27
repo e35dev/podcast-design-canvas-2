@@ -192,14 +192,16 @@ test("buildExportAudioLine references saved polished track filenames", () => {
 
 test("audio polish UI runs real processing handoff before continuing", () => {
   assert.ok(ui.includes("function applyAudioPolishHandoff"));
-  assert.ok(ui.includes("function continueAfterAudioPolish"));
   assert.ok(ui.includes("function registerImportedSourcesForEpisode"));
   assert.ok(ui.includes("function restoreAudioPolishFromStorage"));
   assert.ok(ui.includes("runProcessingAndPersist"));
   const block = ui.slice(ui.indexOf("function renderAudioPolish"), ui.indexOf("// ---- Visual moments editor"));
   assert.ok(block.includes("audio-track-status"));
-  assert.ok(block.includes("applyAudioPolishHandoff(summary)"));
-  assert.ok(block.includes("Continue to workspace"));
+  assert.ok(block.includes("audio-apply-polish"));
+  assert.ok(block.includes("Apply audio polish →"));
+  assert.ok(block.includes("Continue to workspace →"));
+  assert.ok(block.includes("audio-polish-apply-bar"));
+  assert.ok(!block.includes("runInitialAudioPolishApply"));
   assert.ok(!/appliedAudioPolish = AP\.summarizePolish\(audioPolish\);\s+if \(STY && !appliedStyle\)/.test(block));
 });
 

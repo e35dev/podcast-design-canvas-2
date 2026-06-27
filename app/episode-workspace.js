@@ -199,7 +199,10 @@
 
   function pickCurrentStage(stages) {
     const list = Array.isArray(stages) ? stages : [];
-    // Surface canvas editor before audio polish when a show template is the recommended next step (#190).
+    const audioActive = list.find((item) => item.id === "audio" && item.status === STATUS.ACTIVE);
+    if (audioActive) {
+      return audioActive;
+    }
     const templateAttention = list.find((item) => item.id === "template" && item.status === STATUS.ATTENTION);
     if (templateAttention) {
       return templateAttention;
