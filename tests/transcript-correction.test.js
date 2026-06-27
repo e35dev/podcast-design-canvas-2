@@ -146,7 +146,7 @@ test("summarizeCorrection feeds export metadata after approval", () => {
   const summary = correction.summarizeCorrection(review);
 
   const exportSummary = exportApi.buildFinalSummary(episode, {
-    audioPolish: audio.summarizePolish(audio.createPolish(episode)),
+    audioPolish: audio.prepareProcessedPolish(episode, { showId: "show-test", episodeId: "ep-test" }),
     appliedStyle: style.summarizeStyle(style.createSelection(), episode.speakerCount),
     correctionSummary: summary,
   }, exportApi.createExport(episode));
