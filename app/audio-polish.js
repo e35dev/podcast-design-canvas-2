@@ -193,6 +193,183 @@
     };
   }
 
+  // ---- Real processing handoff (#197) -----------------------------------------
+  // Turning the chosen quality into durable polished audio assets, one per speaker
+  // track, with per-track status, a measured metric, and a reference that review and
+  // export consume instead of the raw source.
+
+  function renderApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-render.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioRender;
+  }
+
+  function samplesApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-samples.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioSamples;
+  }
+
+  function settingsOf(polish) {
+    const state = polish || createPolish({});
+    return {
+      noiseCleanup: state.noiseCleanup,
+      leveling: state.leveling,
+      speechClarity: state.speechClarity,
+      enhancement: state.enhancement,
+    };
+  }
+
+  // Resolve a real source recording for each speaker track: an uploaded track keeps
+  // its own bytes; a link-imported track binds to the bundled demo recording for its
+  // slot. Either way every track has genuine bytes to process (never zero tracks).
+  function resolveSource(track, index, providedSources) {
+    const samples = samplesApi();
+    const provided = Array.isArray(providedSources) ? providedSources[index] : null;
+    if (provided && provided.wavBytes && provided.wavBytes.length) {
+      return {
+        wavBytes: provided.wavBytes,
+        sourceName: provided.sourceName || (track && track.sourceLabel) || "Imported track",
+        fingerprint: samples ? samples.fingerprint(provided.wavBytes) : `upload-${index}`,
+      };
+    }
+    const bytes = samples ? samples.sampleWav(index) : null;
+    return {
+      wavBytes: bytes,
+      sourceName: (track && track.sourceLabel) || "Imported track",
+      fingerprint: bytes && samples ? samples.fingerprint(bytes) : `sample-${index}`,
+    };
+  }
+
+  // Render one speaker track into a polished asset (or a clear failure).
+  function processTrack(track, index, settings, providedSources) {
+    const render = renderApi();
+    const source = resolveSource(track, index, providedSources);
+    const base = {
+      trackIndex: (track && track.trackIndex) || index + 1,
+      role: (track && track.role) || "Speaker",
+      name: (track && track.name) || "Unnamed speaker",
+      sourceLabel: source.sourceName,
+      sourceFingerprint: source.fingerprint,
+    };
+    if (!render || !source.wavBytes) {
+      return Object.assign(base, {
+        status: "failed",
+        error: "No imported audio was available for this track.",
+      });
+    }
+    try {
+      const rendered = render.renderTrack(source.wavBytes, settings);
+      return Object.assign(base, {
+        status: "polished",
+        assetId: `${source.fingerprint}-${settings.noiseCleanup}${settings.leveling}${settings.speechClarity}${settings.enhancement}`,
+        metricLabel: rendered.metricLabel,
+        gainLabel: rendered.gainLabel,
+        durationLabel: rendered.durationLabel,
+        byteLength: rendered.byteLength,
+        sampleRate: rendered.sampleRate,
+      });
+    } catch (err) {
+      return Object.assign(base, {
+        status: "failed",
+        error: (err && err.message) || "Processing failed for this track.",
+      });
+    }
+  }
+
+  // Apply the chosen quality and process every imported track into saved polished
+  // assets. Returns a durable record that survives reload and feeds review/export.
+  function processPolish(polish, episodeSummary, options) {
+    const state = polish || createPolish(episodeSummary);
+    const opts = options || {};
+    const speakers = Array.isArray(state.speakers) && state.speakers.length
+      ? state.speakers
+      : buildSpeakerTracks(episodeSummary);
+    const settings = settingsOf(state);
+    const tracks = speakers.map((track, index) =>
+      processTrack(track, index, settings, opts.sources));
+    const totalCount = tracks.length;
+    const completedCount = tracks.filter((t) => t.status === "polished").length;
+    const failedCount = totalCount - completedCount;
+    let status = "empty";
+    if (totalCount > 0) {
+      status = failedCount === 0 ? "complete" : "partial";
+    }
+    const preset = getPreset(state.presetId);
+    let completionLine;
+    if (totalCount === 0) {
+      completionLine = "No imported speaker tracks to polish yet.";
+    } else if (status === "complete") {
+      completionLine = `All ${totalCount} track${totalCount === 1 ? "" : "s"} polished — saved as durable assets.`;
+    } else {
+      completionLine = `${completedCount} of ${totalCount} tracks polished — ${failedCount} need attention.`;
+    }
+    return Object.assign({}, state, {
+      processedAt: opts.processedAt || nowStamp(),
+      presetId: preset.id,
+      presetName: preset.name,
+      settings: settings,
+      tracks: tracks,
+      totalCount: totalCount,
+      completedCount: completedCount,
+      failedCount: failedCount,
+      status: status,
+      completionLine: completionLine,
+    });
+  }
+
+  function nowStamp() {
+    // Deterministic-friendly: callers may override via options.processedAt.
+    if (typeof Date !== "undefined" && Date.now) {
+      return new Date(Date.now()).toISOString();
+    }
+    return "";
+  }
+
+  function isPolishComplete(processed) {
+    return Boolean(
+      processed &&
+      processed.totalCount > 0 &&
+      processed.status === "complete" &&
+      processed.completedCount === processed.totalCount,
+    );
+  }
+
+  // Compact, durable shape persisted with the episode and consumed by review/export.
+  function summarizeProcessed(processed) {
+    const state = processed || {};
+    const tracks = Array.isArray(state.tracks) ? state.tracks : [];
+    return {
+      presetId: state.presetId || defaultPreset().id,
+      presetName: state.presetName || getPreset(state.presetId).name,
+      processedAt: state.processedAt || "",
+      treatedCount: state.completedCount || 0,
+      totalCount: state.totalCount || tracks.length,
+      complete: isPolishComplete(state),
+      completionLine: state.completionLine || "",
+      assets: tracks.map((t) => ({
+        trackIndex: t.trackIndex,
+        role: t.role,
+        name: t.name,
+        status: t.status,
+        assetId: t.assetId || "",
+        metricLabel: t.metricLabel || "",
+        sourceFingerprint: t.sourceFingerprint || "",
+      })),
+    };
+  }
+
+  // True when a persisted review/export context carries real polished assets for
+  // every track (what export now requires instead of a bare preset name).
+  function exportHasPolishedAudio(processedSummary) {
+    const s = processedSummary || {};
+    return Boolean(s.complete && s.totalCount > 0 && s.treatedCount === s.totalCount);
+  }
+
   const api = {
     QUALITY_PRESETS,
     CONTROLS,
@@ -208,6 +385,11 @@
     speakerIndicator,
     summarizePolish,
     buildReviewSummary,
+    processTrack,
+    processPolish,
+    isPolishComplete,
+    summarizeProcessed,
+    exportHasPolishedAudio,
   };
 
   if (typeof module !== "undefined" && module.exports) {

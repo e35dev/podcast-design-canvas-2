@@ -107,4 +107,44 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
   assert.ok(review.audioTreatment.includes("Speech clarity: Strong"));
 });
 
+test("processPolish renders a real polished asset for every speaker track (#197)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.applyPreset(audio.createPolish(episode), "studio");
+  const processed = audio.processPolish(polish, episode, { processedAt: "fixed" });
+  assert.strictEqual(processed.totalCount, 3);
+  assert.strictEqual(processed.completedCount, 3);
+  assert.strictEqual(processed.status, "complete");
+  processed.tracks.forEach((track) => {
+    assert.strictEqual(track.status, "polished");
+    assert.ok(track.assetId, "each track saves a durable asset id");
+    assert.ok(/dB/.test(track.metricLabel), "each track reports a measured metric");
+    assert.ok(track.sourceFingerprint, "each asset is bound to its source");
+  });
+});
+
+test("isPolishComplete gates completion and export consumes the assets (#197)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const processed = audio.processPolish(audio.createPolish(episode), episode);
+  assert.strictEqual(audio.isPolishComplete(processed), true);
+
+  const durable = audio.summarizeProcessed(processed);
+  assert.strictEqual(durable.treatedCount, 3);
+  assert.strictEqual(durable.totalCount, 3);
+  assert.strictEqual(durable.complete, true);
+  assert.strictEqual(durable.assets.length, 3);
+  // Export readiness now hinges on real polished assets, not a bare preset name.
+  assert.strictEqual(audio.exportHasPolishedAudio(durable), true);
+  assert.strictEqual(audio.exportHasPolishedAudio({ presetName: "Clean" }), false);
+});
+
+test("summarizeProcessed survives a JSON round-trip for reload persistence (#197)", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const processed = audio.processPolish(audio.createPolish(episode), episode, { processedAt: "fixed" });
+  const durable = audio.summarizeProcessed(processed);
+  const restored = JSON.parse(JSON.stringify(durable));
+  assert.deepStrictEqual(restored, durable);
+  assert.strictEqual(audio.exportHasPolishedAudio(restored), true);
+  assert.strictEqual(restored.assets[0].metricLabel, durable.assets[0].metricLabel);
+});
+
 console.log(`\naudio polish: ${passed} assertions passed`);

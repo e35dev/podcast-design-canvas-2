@@ -4743,6 +4743,26 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
+  // Commit the live preview into saved polished assets, persist them with the
+  // episode (so they survive reload), and advance the flow.
+  function commitAudioPolish(summary) {
+    const committed = AP.processPolish ? AP.processPolish(audioPolish, summary) : null;
+    if (committed) {
+      appliedAudioPolish = Object.assign(
+        AP.summarizePolish(audioPolish),
+        AP.summarizeProcessed(committed),
+      );
+    } else {
+      appliedAudioPolish = AP.summarizePolish(audioPolish);
+    }
+    persistEpisodeSession();
+    if (STY && !appliedStyle) {
+      renderStyle(summary);
+    } else {
+      renderWorkspace(summary);
+    }
+  }
+
   function renderAudioPolish(summary) {
     if (!audioPolish) {
       audioPolish = AP.createPolish(summary);
@@ -4750,12 +4770,32 @@
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
+    // Process every imported track under the current quality right away, so the
+    // polished result is visible the moment the screen opens — completion is never
+    // hidden behind an un-clicked button.
+    const processed = AP.processPolish ? AP.processPolish(audioPolish, summary) : null;
+    const complete = processed ? AP.isPolishComplete(processed) : false;
+
     const view = el("div", { class: "audio-step" });
+
+    // Prominent status + primary action, kept at the top of the step (above the fold).
+    if (processed) {
+      const statusBar = el("div", { class: `audio-status${complete ? " is-complete" : ""}` });
+      statusBar.appendChild(
+        el("p", { class: "audio-status-line" },
+          complete ? `Polished ✓  ${processed.completionLine}` : processed.completionLine),
+      );
+      const applyTop = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+      applyTop.addEventListener("click", () => commitAudioPolish(summary));
+      statusBar.appendChild(el("div", { class: "actions" }, applyTop));
+      view.appendChild(statusBar);
+    }
+
     view.appendChild(
       el("div", { class: "workspace-head" },
         el("p", { class: "eyebrow" }, "Audio polish"),
         el("h2", {}, `Shape the sound for ${summary.episodeName}`),
-        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Each speaker track below will get this treatment."),
+        el("p", { class: "hint" }, "Choose a quality, then Apply. Each imported speaker track is decoded, treated, and saved as a durable polished asset that review and export use."),
       ),
     );
 
@@ -4803,18 +4843,25 @@
 
     const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+      el("p", { class: "hint" }, "Each imported source is decoded, treated, and saved as a durable polished asset."),
     );
     const trackList = el("div", { class: "audio-track-list" });
-    audioPolish.speakers.forEach((track) => {
+    const renderTracks = processed && processed.tracks && processed.tracks.length
+      ? processed.tracks
+      : audioPolish.speakers;
+    renderTracks.forEach((track) => {
+      const polished = track.status === "polished";
+      const badgeText = polished
+        ? `Polished ✓ · ${track.metricLabel || "saved asset"}`
+        : (track.error || AP.speakerIndicator(audioPolish, track));
       trackList.appendChild(
-        el("div", { class: "audio-track" },
+        el("div", { class: `audio-track${polished ? " is-polished" : ""}` },
           el("div", { class: "audio-track-main" },
             el("span", { class: "role-pill" }, track.role),
             el("span", { class: "summary-name" }, track.name),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+          el("span", { class: `audio-track-badge${polished ? " badge-ok" : ""}` }, badgeText),
         ),
       );
     });
@@ -4823,14 +4870,7 @@
     view.appendChild(grid);
 
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
-      }
-    });
+    applyButton.addEventListener("click", () => commitAudioPolish(summary));
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;

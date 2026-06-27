@@ -104,7 +104,9 @@
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        context.audioPolish.totalCount
+          ? `${context.audioPolish.presetName} · ${context.audioPolish.treatedCount}/${context.audioPolish.totalCount} speaker tracks treated`
+          : `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
         null,
       ));
     } else {
@@ -286,7 +288,11 @@
         id: "audio",
         label: "Audio polish",
         time: "15:00",
-        summary: context.audioPolish ? context.audioPolish.presetName : "Not set",
+        summary: context.audioPolish
+          ? (context.audioPolish.totalCount
+            ? `${context.audioPolish.presetName} · ${context.audioPolish.treatedCount}/${context.audioPolish.totalCount} treated assets`
+            : context.audioPolish.presetName)
+          : "Not set",
         status: sectionStatus("audio"),
       },
       {

@@ -1983,6 +1983,50 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+/* ---- Audio polish processing status (#197) ---- */
+.audio-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #fcfcff;
+}
+
+.audio-status.is-complete {
+  border-color: rgba(22, 163, 74, 0.4);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.audio-status-line {
+  margin: 0;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.audio-status.is-complete .audio-status-line {
+  color: #15803d;
+}
+
+.audio-status .actions {
+  margin: 0;
+}
+
+.audio-track.is-polished {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.05);
+}
+
+.audio-track-badge.badge-ok {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.12);
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;
