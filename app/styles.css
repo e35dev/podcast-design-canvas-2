@@ -2369,6 +2369,31 @@ button.ghost:hover,
   color: var(--ok);
 }
 
+.export-rendering {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.export-video-preview {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  margin: 12px 0;
+  border-radius: 12px;
+  border: 1px solid var(--line, #d8def0);
+  background: #000;
+}
+
+.export-download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+  text-decoration: none;
+}
+
 .export-blocked .field-error {
   margin: 0;
 }

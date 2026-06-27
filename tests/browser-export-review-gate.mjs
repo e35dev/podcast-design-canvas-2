@@ -106,7 +106,12 @@ async function main() {
     log(await page.getByRole("button", { name: "Start export →" }).isVisible(), "Approved review unlocks export with Start export");
 
     await page.getByRole("button", { name: "Start export →" }).click();
-    log(await page.getByRole("button", { name: "Done — back to workspace" }).isVisible(), "Export completes after publish review approval");
+    await page.locator("#export-video-preview").waitFor({ state: "visible", timeout: 30000 });
+    log(await page.locator("#export-video-preview").isVisible(), "Export renders a playable episode video preview");
+    log(await page.locator("#export-download-link").isVisible(), "Export exposes a downloadable episode video link");
+    log(/Ready to download/i.test(await page.locator(".export-status-card").innerText()), "Export status reports ready download");
+
+    await page.getByRole("button", { name: "Done — back to workspace" }).click();
 
     await page.screenshot({ path: join(root, "tests", "export-review-gate-export.png"), fullPage: false });
     log(true, "Screenshot saved to tests/export-review-gate-export.png");

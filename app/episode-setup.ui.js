@@ -22,6 +22,7 @@
   const VM = window.PdcVisualMoments;
   const SC = window.PdcSocialContext;
   const EXP = window.PdcEpisodeExport;
+  const VXE = window.PdcEpisodeVideoExport;
   const PR = window.PdcPublishReview;
   const WS = window.PdcEpisodeWorkspace;
   const LIB = window.PdcShowLibrary;
@@ -66,6 +67,7 @@
   let momentsBoard = null;
   let selectedMomentId = null;
   let exportJob = null;
+  let exportVideoBlobUrl = null;
   let publishPackage = null;
   let correctionReview = null;
   let correctionApproved = false;
@@ -3674,6 +3676,48 @@
 
   // ---- Export & publish (#30) -------------------------------------------------
 
+  async function runEpisodeVideoExport(summary, ctx, startButton) {
+    const started = EXP.startExport(exportJob, summary, ctx);
+    if (!started.ok) {
+      if (PR && started.error && started.error.indexOf("publish review") >= 0) {
+        renderPublishReview(summary);
+      }
+      return;
+    }
+    exportJob = started.state;
+    renderExport(summary);
+    if (!VXE || typeof VXE.recordEpisodeVideo !== "function") {
+      const fallback = EXP.runExport(exportJob, summary, ctx);
+      if (fallback.ok) {
+        exportJob = fallback.state;
+      }
+      renderExport(summary);
+      return;
+    }
+    try {
+      const plan = VXE.buildAssemblyPlan(summary, ctx, exportJob);
+      const video = await VXE.recordEpisodeVideo(plan);
+      if (exportVideoBlobUrl) {
+        URL.revokeObjectURL(exportVideoBlobUrl);
+      }
+      exportVideoBlobUrl = URL.createObjectURL(video.blob);
+      exportJob = EXP.completeExport(exportJob, summary);
+      exportJob.downloadName = video.fileName;
+      exportJob.videoMimeType = video.mimeType;
+      persistEpisodeSession();
+    } catch (err) {
+      exportJob.status = "draft";
+      exportJob.progress = 0;
+      errors = { export: err && err.message ? err.message : "Episode video export failed." };
+      showErrors = true;
+    } finally {
+      if (startButton) {
+        startButton.disabled = false;
+      }
+      renderExport(summary);
+    }
+  }
+
   function renderExport(summary) {
     root.innerHTML = "";
     setStep("Step 8 of 8 · Export & publish");
@@ -3826,16 +3870,42 @@
 
     const statusCard = el("section", { class: "card export-status-card" }, el("h3", {}, "Export status"));
     const exportSummary = EXP.summarizeExport(exportJob);
-    if (exportJob.status === "ready") {
+    if (exportJob.status === "rendering") {
+      statusCard.appendChild(
+        el("p", { class: "export-rendering" }, "Rendering arranged episode video from your layout and polished audio\u2026"),
+      );
+    } else if (exportJob.status === "ready") {
       statusCard.appendChild(
         el("p", { class: "export-ready" }, `Ready to download: ${exportJob.downloadName}`),
       );
       statusCard.appendChild(
         el("p", { class: "hint" }, `${exportSummary.platformName} · ${exportSummary.resolutionLabel} · ${exportSummary.captionLabel}`),
       );
+      if (exportVideoBlobUrl) {
+        const preview = el("video", {
+          class: "export-video-preview",
+          id: "export-video-preview",
+          controls: true,
+          playsInline: true,
+        });
+        preview.src = exportVideoBlobUrl;
+        statusCard.appendChild(preview);
+        statusCard.appendChild(
+          el(
+            "a",
+            {
+              class: "btn-primary export-download-link",
+              id: "export-download-link",
+              href: exportVideoBlobUrl,
+              download: exportJob.downloadName || "episode.webm",
+            },
+            "Download episode video",
+          ),
+        );
+      }
     } else {
       statusCard.appendChild(
-        el("p", { class: "hint" }, "Start export when your publishing options look right."),
+        el("p", { class: "hint" }, "Start export to render a playable arranged episode video you can preview and download."),
       );
     }
     grid.appendChild(statusCard);
@@ -3855,17 +3925,18 @@
     packageButton.addEventListener("click", () => renderPublishPackage(summary));
     actions.appendChild(packageButton);
     if (exportJob.status !== "ready") {
-      const startButton = el("button", { type: "button", class: "primary" }, "Start export →");
+      const startButton = el(
+        "button",
+        {
+          type: "button",
+          class: "btn-primary workspace-handoff-primary-btn",
+          id: "workspace-primary-next",
+          disabled: exportJob.status === "rendering" ? true : null,
+        },
+        exportJob.status === "rendering" ? "Rendering episode video\u2026" : "Start export \u2192",
+      );
       startButton.addEventListener("click", () => {
-        const result = EXP.runExport(exportJob, summary, ctx);
-        if (!result.ok) {
-          if (PR && result.error && result.error.indexOf("publish review") >= 0) {
-            renderPublishReview(summary);
-          }
-          return;
-        }
-        exportJob = result.state;
-        renderExport(summary);
+        void runEpisodeVideoExport(summary, ctx, startButton);
       });
       actions.appendChild(startButton);
     } else {
