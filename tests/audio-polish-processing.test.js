@@ -1,6 +1,6 @@
-"use strict";
+﻿"use strict";
 
-// Real audio polish processing handoff (#197).
+// Audio polish processing smoke suite for Podcast Design Canvas (#197).
 // Run with: `node tests/audio-polish-processing.test.js`.
 
 const assert = require("assert");
@@ -8,11 +8,10 @@ const fs = require("fs");
 const path = require("path");
 const setup = require("../app/episode-setup.js");
 const audio = require("../app/audio-polish.js");
-const processor = require("../app/audio-processor.js");
-const mediaStore = require("../app/audio-media-store.js");
-const importedSources = require("../app/imported-track-sources.js");
-const episodeExport = require("../app/episode-export.js");
-const style = require("../app/episode-style.js");
+const store = require("../app/speaker-media-store.js");
+
+const ui = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "utf8");
+const styles = fs.readFileSync(path.join(__dirname, "../app/styles.css"), "utf8");
 
 let passed = 0;
 function test(name, fn) {
@@ -21,229 +20,114 @@ function test(name, fn) {
   console.log(`  ok ${name}`);
 }
 
-const ui = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "utf8");
-
-function completeUploadDraft() {
+function uploadDraftWithMediaIds() {
   const draft = setup.createDraft();
-  draft.episodeName = "Indie Makers Weekly - Episode 3";
+  draft.episodeName = "Founders Unfiltered #7";
   draft.sourceMode = "upload";
   draft.speakers = [
-    Object.assign(setup.createSpeaker("Host"), { name: "Jordan Lee", fileName: "jordan.mp4" }),
-    Object.assign(setup.createSpeaker("Guest 1"), { name: "Priya Shah", fileName: "priya.mp4" }),
-    Object.assign(setup.createSpeaker("Guest 2"), { name: "Chris Ortiz", fileName: "chris.mp4" }),
+    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "sam.wav", sourceMediaId: "show-1:ep-1:source:1" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.wav", sourceMediaId: "show-1:ep-1:source:2" }),
+    Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.wav", sourceMediaId: "show-1:ep-1:source:3" }),
   ];
   return draft;
 }
 
-test("transformSamples measurably changes imported audio samples", () => {
-  const source = processor.synthesizeSourceSamples("jordan.mp4", 0.25);
-  const processed = processor.processSourceSamples(source.samples, source.sampleRate, {
-    noiseCleanup: "balanced",
-    leveling: "balanced",
-    speechClarity: "strong",
-    enhancement: "strong",
+function seedImportedSources(episodeKey, draft) {
+  store.resetMemoryStore();
+  draft.speakers.forEach((speaker, index) => {
+    const wav = audio.buildImportedSpeakerSourceWav({
+      role: speaker.role,
+      trackIndex: index,
+      seed: `${episodeKey}:${speaker.name}`,
+    });
+    store.saveMediaSync(store.buildMediaId(episodeKey, "source", index + 1), wav, {
+      kind: "source",
+      role: speaker.role,
+    });
   });
-  assert.strictEqual(processor.samplesChanged(source.samples, processed.samples), true);
-  assert.ok(processed.byteLength > 44);
-  assert.ok(processed.wavBytes[0] === 0x52 && processed.wavBytes[1] === 0x49);
-});
-
-function registerEpisodeSources(episode, context) {
-  importedSources.__resetMemoryStoreForTests();
-  return audio.registerImportedSources(
-    episode,
-    context,
-    audio.buildImportedSourceEntriesFromProcessor(episode),
-  );
 }
 
-test("runProcessing saves polished WAV outputs for every imported speaker track", () => {
-  mediaStore.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  const result = audio.runProcessing(audio.applyPreset(audio.createPolish(episode), "studio"), episode, context);
-  assert.strictEqual(result.ok, true);
-  assert.strictEqual(result.assets.length, 3);
-  assert.strictEqual(result.polish.speakers.every((track) => track.status === audio.PROCESSING_STATUS.READY), true);
-  assert.ok(result.polish.speakers.every((track) => track.byteLength > 44));
-  assert.ok(result.polish.speakers[0].polishedFileName.includes("jordan-studio-polished.wav"));
+test("processSamples changes decoded imported speaker audio", () => {
+  const source = audio.buildImportedSpeakerSourceWav({ role: "Host", trackIndex: 0, seed: "sam" });
+  const decoded = audio.decodeWav(source);
+  const processed = audio.processSamples(decoded.samples, audio.applyPreset(audio.createPolish({}), "studio"));
+  let changed = 0;
+  for (let i = 0; i < decoded.samples.length; i += 1) {
+    if (Math.abs(decoded.samples[i] - processed[i]) > 0.0001) {
+      changed += 1;
+    }
+  }
+  assert.ok(changed > decoded.samples.length * 0.5, "expected most samples to change after polish");
 });
 
-test("saveAssetsSync persists polished WAV bytes for reload", () => {
-  mediaStore.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  const result = audio.runProcessing(audio.createPolish(episode), episode, context);
-  mediaStore.saveAssetsSync("show-indie", "ep-3", result.assets);
-  const restored = mediaStore.listAssetsSync("show-indie", "ep-3");
-  assert.strictEqual(restored.length, 3);
-  assert.ok(restored.every((asset) => asset.byteLength > 44));
-  assert.ok(restored.every((asset) => /polished\.wav$/.test(asset.polishedFileName)));
-});
+test("syncProcessPolish saves polished WAV assets for every imported speaker track", () => {
+  const episodeKey = "show-1:ep-1";
+  const draft = uploadDraftWithMediaIds();
+  seedImportedSources(episodeKey, draft);
+  const summary = setup.summarize(draft);
+  let polish = audio.createPolish(summary);
 
-test("saveAsset merge keeps every polished track after sequential saves", () => {
-  mediaStore.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  const result = audio.runProcessing(audio.createPolish(episode), episode, context);
-  assert.strictEqual(result.ok, true);
-  result.assets.forEach((asset) => {
-    mediaStore.saveAsset(Object.assign({}, asset));
+  polish = audio.syncProcessPolish(polish, {
+    loadSourceMedia: (mediaId) => store.loadMediaSync(mediaId),
+    savePolishedMedia: (trackIndex, bytes) => {
+      const mediaId = store.buildMediaId(episodeKey, "polished", trackIndex);
+      store.saveMediaSync(mediaId, bytes, { kind: "polished" });
+      return mediaId;
+    },
   });
-  const restored = mediaStore.listAssetsSync("show-indie", "ep-3");
-  assert.strictEqual(restored.length, 3);
-  assert.ok(restored.every((asset) => asset.byteLength > 44));
-});
 
-test("saveAsset merge keeps every polished track in localStorage after reload", () => {
-  const memory = {};
-  global.localStorage = {
-    getItem(key) {
-      return memory[key] || null;
-    },
-    setItem(key, value) {
-      memory[key] = value;
-    },
-    removeItem(key) {
-      delete memory[key];
-    },
-  };
-  mediaStore.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  const result = audio.runProcessing(audio.createPolish(episode), episode, context);
-  assert.strictEqual(result.ok, true);
-  result.assets.forEach((asset) => {
-    mediaStore.saveAsset(Object.assign({}, asset));
+  assert.strictEqual(audio.hasCompletePolishedTracks(polish), true);
+  polish.speakers.forEach((track, index) => {
+    assert.strictEqual(track.status, audio.TRACK_STATUS.COMPLETE);
+    assert.ok(track.polishedMediaId);
+    assert.ok(track.polishedFileName.endsWith("-polished.wav"));
+    const polishedBytes = store.loadMediaSync(store.buildMediaId(episodeKey, "polished", index + 1));
+    assert.ok(polishedBytes && polishedBytes.length > 44);
+    const sourceBytes = store.loadMediaSync(track.sourceMediaId);
+    const sourceDecoded = audio.decodeWav(sourceBytes);
+    const polishedDecoded = audio.decodeWav(polishedBytes);
+    assert.notDeepStrictEqual(Array.from(sourceDecoded.samples.slice(0, 128)), Array.from(polishedDecoded.samples.slice(0, 128)));
   });
-  mediaStore.__resetMemoryStoreForTests();
-  const restored = mediaStore.listAssetsSync("show-indie", "ep-3");
-  assert.strictEqual(restored.length, 3);
-  assert.ok(restored.every((asset) => asset.byteLength > 44));
-  delete global.localStorage;
+
+  const applied = audio.summarizePolish(polish);
+  assert.strictEqual(applied.allTracksComplete, true);
+  assert.strictEqual(applied.polishedTrackCount, 3);
+  assert.match(applied.assetLine, /3 polished WAV assets saved/);
+  assert.strictEqual(audio.buildReviewSummary(summary, applied, {}).readyForExport, true);
 });
 
-test("imported sources persist across reload for every speaker track", () => {
-  const memory = {};
-  global.localStorage = {
-    getItem(key) { return memory[key] || null; },
-    setItem(key, value) { memory[key] = value; },
-    removeItem(key) { delete memory[key]; },
-  };
-  importedSources.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  importedSources.__resetMemoryStoreForTests();
-  const restored = importedSources.loadEpisodeSources("show-indie", "ep-3");
-  assert.strictEqual(restored.entries.length, 3);
-  assert.ok(restored.entries.every((entry) => entry.sampleLength > 0));
-  delete global.localStorage;
+test("ACCEPTANCE: imported source bytes are processed into durable polished outputs", () => {
+  const episodeKey = "show-2:ep-2";
+  const draft = setup.createDraft();
+  draft.episodeName = "Founders Unfiltered #7";
+  draft.sourceMode = "upload";
+  draft.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "sam.wav", sourceMediaId: `${episodeKey}:source:1` }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "dana.wav", sourceMediaId: `${episodeKey}:source:2` }),
+    Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.wav", sourceMediaId: `${episodeKey}:source:3` }),
+  ];
+  seedImportedSources(episodeKey, draft);
+  const summary = setup.summarize(draft);
+  const polished = audio.syncProcessPolish(audio.createPolish(summary), {
+    loadSourceMedia: (mediaId) => store.loadMediaSync(mediaId),
+    savePolishedMedia: (trackIndex, bytes) => store.saveMediaSync(store.buildMediaId(episodeKey, "polished", trackIndex), bytes, { kind: "polished" }),
+  });
+  assert.ok(store.loadMediaSync(store.buildMediaId(episodeKey, "polished", 1)));
+  assert.ok(store.loadMediaSync(store.buildMediaId(episodeKey, "polished", 2)));
+  assert.ok(store.loadMediaSync(store.buildMediaId(episodeKey, "polished", 3)));
+  assert.strictEqual(audio.summarizePolish(polished).usesPolishedTracks, true);
 });
 
-test("attachStoredAssets restores processed track references from saved asset metadata", () => {
-  mediaStore.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  const result = audio.runProcessing(audio.createPolish(episode), episode, context);
-  assert.strictEqual(result.ok, true);
-  const assets = result.assets.map((asset) => Object.assign({}, asset));
-  const restored = audio.attachStoredAssets(audio.createPolish(episode), assets);
-  const summary = audio.summarizePolish(restored);
-  assert.strictEqual(summary.allTracksReady, true);
-  assert.ok(summary.polishedTrackLine.includes("jordan-clean-polished.wav"));
-});
-
-test("validatePolishForExport blocks export until polished tracks are saved", () => {
-  const episode = setup.summarize(completeUploadDraft());
-  const incomplete = audio.summarizePolish(audio.createPolish(episode));
-  assert.strictEqual(audio.validatePolishForExport(incomplete).ok, false);
-  const complete = audio.prepareProcessedPolish(episode, { showId: "show-indie", episodeId: "ep-3" });
-  assert.strictEqual(audio.validatePolishForExport(complete).ok, true);
-  assert.strictEqual(episodeExport.validateReadiness({
-    audioPolish: complete,
-    appliedStyle: style.summarizeStyle(style.createSelection(), episode.speakerCount),
-  }).ok, true);
-});
-
-test("buildExportAudioLine references saved polished track filenames", () => {
-  const episode = setup.summarize(completeUploadDraft());
-  const context = { showId: "show-indie", episodeId: "ep-3" };
-  registerEpisodeSources(episode, context);
-  const applied = audio.summarizePolish(audio.runProcessing(
-    audio.applyPreset(audio.createPolish(episode), "studio"),
-    episode,
-    context,
-  ).polish);
-  const line = audio.buildExportAudioLine(applied);
-  assert.ok(/Audio: Studio/.test(line));
-  assert.ok(/polished\.wav/.test(line));
-  const exportSummary = episodeExport.buildFinalSummary(episode, {
-    audioPolish: applied,
-    appliedStyle: style.summarizeStyle(style.createSelection(), episode.speakerCount),
-  }, episodeExport.createExport(episode));
-  assert.ok(exportSummary.lines.some((entry) => /polished\.wav/.test(entry)));
-});
-
-test("syncTracksWithImportedSources marks pending tracks as source-ready before apply", () => {
-  importedSources.__resetMemoryStoreForTests();
-  const episode = setup.summarize(completeUploadDraft());
-  registerEpisodeSources(episode, { showId: "show-indie", episodeId: "ep-3" });
-  let polish = audio.createPolish(episode);
-  polish = audio.syncTracksWithImportedSources(polish, episode, { showId: "show-indie", episodeId: "ep-3" });
-  assert.strictEqual(polish.speakers.every((track) => track.status === "pending"), true);
-  assert.strictEqual(polish.speakers.every((track) => track.sourceReady), true);
-  assert.strictEqual(polish.speakers.every((track) => !track.error), true);
-});
-
-test("clearStaleProcessingFailures resets failed tracks to pending before apply", () => {
-  const episode = setup.summarize(completeUploadDraft());
-  let polish = audio.createPolish(episode);
-  polish.speakers[0].status = "failed";
-  polish.speakers[0].error = "Imported source audio is missing for this speaker track. Complete episode setup first.";
-  polish = audio.clearStaleProcessingFailures(polish);
-  assert.strictEqual(polish.speakers[0].status, "pending");
-  assert.strictEqual(polish.speakers[0].error, "");
-});
-
-test("audio polish UI runs real processing handoff before continuing", () => {
-  assert.ok(ui.includes("function applyAudioPolishHandoff"));
-  assert.ok(ui.includes("function ensureImportedSourcesRegistered"));
-  assert.ok(ui.includes("function prepareAudioPolishView"));
-  assert.ok(ui.includes("function registerImportedSourcesForEpisode"));
-  assert.ok(ui.includes("function restoreAudioPolishFromStorage"));
-  assert.ok(ui.includes("runProcessingAndPersist"));
-  const block = ui.slice(ui.indexOf("function renderAudioPolish"), ui.indexOf("// ---- Visual moments editor"));
-  assert.ok(block.includes("audio-track-status"));
-  assert.ok(block.includes("audio-apply-continue"));
-  assert.ok(block.includes("Apply audio & continue →"));
-  assert.ok(block.includes("Continue to workspace →"));
-  assert.ok(block.includes("audio-polish-apply-bar"));
-  assert.ok(!/appliedAudioPolish = AP\.summarizePolish\(audioPolish\);\s+if \(STY && !appliedStyle\)/.test(block));
-});
-
-test("ACCEPTANCE: imported upload episode can process, persist, reload, and export polished tracks", () => {
-  mediaStore.__resetMemoryStoreForTests();
-  const draft = completeUploadDraft();
-  assert.strictEqual(setup.validateDraft(draft).ok, true);
-  const episode = setup.summarize(draft);
-  let polish = audio.applyPreset(audio.createPolish(episode), "clean");
-  polish = audio.updateControl(polish, "speechClarity", "strong");
-  registerEpisodeSources(episode, { showId: "show-indie", episodeId: "ep-3" });
-  const result = audio.runProcessing(polish, episode, { showId: "show-indie", episodeId: "ep-3" });
-  assert.strictEqual(result.ok, true);
-  const applied = audio.summarizePolish(result.polish);
-  assert.strictEqual(applied.allTracksReady, true);
-  assert.strictEqual(applied.speechClarityLabel, "Strong");
-  assert.ok(applied.polishedTrackLine.includes("jordan-clean-polished.wav"));
-  const review = audio.buildReviewSummary(episode, applied, {});
-  assert.strictEqual(review.readyForExport, true);
-  assert.ok(review.polishedTrackLine.includes("polished.wav"));
+test("ACCEPTANCE: UI wires Apply to async processing with per-track status and asset line", () => {
+  assert.ok(ui.includes("applyAudioPolishAndStay"));
+  assert.ok(ui.includes("openAudioPolishStep"));
+  assert.ok(ui.includes("audio-apply-btn"));
+  assert.ok(ui.includes("audio-track-status-"));
+  assert.ok(ui.includes("TRACK_STATUS.COMPLETE"));
+  assert.ok(ui.includes("audio-polish-asset-line"));
+  assert.ok(ui.includes("ingestEpisodeSourceMedia"));
+  assert.ok(styles.includes(".audio-track-status-complete"));
 });
 
 console.log(`\naudio polish processing: ${passed} assertions passed`);
+

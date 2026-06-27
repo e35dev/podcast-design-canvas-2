@@ -98,7 +98,7 @@ test("import handoff UI lands in workspace after setup continue", () => {
   const handoffBlock = ui.slice(ui.indexOf("function tryCompleteSetupHandoff"), ui.indexOf("function onContinue()"));
   const continueBlock = ui.slice(ui.indexOf("function onContinue()"), ui.indexOf("function focusFirstError()"));
   assert.ok(handoffBlock.includes("renderWorkspace(summary)"));
-  assert.ok(handoffBlock.includes("ensureImportedSourcesRegistered"));
+  assert.ok(handoffBlock.includes("ingestEpisodeSourceMedia"));
   assert.ok(!handoffBlock.includes("runInitialAudioPolishApply"));
   assert.ok(handoffBlock.includes("applySandboxHandoffSourceIfNeeded"));
   assert.ok(handoffBlock.includes("ensureSetupStyleApplied"));

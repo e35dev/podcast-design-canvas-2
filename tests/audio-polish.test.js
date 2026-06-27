@@ -7,6 +7,7 @@
 const assert = require("assert");
 const setup = require("../app/episode-setup.js");
 const audio = require("../app/audio-polish.js");
+const store = require("../app/speaker-media-store.js");
 
 let passed = 0;
 function test(name, fn) {
@@ -25,6 +26,27 @@ function completeUploadDraft() {
     Object.assign(setup.createSpeaker("Guest 2"), { name: "Marco Vidal", fileName: "marco.mp4" }),
   ];
   return draft;
+}
+
+function processWithSpeakerStore(polish, episodeKey) {
+  store.resetMemoryStore();
+  polish.speakers = polish.speakers.map((track) => {
+    const sourceMediaId = store.buildMediaId(episodeKey, "source", track.trackIndex);
+    store.saveMediaSync(sourceMediaId, audio.buildImportedSpeakerSourceWav({
+      role: track.role,
+      trackIndex: track.trackIndex - 1,
+      seed: `${episodeKey}:${track.name}`,
+    }), { kind: "source", role: track.role });
+    return Object.assign({}, track, { sourceMediaId });
+  });
+  return audio.syncProcessPolish(polish, {
+    loadSourceMedia: (mediaId) => store.loadMediaSync(mediaId),
+    savePolishedMedia: (trackIndex, bytes) => store.saveMediaSync(
+      store.buildMediaId(episodeKey, "polished", trackIndex),
+      bytes,
+      { kind: "polished" },
+    ),
+  });
 }
 
 test("offers Natural, Clean, and Studio quality presets", () => {
@@ -98,9 +120,8 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
 
   polish = audio.applyPreset(polish, "clean");
   polish = audio.updateControl(polish, "speechClarity", "strong");
-  audio.registerImportedSources(episode, { showId: "show-test", episodeId: "ep-test" }, audio.buildImportedSourceEntriesFromProcessor(episode));
-  const processed = audio.runProcessing(polish, episode, { showId: "show-test", episodeId: "ep-test" });
-  const applied = audio.summarizePolish(processed.polish);
+  const processed = processWithSpeakerStore(polish, "show-test:ep-test");
+  const applied = audio.summarizePolish(processed);
   assert.strictEqual(applied.presetName, "Clean");
   assert.strictEqual(applied.speechClarityLabel, "Strong");
 

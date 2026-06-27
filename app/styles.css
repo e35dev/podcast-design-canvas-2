@@ -2007,6 +2007,11 @@ button.ghost:hover,
   font-weight: 600;
 }
 
+.audio-track-status-complete {
+  color: #1f7a42;
+  font-weight: 600;
+}
+
 .audio-track-status-processing {
   color: var(--brand);
   font-weight: 600;
@@ -2014,6 +2019,32 @@ button.ghost:hover,
 
 .audio-track-status-failed {
   color: #b42318;
+  font-weight: 600;
+}
+
+.audio-polish-status-card {
+  border-color: #d9e9df;
+  background: #f7fcf9;
+  margin-bottom: 14px;
+}
+
+.audio-polish-asset-line {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.audio-track-polished-file {
+  margin: 6px 0 0;
+  color: #1f7a42;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audio-track-error {
+  margin: 6px 0 0;
+  color: #b42318;
+  font-size: 12px;
   font-weight: 600;
 }
 

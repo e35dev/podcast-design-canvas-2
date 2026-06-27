@@ -98,7 +98,8 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName && context.audioPolish.allTracksReady) {
+    const audioTracksComplete = Boolean(context.audioPolish && (context.audioPolish.allTracksComplete || context.audioPolish.allTracksReady));
+    if (context.audioPolish && context.audioPolish.presetName && audioTracksComplete) {
       checks.push(check(
         "audio-ready",
         "audio",
@@ -229,7 +230,7 @@
       ));
     }
 
-    const exportReady = Boolean(context.audioPolish && context.audioPolish.exportReady
+    const exportReady = Boolean(context.audioPolish && context.audioPolish.allTracksComplete
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(

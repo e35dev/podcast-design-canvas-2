@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 
 // Browser wiring for episode setup (#1), social context (#34), audio polish (#15),
 // preset style (#4), canvas editor (#11), visual moments (#19), social context (#34),
@@ -14,8 +14,7 @@
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
   const AP = window.PdcAudioPolish;
-  const AMS = window.PdcAudioMediaStore;
-  const ITS = window.PdcImportedTrackSources;
+  const SMS = window.PdcSpeakerMediaStore;
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
@@ -52,6 +51,7 @@
   let layoutCustomized = false;
   let audioPolish = null;
   let appliedAudioPolish = null;
+  let audioProcessing = false;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
@@ -85,9 +85,6 @@
   let showIdentitySummary = null;
   let lastView = "setup";
   let pendingShowCreation = false;
-  let audioPolishProcessing = false;
-  let audioPolishError = "";
-  const pendingSpeakerMedia = new Map();
 
   function getActiveBrandKit() {
     if (activeBrandKit) {
@@ -313,8 +310,8 @@
       setupDraft: state,
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
-      appliedAudioPolish: appliedAudioPolish,
       audioPolish: audioPolish,
+      appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
       publishReviewApprovedAt: publishReviewApprovedAt,
@@ -350,8 +347,8 @@
     state = data.setupDraft || ES.createDraft();
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
-    appliedAudioPolish = data.appliedAudioPolish || null;
     audioPolish = data.audioPolish || null;
+    appliedAudioPolish = data.appliedAudioPolish || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
     publishReviewApprovedAt = data.publishReviewApprovedAt || null;
@@ -360,196 +357,149 @@
     if (SI && activeShowId && LIB) {
       state = SI.sanitizeSetupDraft(state, LIB.getShow(showLibrary, activeShowId));
     }
-    if (appliedAudioPolish && appliedAudioPolish.allTracksReady && AMS && AP && activeShowId && activeEpisodeId) {
-      restoreAudioPolishFromStorage(ES.summarize(state));
-    }
   }
 
-  async function decodeSpeakerMedia(file) {
-    const PROC = window.PdcAudioProcessor;
-    if (!file || !PROC) {
-      return null;
+  function getEpisodeMediaKey() {
+    if (!activeShowId || !activeEpisodeId) {
+      return "draft-episode";
     }
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-        const channel = audioBuffer.getChannelData(0);
-        return { samples: channel.slice(), sampleRate: audioBuffer.sampleRate };
+    return `${activeShowId}:${activeEpisodeId}`;
+  }
+
+  function buildSourceMediaId(trackIndex) {
+    return SMS.buildMediaId(getEpisodeMediaKey(), "source", trackIndex);
+  }
+
+  async function storeSpeakerSourceMedia(speaker, trackIndex, bytes, fileName) {
+    if (!SMS || !AP) {
+      return "";
+    }
+    const mediaId = buildSourceMediaId(trackIndex);
+    await SMS.saveMedia(mediaId, bytes, {
+      kind: "source",
+      trackIndex: trackIndex,
+      fileName: fileName || speaker.fileName || "",
+      role: speaker.role || "",
+    });
+    speaker.sourceMediaId = mediaId;
+    speaker.fileName = fileName || speaker.fileName || `${speaker.role || "speaker"}.wav`;
+    speaker.fileSize = bytes ? bytes.length : speaker.fileSize;
+    return mediaId;
+  }
+
+  async function storePlaceholderSpeakerMedia(speaker, trackIndex) {
+    const wav = AP.buildImportedSpeakerSourceWav({
+      role: speaker.role,
+      trackIndex: trackIndex,
+      seed: `${getEpisodeMediaKey()}:${speaker.role}:${trackIndex}`,
+    });
+    const fileName = (speaker.fileName || `${speaker.role || "speaker"}.wav`).replace(/\.mp4$/i, ".wav");
+    return storeSpeakerSourceMedia(speaker, trackIndex, wav, fileName);
+  }
+
+  async function ingestEpisodeSourceMedia(summary) {
+    if (!SMS || !AP) {
+      return false;
+    }
+    const episodeKey = getEpisodeMediaKey();
+    const mode = ES.normalizeMode(state.sourceMode);
+    const seedBase = mode === "riverside" ? trim(state.riversideLink) : "upload";
+    for (let index = 0; index < state.speakers.length; index += 1) {
+      const speaker = state.speakers[index];
+      if (speaker.sourceMediaId && await SMS.hasMedia(speaker.sourceMediaId)) {
+        continue;
       }
-    } catch (err) {
-      /* fall through to synthesized source */
+      if (mode === "upload" && speaker.sourceMediaId) {
+        const existing = await SMS.loadMedia(speaker.sourceMediaId);
+        if (existing && existing.length) {
+          continue;
+        }
+      }
+      const wav = AP.buildImportedSpeakerSourceWav({
+        role: speaker.role,
+        trackIndex: index,
+        seed: `${episodeKey}:${seedBase}:${speaker.role}:${speaker.name}:${index}`,
+      });
+      const fileName = mode === "upload"
+        ? (speaker.fileName || `${speaker.role || "speaker"}.wav`).replace(/\.mp4$/i, ".wav")
+        : `${String(speaker.role || "speaker").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-imported.wav`;
+      await storeSpeakerSourceMedia(speaker, index + 1, wav, fileName);
     }
-    return PROC.synthesizeSourceSamples(file.name || "upload", 0.5);
+    if (audioPolish && AP) {
+      syncAudioPolishFromSummary(summary || ES.summarize(state));
+    } else if (AP) {
+      audioPolish = AP.createPolish(summary || ES.summarize(state));
+    }
+    return true;
   }
 
-  function buildAudioSourceResolver(decodedSources) {
-    const sources = Array.isArray(decodedSources) ? decodedSources : [];
-    return function resolveTrackSource(track) {
-      return sources[track.trackIndex - 1] || null;
+  function syncAudioPolishFromSummary(summary) {
+    if (!AP) {
+      return;
+    }
+    if (audioPolish && Array.isArray(audioPolish.speakers) && audioPolish.speakers.length) {
+      const byRole = {};
+      (summary.speakers || []).forEach((speaker) => {
+        byRole[speaker.role] = speaker;
+      });
+      audioPolish.speakers = audioPolish.speakers.map((track) => {
+        const source = byRole[track.role] || {};
+        return Object.assign({}, track, {
+          name: source.name || track.name,
+          sourceLabel: source.sourceLabel || track.sourceLabel,
+          sourceMediaId: source.sourceMediaId || track.sourceMediaId || "",
+        });
+      });
+      return;
+    }
+    audioPolish = AP.createPolish(summary);
+  }
+
+  function buildAudioPolishHooks(summary) {
+    const episodeKey = getEpisodeMediaKey();
+    return {
+      loadSourceMedia: (mediaId) => SMS.loadMedia(mediaId),
+      savePolishedMedia: (trackIndex, bytes, meta) => {
+        const mediaId = SMS.buildMediaId(episodeKey, "polished", trackIndex);
+        return SMS.saveMedia(mediaId, bytes, Object.assign({ kind: "polished" }, meta || {})).then(() => mediaId);
+      },
+      onTrackUpdate: (nextPolish) => {
+        audioPolish = nextPolish;
+        renderAudioPolish(summary);
+      },
     };
   }
 
-  function restoreAudioPolishFromStorage(summary) {
-    if (!AMS || !AP || !activeShowId || !activeEpisodeId) {
+  async function applyAudioPolishAndStay(summary) {
+    if (!AP || !SMS || audioProcessing) {
       return;
     }
-    const assets = AMS.listAssetsSync(activeShowId, activeEpisodeId);
-    if (!assets.length) {
-      return;
-    }
-    audioPolish = AP.attachStoredAssets(audioPolish || AP.createPolish(summary), assets);
-    if (AP.allTracksReady(audioPolish)) {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-    }
-  }
-
-  function ensureImportedSourcesRegistered(summary) {
-    if (!AP || !activeShowId || !activeEpisodeId) {
-      return { ok: false };
-    }
-    if (pendingSpeakerMedia.size > 0) {
-      return { ok: false, pendingUpload: true };
-    }
-    return AP.registerImportedSources(
-      summary,
-      { showId: activeShowId, episodeId: activeEpisodeId },
-      AP.buildImportedSourceEntriesFromProcessor(summary),
-    );
-  }
-
-  function prepareAudioPolishView(summary) {
-    const context = { showId: activeShowId, episodeId: activeEpisodeId };
-    ensureImportedSourcesRegistered(summary);
-    restoreAudioPolishFromStorage(summary);
-    if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
-    }
-    if (!appliedAudioPolish && !audioPolishProcessing) {
-      audioPolish = AP.clearStaleProcessingFailures(audioPolish);
-    }
-    audioPolish = AP.syncTracksWithImportedSources(audioPolish, summary, context);
-  }
-
-  function registerImportedSourcesForEpisode(summary) {
-    if (!AP || !activeShowId || !activeEpisodeId) {
-      return Promise.resolve({ ok: false });
-    }
-    const context = { showId: activeShowId, episodeId: activeEpisodeId };
-    if (pendingSpeakerMedia.size > 0) {
-      return Promise.all((summary.speakers || []).map((speaker, index) => {
-        const file = pendingSpeakerMedia.get(index);
-        return file ? decodeSpeakerMedia(file) : Promise.resolve(null);
-      })).then((decodedSources) => {
-        const entries = (summary.speakers || []).map((speaker, index) => {
-          const decoded = decodedSources[index];
-          if (decoded && decoded.samples) {
-            return {
-              samples: decoded.samples,
-              sampleRate: decoded.sampleRate,
-            };
-          }
-          return null;
-        });
-        return AP.registerImportedSources(summary, context, entries);
-      });
-    }
-    return Promise.resolve(
-      AP.registerImportedSources(
-        summary,
-        context,
-        AP.buildImportedSourceEntriesFromProcessor(summary),
-      ),
-    );
-  }
-
-  function applyAudioPolishHandoff(summary) {
-    if (!AP || audioPolishProcessing) {
-      return;
-    }
-    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
-      continueAfterAudioPolish(summary);
-      return;
-    }
-    if (LIB && typeof ensureFreshEpisodeRecord === "function") {
-      ensureFreshEpisodeRecord(summary);
-    }
-    if (!activeShowId || !activeEpisodeId) {
-      audioPolishError = "Save the episode before applying audio polish.";
-      renderAudioPolish(summary);
-      return;
-    }
-    const context = { showId: activeShowId, episodeId: activeEpisodeId };
-    ensureImportedSourcesRegistered(summary);
-    prepareAudioPolishView(summary);
-    audioPolishProcessing = true;
-    audioPolishError = "";
-    audioPolish = Object.assign({}, audioPolish || AP.createPolish(summary), {
-      speakers: (audioPolish.speakers || []).map((track) => Object.assign({}, track, {
-        status: "processing",
-        error: "",
-      })),
-      processingStatus: "processing",
-    });
+    syncAudioPolishFromSummary(summary);
+    audioProcessing = true;
     renderAudioPolish(summary);
-
-    function finishProcessing(result) {
-      audioPolishProcessing = false;
-      audioPolish = result.polish;
-      if (!result.ok) {
-        audioPolishError = result.error || "Audio processing failed.";
-        renderAudioPolish(summary);
+    try {
+      audioPolish = await AP.processPolishAsync(audioPolish, buildAudioPolishHooks(summary));
+      if (AP.hasCompletePolishedTracks(audioPolish)) {
+        appliedAudioPolish = AP.summarizePolish(audioPolish);
+        persistEpisodeSession();
+        audioProcessing = false;
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
         return;
       }
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      persistEpisodeSession();
-      renderAudioPolish(summary);
-      window.requestAnimationFrame(function () {
-        window.requestAnimationFrame(function () {
-          continueAfterAudioPolish(summary);
-        });
-      });
-    }
-
-    registerImportedSourcesForEpisode(summary).then(() => {
-      const hasUploadedMedia = pendingSpeakerMedia.size > 0;
-      if (hasUploadedMedia) {
-        Promise.all((audioPolish.speakers || []).map((track, index) => {
-          const file = pendingSpeakerMedia.get(index);
-          return file ? decodeSpeakerMedia(file) : Promise.resolve(null);
-        })).then((decodedSources) => {
-          finishProcessing(AP.runProcessingAndPersist(
-            audioPolish,
-            summary,
-            context,
-            buildAudioSourceResolver(decodedSources),
-          ));
-        }).catch((err) => {
-          audioPolishProcessing = false;
-          audioPolishError = err && err.message ? err.message : String(err);
-          renderAudioPolish(summary);
-        });
-        return;
+      if (AP.hasFailedTracks(audioPolish)) {
+        errors = { audioPolish: "Some speaker tracks could not be polished. Fix the failed tracks and try again." };
+        showErrors = true;
       }
-
-      finishProcessing(AP.runProcessingAndPersist(audioPolish, summary, context, null));
-    }).catch((err) => {
-      audioPolishProcessing = false;
-      audioPolishError = err && err.message ? err.message : String(err);
+    } catch (err) {
+      errors = { audioPolish: err && err.message ? err.message : "Audio processing failed." };
+      showErrors = true;
+    } finally {
+      audioProcessing = false;
       renderAudioPolish(summary);
-    });
-  }
-
-  function continueAfterAudioPolish(summary) {
-    if (!appliedAudioPolish || !appliedAudioPolish.allTracksReady) {
-      return;
-    }
-    if (STY && !appliedStyle) {
-      renderStyle(summary);
-    } else {
-      renderWorkspace(summary);
     }
   }
 
@@ -1699,6 +1649,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioProcessing = false;
     activeTemplateId = null;
     canvasDoc = null;
     canvasLayerCounter = 20;
@@ -1770,7 +1721,7 @@
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
     audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
-    appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
+    appliedAudioPolish = null;
     activeTemplateId = null;
     canvasDoc = null;
     exportJob = null;
@@ -2225,10 +2176,12 @@
         applySandboxHandoffSourceIfNeeded();
         activeTemplateId = null;
         canvasDoc = null;
-        if (tryCompleteSetupHandoff({ quiet: true })) {
-          return;
-        }
-        renderSetup();
+        void tryCompleteSetupHandoff({ quiet: true }).then((completed) => {
+          if (completed) {
+            return;
+          }
+          renderSetup();
+        });
       });
       grid.appendChild(card);
     });
@@ -2575,14 +2528,26 @@
       );
       fileInput.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
-        speaker.fileName = file ? file.name : "";
-        speaker.fileSize = file ? file.size : 0;
-        if (file) {
-          pendingSpeakerMedia.set(index, file);
-        } else {
-          pendingSpeakerMedia.delete(index);
+        if (!file) {
+          speaker.fileName = "";
+          speaker.fileSize = 0;
+          speaker.sourceMediaId = "";
+          chosen.textContent = "No file chosen yet";
+          return;
         }
-        chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
+        void (async () => {
+          try {
+            const raw = new Uint8Array(await file.arrayBuffer());
+            const wav = AP ? await AP.normalizeUploadToWav(raw, file.name) : raw;
+            await storeSpeakerSourceMedia(speaker, index + 1, wav, file.name.replace(/\.[^.]+$/, ".wav"));
+            chosen.textContent = `Selected: ${speaker.fileName}`;
+          } catch (err) {
+            speaker.fileName = "";
+            speaker.fileSize = 0;
+            speaker.sourceMediaId = "";
+            chosen.textContent = err && err.message ? err.message : "Could not import speaker file.";
+          }
+        })();
       });
       sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
       sourceBlock.appendChild(chosen);
@@ -2597,7 +2562,9 @@
       placeholderBtn.addEventListener("click", () => {
         readSetupFormState();
         ES.attachPlaceholderFile(speaker);
-        renderSetup();
+        void storePlaceholderSpeakerMedia(speaker, index + 1).then(() => {
+          renderSetup();
+        });
       });
       sourceBlock.appendChild(
         el(
@@ -2781,7 +2748,7 @@
     return true;
   }
 
-  function tryCompleteSetupHandoff(options) {
+  async function tryCompleteSetupHandoff(options) {
     const opts = options && typeof options === "object" ? options : {};
     readSetupFormState();
     applySandboxHandoffSourceIfNeeded();
@@ -2817,21 +2784,15 @@
       }
       return false;
     }
-    if (pendingSpeakerMedia.size > 0) {
-      registerImportedSourcesForEpisode(summary).then(function () {
-        persistEpisodeSession();
-        renderWorkspace(summary);
-      });
-      return true;
-    }
-    ensureImportedSourcesRegistered(summary);
+    await ingestEpisodeSourceMedia(summary);
     persistEpisodeSession();
     renderWorkspace(summary);
     return true;
   }
 
-  function onContinue() {
-    if (!tryCompleteSetupHandoff()) {
+  async function onContinue() {
+    const ok = await tryCompleteSetupHandoff();
+    if (!ok) {
       renderSetup();
     }
   }
@@ -2917,10 +2878,7 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
-      renderAudioPolish(summary);
+      openAudioPolishStep(summary);
       return;
     }
     if (target === "style") {
@@ -2963,10 +2921,7 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
-      renderAudioPolish(summary);
+      openAudioPolishStep(summary);
       return;
     }
     if (target === "style") {
@@ -4935,8 +4890,7 @@
       contextApproved = true;
       applyContextEffects();
       if (AP && !appliedAudioPolish) {
-        audioPolish = AP.createPolish(summary);
-        renderAudioPolish(summary);
+        openAudioPolishStep(summary);
       } else {
         renderWorkspace(summary);
       }
@@ -4954,8 +4908,22 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
+  function openAudioPolishStep(summary) {
+    lastView = "audio";
+    if (!audioPolish) {
+      audioPolish = AP.createPolish(summary);
+    }
+    void ingestEpisodeSourceMedia(summary).then(() => {
+      syncAudioPolishFromSummary(summary);
+      renderAudioPolish(summary);
+    });
+  }
+
   function renderAudioPolish(summary) {
-    prepareAudioPolishView(summary);
+    if (!audioPolish) {
+      audioPolish = AP.createPolish(summary);
+    }
+    syncAudioPolishFromSummary(summary);
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -4964,69 +4932,28 @@
       el("div", { class: "workspace-head" },
         el("p", { class: "eyebrow" }, "Audio polish"),
         el("h2", {}, `Shape the sound for ${summary.episodeName}`),
-        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Apply processes each imported source into a saved polished WAV track before you continue."),
+        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Each imported speaker track below will get this treatment."),
       ),
     );
 
-    if (audioPolishError) {
-      view.appendChild(
-        el("div", { class: "card audio-polish-error", role: "alert" },
-          el("p", {}, audioPolishError),
-        ),
-      );
-    }
-
-    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
-      view.appendChild(
-        el("div", { class: "card audio-polish-complete" },
-          el("p", { class: "audio-polish-complete-lead" }, "Polished audio saved for every speaker track."),
-          el("p", { class: "hint" }, appliedAudioPolish.polishedTrackLine || "Saved polished outputs are ready for review and export."),
-        ),
-      );
-    }
-
-    const topActions = el("div", { class: "actions audio-polish-apply-actions" });
-    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
-      const topContinue = el(
-        "button",
-        {
-          type: "button",
-          class: "primary audio-polish-continue",
-          id: "audio-apply-continue",
-        },
-        "Continue to workspace →",
-      );
-      topContinue.addEventListener("click", () => {
-        continueAfterAudioPolish(summary);
-      });
-      topActions.appendChild(topContinue);
-    } else {
-      const topApply = el(
-        "button",
-        {
-          type: "button",
-          class: "primary audio-polish-apply-top",
-          id: "audio-apply-continue",
-          disabled: audioPolishProcessing ? "true" : null,
-        },
-        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio & continue →",
-      );
-      topApply.addEventListener("click", () => {
-        if (audioPolishProcessing) {
-          return;
-        }
-        applyAudioPolishHandoff(summary);
-      });
-      topActions.appendChild(topApply);
-    }
     view.appendChild(
-      el("div", { class: "audio-polish-apply-bar card" },
-        el("p", { class: "hint" }, appliedAudioPolish && appliedAudioPolish.allTracksReady
-          ? "Polished tracks are saved — continue to the production workspace or change the preset and apply again."
-          : "Choose a sound quality preset, then apply to process every imported speaker track into saved polished audio."),
-        topActions,
+      el(
+        "section",
+        { class: "card audio-polish-status-card" },
+        el("p", { class: "audio-polish-asset-line", id: "audio-polish-asset-line" }, AP.polishAssetLine(audioPolish)),
+        el(
+          "p",
+          { class: "hint audio-polish-status-note" },
+          "Click Apply audio & continue to process each imported speaker track into a saved polished WAV asset.",
+        ),
       ),
     );
+
+    if (showErrors && errors.audioPolish) {
+      view.appendChild(
+        el("div", { class: "banner", role: "alert" }, errors.audioPolish),
+      );
+    }
 
     const grid = el("div", { class: "audio-layout" });
 
@@ -5040,15 +4967,16 @@
           type: "button",
           class: `audio-preset-card${selected ? " selected" : ""}`,
           "aria-pressed": selected ? "true" : "false",
-          disabled: audioPolishProcessing ? "true" : null,
+          disabled: audioProcessing ? true : null,
         },
         el("span", { class: "audio-preset-name" }, preset.name),
         el("span", { class: "audio-preset-tagline" }, preset.tagline),
       );
       card.addEventListener("click", () => {
+        if (audioProcessing) {
+          return;
+        }
         audioPolish = AP.applyPreset(audioPolish, preset.id);
-        appliedAudioPolish = null;
-        audioPolishError = "";
         renderAudioPolish(summary);
       });
       presetGrid.appendChild(card);
@@ -5056,7 +4984,7 @@
     controls.appendChild(presetGrid);
 
     AP.CONTROLS.forEach((control) => {
-      const select = el("select", { id: `audio-${control.id}`, disabled: audioPolishProcessing ? "true" : null });
+      const select = el("select", { id: `audio-${control.id}`, disabled: audioProcessing ? true : null });
       AP.LEVELS.forEach((level) => {
         select.appendChild(
           el("option", {
@@ -5066,9 +4994,10 @@
         );
       });
       select.addEventListener("change", (e) => {
+        if (audioProcessing) {
+          return;
+        }
         audioPolish = AP.updateControl(audioPolish, control.id, e.target.value);
-        appliedAudioPolish = null;
-        audioPolishError = "";
         renderAudioPolish(summary);
       });
       controls.appendChild(field(control.label, select, null, control.hint));
@@ -5077,20 +5006,26 @@
 
     const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source is processed into a durable polished audio file used by review and export."),
+      el("p", { class: "hint" }, "Each imported source is processed into its own polished WAV asset."),
     );
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      const statusClass = track.status || "pending";
+      const statusClass = `audio-track-status-${track.status || AP.TRACK_STATUS.PENDING}`;
       trackList.appendChild(
-        el("div", { class: `audio-track audio-track-${statusClass}` },
+        el("div", { class: `audio-track audio-track-${track.status || AP.TRACK_STATUS.PENDING}` },
           el("div", { class: "audio-track-main" },
             el("span", { class: "role-pill" }, track.role),
             el("span", { class: "summary-name" }, track.name),
+            el("span", { class: `audio-track-status ${statusClass}` }, AP.trackStatusLabel(track.status)),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
+          track.status === AP.TRACK_STATUS.COMPLETE && track.polishedFileName
+            ? el("p", { class: "audio-track-polished-file" }, `Saved: ${track.polishedFileName}`)
+            : null,
+          track.status === AP.TRACK_STATUS.FAILED && track.error
+            ? el("p", { class: "audio-track-error" }, track.error)
+            : null,
           el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
-          el("span", { class: `audio-track-status audio-track-status-${statusClass}` }, AP.trackStatusLabel(track)),
         ),
       );
     });
@@ -5098,43 +5033,25 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const actions = el("div", { class: "actions" });
-    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
-      const continueButton = el(
-        "button",
-        { type: "button", class: "primary audio-polish-continue" },
-        "Continue to workspace →",
-      );
-      continueButton.addEventListener("click", () => {
-        continueAfterAudioPolish(summary);
-      });
-      actions.appendChild(continueButton);
-    } else {
-      const applyButton = el(
-        "button",
-        {
-          type: "button",
-          class: "primary",
-          id: "audio-apply-continue-bottom",
-          disabled: audioPolishProcessing ? "true" : null,
-        },
-        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio & continue →",
-      );
-      applyButton.addEventListener("click", () => {
-        if (audioPolishProcessing) {
-          return;
-        }
-        applyAudioPolishHandoff(summary);
-      });
-      actions.appendChild(applyButton);
-    }
+    const applyButton = el(
+      "button",
+      {
+        type: "button",
+        class: "primary audio-apply-btn",
+        id: "audio-apply-btn",
+        disabled: audioProcessing ? true : null,
+      },
+      audioProcessing ? "Processing speaker tracks…" : "Apply audio & continue →",
+    );
+    applyButton.addEventListener("click", () => {
+      void applyAudioPolishAndStay(summary);
+    });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    actions.appendChild(back);
-    view.appendChild(actions);
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -5706,3 +5623,4 @@
   }
   renderShowLibrary();
 }());
+

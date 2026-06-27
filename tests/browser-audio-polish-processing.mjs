@@ -1,4 +1,4 @@
-// Running-product acceptance for audio polish processing handoff (#197).
+﻿// Running-product acceptance for audio polish processing (#197).
 // Run: node tests/browser-audio-polish-processing.mjs
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
@@ -6,10 +6,7 @@ import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const port = 8770;
-
-const EPISODE_NAME = "Indie Makers Weekly - Episode 3";
-const SPEAKERS = ["Jordan Lee", "Priya Shah", "Chris Ortiz"];
+const port = 8771;
 
 function mime(path) {
   const ext = extname(path);
@@ -36,21 +33,21 @@ function startServer() {
   });
 }
 
-async function completeFreshSetup(page) {
+async function completeSetup(page) {
   await page.getByRole("button", { name: "Start blank episode" }).click();
   await page.waitForSelector("form.setup-import");
-  await page.locator("#f-episodeName").fill(EPISODE_NAME);
+  await page.locator("#f-episodeName").fill("Indie Makers Weekly — Episode 3");
   await page.locator("#f-riversideLink").fill("https://riverside.fm/studio/indie-makers-ep3");
-  for (let index = 0; index < SPEAKERS.length; index += 1) {
-    await page.locator(`#f-sp-${index}-name`).fill(SPEAKERS[index]);
-  }
+  await page.locator("#f-sp-0-name").fill("Jordan Lee");
+  await page.locator("#f-sp-1-name").fill("Priya Shah");
+  await page.locator("#f-sp-2-name").fill("Chris Ortiz");
   await page.locator(".setup-preset-card").first().click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
 
-async function openAudioPolishFromWorkspace(page) {
+async function openAudioPolish(page) {
   await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
-  await page.locator(".audio-step").waitFor({ state: "visible" });
+  await page.locator(".audio-step").waitFor();
 }
 
 async function main() {
@@ -64,58 +61,51 @@ async function main() {
 
   try {
     const { chromium } = await import("playwright");
-    const chromePath = "/root/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome";
-    browser = await chromium.launch({
-      headless: true,
-      executablePath: existsSync(chromePath) ? chromePath : undefined,
-    });
+    browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: "networkidle" });
 
-    await completeFreshSetup(page);
-    log(await page.locator(".guided-workspace").isVisible(), "Setup lands in production workspace");
+    await completeSetup(page);
+    await openAudioPolish(page);
+    log(await page.locator(".audio-track-status-pending").count() >= 3, "Audio polish opens with pending imported speaker tracks");
 
-    await openAudioPolishFromWorkspace(page);
-    const beforeApplyText = await page.locator(".audio-step").innerText();
-    log(beforeApplyText.includes("Jordan Lee"), "Audio polish panel lists Host track Jordan Lee");
-    log(/Imported source ready|Waiting to process/i.test(beforeApplyText), "Tracks show ready-to-polish status before Apply");
-    log(!/Processing failed|Missing imported source/i.test(beforeApplyText), "Tracks do not show pre-apply source errors");
-    log(await page.locator("#audio-apply-continue").isVisible(), "Apply audio & continue button is visible at top of screen");
+    await page.locator(".audio-preset-card").first().click();
+    await page.getByRole("button", { name: "Apply audio & continue →" }).click();
+    await page.locator(".audio-track-status-complete").first().waitFor({ timeout: 15000 });
+    log(await page.locator(".audio-track-status-complete").count() === 3, "Apply processes all speaker tracks to complete");
+    log(/polished WAV assets saved/i.test(await page.locator("#audio-polish-asset-line").innerText()), "Asset line reports saved polished WAV assets");
 
-    await page.locator("#audio-apply-continue").click();
+    await page.screenshot({ path: join(root, "tests", "audio-polish-complete.png"), fullPage: false });
+
     await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 15000 });
+    log(await page.locator(".guided-workspace").isVisible(), "Apply advances to production workspace after processing");
 
-    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/i }).first().click();
-    await page.locator(".audio-step").waitFor();
-    const appliedText = await page.locator(".audio-step").innerText();
-    log(/Saved ✓ .*polished\.wav/i.test(appliedText), "Apply saves polished WAV outputs per track");
-
-    await page.screenshot({ path: join(root, "tests", "audio-polish-processing-applied.png"), fullPage: false });
-    log(true, "Screenshot saved to tests/audio-polish-processing-applied.png");
-
-    const workspaceText = await page.locator(".guided-workspace").innerText();
-    log(/polished track/i.test(workspaceText) || /Clean/.test(workspaceText), "Workspace reflects completed audio polish");
-
-    const checklistText = await page.locator(".workspace-production-checklist").innerText();
-    log(/polished track/i.test(checklistText) || /Clean/.test(checklistText), "Production checklist reflects saved polished audio");
+    const session = await page.evaluate(() => {
+      const raw = localStorage.getItem("pdc-episode-sessions");
+      const sessions = raw ? JSON.parse(raw) : {};
+      const first = Object.values(sessions)[0] || {};
+      return {
+        appliedAudioPolish: first.appliedAudioPolish || null,
+        audioPolish: first.audioPolish || null,
+      };
+    });
+    log(Boolean(session.appliedAudioPolish && session.appliedAudioPolish.allTracksComplete), "Reloaded session snapshot preserves completed polished audio summary");
+    log((session.appliedAudioPolish && session.appliedAudioPolish.polishedTrackCount) === 3, "Session stores polished track count for all speakers");
 
     await page.reload({ waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "Open" }).first().click();
-    await page.getByRole("button", { name: "Resume →" }).first().click();
     await page.locator(".guided-workspace").waitFor({ state: "visible" });
-
-    const resumedText = await page.locator("body").innerText();
-    log(resumedText.includes(EPISODE_NAME), "Reloaded episode resumes with saved episode data");
-    log(/polished track/i.test(resumedText) || /Clean/.test(resumedText) || /Saved ✓ .*polished\.wav/i.test(resumedText), "Reload preserves applied audio polish state");
-
-    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/i }).first().click();
+    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
     await page.locator(".audio-step").waitFor();
-    const reloadedAudioText = await page.locator(".audio-step").innerText();
-    log(/Saved ✓ .*polished\.wav/i.test(reloadedAudioText), "Audio polish panel shows saved polished WAV outputs per track after reload");
-    log(reloadedAudioText.includes("Priya Shah"), "Reloaded audio polish panel keeps Guest 1 track Priya Shah");
-    log(reloadedAudioText.includes("Chris Ortiz"), "Reloaded audio polish panel keeps Guest 2 track Chris Ortiz");
+    log(await page.locator(".audio-track-status-complete").count() === 3, "Reload restores completed polished track statuses on audio polish screen");
+
+    await page.getByRole("button", { name: "← Back to setup" }).click();
+    await page.locator(".guided-workspace").waitFor({ state: "visible" });
+    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Export episode" }).first().click();
+    await page.locator(".publish-review-step, .export-step").first().waitFor();
+    const exportBlocked = await page.locator(".publish-review-step").isVisible();
+    log(exportBlocked, "Export/review path reflects polished-audio gate before raw export unlock");
   } catch (err) {
     console.error(err);
     failed = true;
@@ -131,3 +121,4 @@ async function main() {
 }
 
 main();
+

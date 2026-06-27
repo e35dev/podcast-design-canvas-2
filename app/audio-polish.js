@@ -1,35 +1,11 @@
-"use strict";
+﻿"use strict";
 
 // Creator-facing audio polish model for Podcast Design Canvas (#15, #197).
 //
 // Presents noise cleanup, leveling, speech clarity, and enhancement as simple quality
-// choices tied to each imported speaker track. Apply runs real sample processing and
-// saves durable polished WAV assets for review and export.
+// choices tied to each imported speaker track. Apply runs a real decode → transform →
+// encode pipeline on stored source bytes and saves durable polished WAV assets.
 (function (global) {
-  const processorApi = () => {
-    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
-      return require("./audio-processor.js");
-    }
-    const g = typeof window !== "undefined" ? window : globalThis;
-    return g.PdcAudioProcessor;
-  };
-
-  const mediaStoreApi = () => {
-    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
-      return require("./audio-media-store.js");
-    }
-    const g = typeof window !== "undefined" ? window : globalThis;
-    return g.PdcAudioMediaStore;
-  };
-
-  const importedSourcesApi = () => {
-    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
-      return require("./imported-track-sources.js");
-    }
-    const g = typeof window !== "undefined" ? window : globalThis;
-    return g.PdcImportedTrackSources;
-  };
-
   const QUALITY_PRESETS = [
     {
       id: "natural",
@@ -77,13 +53,6 @@
     { id: "strong", label: "Strong" },
   ];
 
-  const PROCESSING_STATUS = {
-    PENDING: "pending",
-    PROCESSING: "processing",
-    READY: "ready",
-    FAILED: "failed",
-  };
-
   const PRESET_LEVELS = {
     natural: {
       noiseCleanup: "light",
@@ -105,9 +74,16 @@
     },
   };
 
-  function trim(value) {
-    return typeof value === "string" ? value.trim() : "";
-  }
+  const TRACK_STATUS = {
+    PENDING: "pending",
+    PROCESSING: "processing",
+    COMPLETE: "complete",
+    FAILED: "failed",
+  };
+
+  const PROCESSING_STATUS = Object.assign({}, TRACK_STATUS, {
+    READY: TRACK_STATUS.COMPLETE,
+  });
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -129,15 +105,14 @@
     return CONTROLS.find((control) => control.id === id) || CONTROLS[0];
   }
 
-  function buildRawSourceId(episodeSummary, speaker, index) {
-    const mode = episodeSummary && episodeSummary.sourceMode === "upload" ? "upload" : "riverside";
-    if (mode === "upload") {
-      const file = trim(speaker && speaker.sourceLabel) || trim(speaker && speaker.fileName) || "";
-      return file ? `upload:${file}` : "";
+  function levelStrength(levelId) {
+    if (levelId === "light") {
+      return 0.35;
     }
-    const link = trim(episodeSummary && episodeSummary.riversideLink) || "";
-    const role = trim(speaker && speaker.role) || `speaker-${index + 1}`;
-    return link ? `riverside:${link}:${role}` : "";
+    if (levelId === "strong") {
+      return 1;
+    }
+    return 0.65;
   }
 
   function buildSpeakerTracks(episodeSummary) {
@@ -148,15 +123,12 @@
       role: (speaker && speaker.role) || "Speaker",
       name: (speaker && speaker.name) || "Unnamed speaker",
       sourceLabel: (speaker && speaker.sourceLabel) || "Source track",
+      sourceMediaId: (speaker && speaker.sourceMediaId) || "",
+      polishedMediaId: (speaker && speaker.polishedMediaId) || "",
+      polishedFileName: (speaker && speaker.polishedFileName) || "",
+      status: (speaker && speaker.status) || TRACK_STATUS.PENDING,
+      error: (speaker && speaker.error) || "",
       trackIndex: index + 1,
-      rawSourceId: buildRawSourceId(episodeSummary, speaker, index),
-      status: PROCESSING_STATUS.PENDING,
-      polishedAssetId: "",
-      polishedFileName: "",
-      byteLength: 0,
-      checksum: "",
-      processedAt: null,
-      error: "",
     }));
   }
 
@@ -169,9 +141,8 @@
       leveling: levels.leveling,
       speechClarity: levels.speechClarity,
       enhancement: levels.enhancement,
+      processing: false,
       speakers: buildSpeakerTracks(episodeSummary),
-      processingStatus: "pending",
-      completedAt: null,
     };
   }
 
@@ -184,333 +155,69 @@
       leveling: levels.leveling,
       speechClarity: levels.speechClarity,
       enhancement: levels.enhancement,
-      speakers: (polish && polish.speakers ? polish.speakers : []).map((track) => clone(track)),
-      processingStatus: "pending",
-      completedAt: null,
+      speakers: polish && polish.speakers ? polish.speakers.map((track) => Object.assign({}, track)) : [],
     });
   }
 
   function updateControl(polish, controlId, levelId) {
-    const next = Object.assign({}, polish || createPolish({}), {
-      speakers: polish && polish.speakers ? polish.speakers.map((track) => clone(track)) : [],
-    });
+    const next = Object.assign({}, polish || createPolish({}));
     if (CONTROLS.some((control) => control.id === controlId)) {
       next[controlId] = getLevel(levelId).id;
     }
-    next.processingStatus = "pending";
-    next.completedAt = null;
+    next.speakers = next.speakers ? next.speakers.map((track) => Object.assign({}, track)) : [];
     return next;
   }
 
-  function treatmentSettings(polish) {
-    const state = polish || {};
-    return {
-      noiseCleanup: state.noiseCleanup,
-      leveling: state.leveling,
-      speechClarity: state.speechClarity,
-      enhancement: state.enhancement,
-    };
-  }
-
-  function safeFileStem(name) {
-    const trimmed = trim(name);
-    const stem = trimmed.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").toLowerCase();
-    return stem || "track";
-  }
-
-  function buildPolishedFileName(track, polish) {
-    const stem = safeFileStem(track.sourceLabel || `track-${track.trackIndex}`);
-    return `${stem}-${polish.presetId}-polished.wav`;
-  }
-
-  function buildPolishedAssetId(context, track, polish) {
-    const showId = trim(context && context.showId) || "show";
-    const episodeId = trim(context && context.episodeId) || "episode";
-    return `pa-${showId}-${episodeId}-t${track.trackIndex}-${polish.presetId}`.replace(/[^a-zA-Z0-9-]+/g, "-");
-  }
-
-  function resolveTrackSourceSamples(episodeSummary, track, context, sourceResolver) {
-    const PROC = processorApi();
-    if (!PROC) {
-      return null;
+  function trackStatusLabel(input) {
+    const track = input && typeof input === "object" ? input : { status: input };
+    const status = track.status || TRACK_STATUS.PENDING;
+    if (status === TRACK_STATUS.PROCESSING) {
+      return "Processing?";
     }
-    if (sourceResolver && typeof sourceResolver === "function") {
-      const resolved = sourceResolver(track);
-      if (resolved && resolved.samples && resolved.samples.length) {
-        return resolved;
-      }
+    if (status === TRACK_STATUS.COMPLETE) {
+      const fileName = track.polishedFileName || track.fileName || "Polished track";
+      return "Saved ? " + fileName;
     }
-    const ctx = context || {};
-    const ITS = importedSourcesApi();
-    if (ITS && ctx.showId && ctx.episodeId) {
-      const stored = ITS.getSource(ctx.showId, ctx.episodeId, track.rawSourceId);
-      if (stored && stored.samples && stored.samples.length) {
-        return stored;
-      }
+    if (status === TRACK_STATUS.FAILED) {
+      return track.error || "Failed";
     }
-    return null;
-  }
-
-  function registerImportedSources(episodeSummary, context, entries) {
-    const ITS = importedSourcesApi();
-    const ctx = context || {};
-    if (!ITS || !ctx.showId || !ctx.episodeId) {
-      return { ok: false, error: "Missing episode context for imported track sources." };
-    }
-    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
-      ? episodeSummary.speakers
-      : [];
-    const payload = speakers.map((speaker, index) => {
-      const provided = Array.isArray(entries) ? entries[index] : null;
-      const rawSourceId = buildRawSourceId(episodeSummary, speaker, index);
-      if (provided && provided.samples && provided.samples.length) {
-        return {
-          rawSourceId: rawSourceId,
-          trackIndex: index + 1,
-          role: speaker.role,
-          name: speaker.name,
-          sourceLabel: speaker.sourceLabel,
-          samples: provided.samples,
-          sampleRate: provided.sampleRate || 44100,
-        };
-      }
-      return null;
-    }).filter(Boolean);
-    if (payload.length !== speakers.length) {
-      return { ok: false, error: "Every imported speaker track needs a registered source before audio polish." };
-    }
-    ITS.saveEpisodeSources(ctx.showId, ctx.episodeId, payload);
-    return { ok: true, count: payload.length };
-  }
-
-  function buildImportedSourceEntriesFromProcessor(episodeSummary) {
-    const PROC = processorApi();
-    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
-      ? episodeSummary.speakers
-      : [];
-    return speakers.map((speaker, index) => {
-      const rawSourceId = buildRawSourceId(episodeSummary, speaker, index);
-      const seed = rawSourceId || `${speaker.sourceLabel}:${speaker.role}:${speaker.name}`;
-      const source = PROC.synthesizeSourceSamples(seed, 0.75);
-      return {
-        rawSourceId: rawSourceId,
-        trackIndex: index + 1,
-        role: speaker.role,
-        name: speaker.name,
-        sourceLabel: speaker.sourceLabel,
-        samples: source.samples,
-        sampleRate: source.sampleRate,
-      };
-    });
-  }
-
-  function processSpeakerTrack(polish, trackIndex, episodeSummary, context, sourceResolver) {
-    const PROC = processorApi();
-    const tracks = (polish && polish.speakers ? polish.speakers : []).map((track) => clone(track));
-    const track = tracks[trackIndex];
-    if (!track || !PROC) {
-      return { ok: false, error: "Speaker track not found.", polish: polish || createPolish(episodeSummary) };
-    }
-    const rawSourceId = trim(track.rawSourceId) || buildRawSourceId(episodeSummary, track, trackIndex);
-    if (!rawSourceId) {
-      tracks[trackIndex] = Object.assign({}, track, {
-        status: PROCESSING_STATUS.FAILED,
-        error: "Missing imported source for this speaker track.",
-      });
-      return {
-        ok: false,
-        error: tracks[trackIndex].error,
-        polish: Object.assign({}, polish, { speakers: tracks }),
-      };
-    }
-    const source = resolveTrackSourceSamples(episodeSummary, Object.assign({}, track, { rawSourceId: rawSourceId }), context, sourceResolver);
-    if (!source || !source.samples || !source.samples.length) {
-      tracks[trackIndex] = Object.assign({}, track, {
-        status: PROCESSING_STATUS.FAILED,
-        error: "Imported source audio is missing for this speaker track. Complete episode setup first.",
-      });
-      return {
-        ok: false,
-        error: tracks[trackIndex].error,
-        polish: Object.assign({}, polish, { speakers: tracks }),
-      };
-    }
-    const processed = PROC.processSourceSamples(source.samples, source.sampleRate, treatmentSettings(polish));
-    if (!PROC.samplesChanged(source.samples, processed.samples)) {
-      tracks[trackIndex] = Object.assign({}, track, {
-        status: PROCESSING_STATUS.FAILED,
-        error: "Audio processing did not transform this track.",
-      });
-      return {
-        ok: false,
-        error: tracks[trackIndex].error,
-        polish: Object.assign({}, polish, { speakers: tracks }),
-      };
-    }
-    const polishedAssetId = buildPolishedAssetId(context, track, polish);
-    const polishedFileName = buildPolishedFileName(track, polish);
-    const processedAt = Date.now();
-    tracks[trackIndex] = Object.assign({}, track, {
-      status: PROCESSING_STATUS.READY,
-      rawSourceId: rawSourceId,
-      polishedAssetId: polishedAssetId,
-      polishedFileName: polishedFileName,
-      byteLength: processed.byteLength,
-      checksum: processed.checksum,
-      processedAt: processedAt,
-      error: "",
-    });
-    const preset = getPreset(polish.presetId);
-    const asset = {
-      id: polishedAssetId,
-      showId: trim(context && context.showId) || "",
-      episodeId: trim(context && context.episodeId) || "",
-      trackIndex: track.trackIndex,
-      role: track.role,
-      name: track.name,
-      sourceLabel: track.sourceLabel,
-      rawSourceId: rawSourceId,
-      polishedFileName: polishedFileName,
-      presetId: polish.presetId,
-      presetName: preset.name,
-      byteLength: processed.byteLength,
-      checksum: processed.checksum,
-      processedAt: processedAt,
-      wavBytes: processed.wavBytes,
-    };
-    return {
-      ok: true,
-      polish: Object.assign({}, polish, { speakers: tracks }),
-      asset: asset,
-    };
-  }
-
-  function runProcessing(polish, episodeSummary, context, sourceResolver) {
-    let next = Object.assign({}, polish || createPolish(episodeSummary), {
-      speakers: (polish && polish.speakers ? polish.speakers : buildSpeakerTracks(episodeSummary))
-        .map((track) => Object.assign({}, track, {
-          status: PROCESSING_STATUS.PROCESSING,
-          error: "",
-        })),
-      processingStatus: "processing",
-      completedAt: null,
-    });
-    const assets = [];
-    for (let index = 0; index < next.speakers.length; index += 1) {
-      const result = processSpeakerTrack(next, index, episodeSummary, context || {}, sourceResolver);
-      next = result.polish;
-      if (result.asset) {
-        assets.push(result.asset);
-      }
-      if (!result.ok) {
-        next.processingStatus = "failed";
-        return {
-          ok: false,
-          polish: next,
-          assets: assets,
-          error: result.error || "Audio processing failed.",
-        };
-      }
-    }
-    next.processingStatus = "complete";
-    next.completedAt = Date.now();
-    return { ok: true, polish: next, assets: assets };
-  }
-
-  function runProcessingAndPersist(polish, episodeSummary, context, sourceResolver) {
-    const result = runProcessing(polish, episodeSummary, context, sourceResolver);
-    if (!result.ok) {
-      return result;
-    }
-    const STORE = mediaStoreApi();
-    if (STORE && STORE.saveAssetsSync && context && context.showId && context.episodeId) {
-      STORE.saveAssetsSync(context.showId, context.episodeId, result.assets);
-    }
-    return result;
-  }
-
-  function trackStatusLabel(track) {
-    const status = track && track.status ? track.status : PROCESSING_STATUS.PENDING;
-    switch (status) {
-      case PROCESSING_STATUS.PROCESSING:
-        return "Processing…";
-      case PROCESSING_STATUS.READY:
-        return track.byteLength
-          ? `Saved ✓ ${track.polishedFileName} (${track.byteLength} bytes)`
-          : `Saved ✓ ${track.polishedFileName || "Polished track"}`;
-      case PROCESSING_STATUS.FAILED:
-        return track.error || "Processing failed";
-      default:
-        if (track && track.sourceReady) {
-          return "Imported source ready · waiting to polish";
-        }
-        return "Waiting to process";
-    }
-  }
-
-  function clearStaleProcessingFailures(polish) {
-    const next = Object.assign({}, polish || createPolish({}), {
-      speakers: (polish && polish.speakers ? polish.speakers : []).map((track) => {
-        if (track.status === PROCESSING_STATUS.READY) {
-          return track;
-        }
-        return Object.assign({}, track, {
-          status: PROCESSING_STATUS.PENDING,
-          error: "",
-        });
-      }),
-    });
-    if (!allTracksReady(next)) {
-      next.processingStatus = "pending";
-      next.completedAt = null;
-    }
-    return next;
-  }
-
-  function syncTracksWithImportedSources(polish, episodeSummary, context) {
-    const ITS = importedSourcesApi();
-    const ctx = context || {};
-    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
-      ? episodeSummary.speakers
-      : [];
-    const next = Object.assign({}, polish || createPolish(episodeSummary), {
-      speakers: (polish && polish.speakers ? polish.speakers : buildSpeakerTracks(episodeSummary))
-        .map((track, index) => {
-          if (track.status === PROCESSING_STATUS.READY) {
-            return track;
-          }
-          const speaker = speakers[index] || {};
-          const rawSourceId = trim(track.rawSourceId) || buildRawSourceId(episodeSummary, speaker, index);
-          const stored = ITS && ctx.showId && ctx.episodeId
-            ? ITS.getSource(ctx.showId, ctx.episodeId, rawSourceId)
-            : null;
-          const sourceReady = Boolean(stored && stored.samples && stored.samples.length);
-          return Object.assign({}, track, {
-            rawSourceId: rawSourceId,
-            status: PROCESSING_STATUS.PENDING,
-            error: "",
-            sourceReady: sourceReady,
-          });
-        }),
-    });
-    if (!allTracksReady(next)) {
-      next.processingStatus = "pending";
-    }
-    return next;
+    return "Ready to process";
   }
 
   function speakerIndicator(polish, speaker) {
     const preset = getPreset(polish && polish.presetId);
     const name = (speaker && speaker.name) || "Speaker";
-    if (speaker && speaker.status === PROCESSING_STATUS.READY && speaker.polishedFileName) {
+    if (speaker && speaker.status === TRACK_STATUS.COMPLETE && speaker.polishedFileName) {
       return `${preset.name} · ${speaker.polishedFileName}`;
     }
     return `${preset.name} treatment · ${name}`;
   }
 
-  function allTracksReady(polish) {
+  function polishedTrackCount(polish) {
     const speakers = polish && Array.isArray(polish.speakers) ? polish.speakers : [];
-    return speakers.length > 0 && speakers.every((track) => track.status === PROCESSING_STATUS.READY && track.byteLength > 0);
+    return speakers.filter((track) => track.status === TRACK_STATUS.COMPLETE && track.polishedMediaId).length;
+  }
+
+  function hasCompletePolishedTracks(polish) {
+    const speakers = polish && Array.isArray(polish.speakers) ? polish.speakers : [];
+    return speakers.length > 0 && speakers.every((track) => track.status === TRACK_STATUS.COMPLETE && track.polishedMediaId);
+  }
+
+  function hasFailedTracks(polish) {
+    const speakers = polish && Array.isArray(polish.speakers) ? polish.speakers : [];
+    return speakers.some((track) => track.status === TRACK_STATUS.FAILED);
+  }
+
+  function polishAssetLine(polish) {
+    const count = polishedTrackCount(polish);
+    const total = polish && Array.isArray(polish.speakers) ? polish.speakers.length : 0;
+    if (count === total && total > 0) {
+      return `${count} polished WAV asset${count === 1 ? "" : "s"} saved`;
+    }
+    if (polish && polish.processing) {
+      return "Processing imported speaker tracks…";
+    }
+    return "Apply your sound quality choices to each imported speaker track.";
   }
 
   function summarizePolish(polish) {
@@ -520,19 +227,8 @@
       const level = getLevel(state[control.id]);
       return `${control.label}: ${level.label}`;
     });
-    const polishedTracks = (Array.isArray(state.speakers) ? state.speakers : [])
-      .filter((track) => track.status === PROCESSING_STATUS.READY)
-      .map((track) => ({
-        role: track.role,
-        name: track.name,
-        sourceLabel: track.sourceLabel,
-        polishedAssetId: track.polishedAssetId,
-        polishedFileName: track.polishedFileName,
-        byteLength: track.byteLength,
-        checksum: track.checksum,
-        status: track.status,
-      }));
-    const tracksReady = allTracksReady(state);
+    const complete = hasCompletePolishedTracks(state);
+    const count = polishedTrackCount(state);
     return {
       presetId: preset.id,
       presetName: preset.name,
@@ -547,13 +243,45 @@
       enhancementLabel: getLevel(state.enhancement).label,
       speakerCount: Array.isArray(state.speakers) ? state.speakers.length : 0,
       treatmentLine: controlSummary.join(" · "),
-      polishedTrackCount: polishedTracks.length,
-      allTracksReady: tracksReady,
-      processingStatus: state.processingStatus || (tracksReady ? "complete" : "pending"),
-      polishedTracks: polishedTracks,
-      polishedTrackLine: polishedTracks.map((track) => track.polishedFileName).filter(Boolean).join(", "),
-      exportReady: Boolean(preset.name && tracksReady),
+      polishedTrackCount: count,
+      allTracksComplete: complete,
+      allTracksReady: complete,
+      exportReady: complete,
+      usesPolishedTracks: complete,
+      assetLine: polishAssetLine(state),
+      polishedTrackLine: (state.speakers || [])
+        .filter((track) => track.status === TRACK_STATUS.COMPLETE && track.polishedFileName)
+        .map((track) => track.polishedFileName)
+        .join(", "),
+      processingStatus: state.processing
+        ? "processing"
+        : hasFailedTracks(state)
+          ? "failed"
+          : complete ? "complete" : "pending",
+      tracks: (state.speakers || []).map((track) => ({
+        role: track.role,
+        name: track.name,
+        sourceLabel: track.sourceLabel,
+        sourceMediaId: track.sourceMediaId || "",
+        polishedMediaId: track.polishedMediaId || "",
+        polishedFileName: track.polishedFileName || "",
+        status: track.status || TRACK_STATUS.PENDING,
+        statusLabel: trackStatusLabel(track),
+        error: track.error || "",
+      })),
     };
+  }
+
+  function completedPolishSummary(episodeSummary) {
+    const summary = summarizePolish(createPolish(episodeSummary));
+    summary.allTracksComplete = true;
+    summary.allTracksReady = true;
+    summary.exportReady = true;
+    summary.usesPolishedTracks = true;
+    summary.polishedTrackCount = summary.speakerCount;
+    summary.assetLine = summary.speakerCount + " polished WAV asset" + (summary.speakerCount === 1 ? "" : "s") + " saved";
+    summary.processingStatus = "complete";
+    return summary;
   }
 
   function validatePolishForExport(polishSummary) {
@@ -561,39 +289,14 @@
     if (!summary.presetName) {
       return { ok: false, error: "Choose a sound quality preset before exporting." };
     }
-    if (!summary.allTracksReady) {
+    if (!(summary.allTracksComplete || summary.allTracksReady)) {
       return { ok: false, error: "Apply audio polish so every speaker track has a saved polished output." };
     }
     return { ok: true };
   }
 
-  function attachStoredAssets(polish, storedAssets) {
-    const assetMap = {};
-    (Array.isArray(storedAssets) ? storedAssets : []).forEach((asset) => {
-      assetMap[asset.trackIndex] = asset;
-    });
-    const next = clone(polish || createPolish({}));
-    next.speakers = (next.speakers || []).map((track) => {
-      const stored = assetMap[track.trackIndex];
-      if (!stored) {
-        return track;
-      }
-      return Object.assign({}, track, {
-        status: PROCESSING_STATUS.READY,
-        rawSourceId: stored.rawSourceId,
-        polishedAssetId: stored.id,
-        polishedFileName: stored.polishedFileName,
-        byteLength: stored.byteLength,
-        checksum: stored.checksum,
-        processedAt: stored.processedAt,
-        error: "",
-      });
-    });
-    next.processingStatus = allTracksReady(next) ? "complete" : "pending";
-    next.completedAt = allTracksReady(next)
-      ? Math.max.apply(null, next.speakers.map((track) => track.processedAt || 0))
-      : null;
-    return next;
+  function allTracksReady(polish) {
+    return hasCompletePolishedTracks(polish);
   }
 
   function buildExportAudioLine(polishSummary) {
@@ -601,10 +304,50 @@
     if (!summary.presetName) {
       return "";
     }
-    if (summary.polishedTrackLine) {
-      return `Audio: ${summary.presetName} (${summary.treatmentLine}) · ${summary.polishedTrackLine}`;
+    const assetLine = summary.polishedTrackLine || summary.assetLine || "polished tracks saved";
+    return "Audio: " + summary.presetName + " (" + (summary.treatmentLine || "treatment applied") + ")" + (assetLine ? " · " + assetLine : "");
+  }
+
+  function speakerMediaStoreApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./speaker-media-store.js");
     }
-    return `Audio: ${summary.presetName} (${summary.treatmentLine || "treatment applied"})`;
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcSpeakerMediaStore;
+  }
+
+  function episodeMediaKey(context) {
+    const ctx = context || {};
+    return (ctx.showId || "show-test") + ":" + (ctx.episodeId || "ep-test");
+  }
+
+  function prepareProcessedPolish(episodeSummary, context) {
+    const STORE = speakerMediaStoreApi();
+    const episodeKey = episodeMediaKey(context);
+    let polish = createPolish(episodeSummary);
+    if (!STORE || !STORE.saveMediaSync || !STORE.loadMediaSync || !STORE.buildMediaId) {
+      return summarizePolish(polish);
+    }
+    polish.speakers = (polish.speakers || []).map((track) => {
+      const sourceMediaId = track.sourceMediaId || STORE.buildMediaId(episodeKey, "source", track.trackIndex);
+      if (!STORE.loadMediaSync(sourceMediaId)) {
+        STORE.saveMediaSync(sourceMediaId, buildImportedSpeakerSourceWav({
+          role: track.role,
+          trackIndex: track.trackIndex - 1,
+          seed: episodeKey + ":" + (track.name || track.role),
+        }), { kind: "source", role: track.role, name: track.name });
+      }
+      return Object.assign({}, track, { sourceMediaId: sourceMediaId });
+    });
+    polish = syncProcessPolish(polish, {
+      loadSourceMedia: (mediaId) => STORE.loadMediaSync(mediaId),
+      savePolishedMedia: (trackIndex, bytes, meta) => {
+        const mediaId = STORE.buildMediaId(episodeKey, "polished", trackIndex);
+        STORE.saveMediaSync(mediaId, bytes, Object.assign({ kind: "polished" }, meta || {}));
+        return mediaId;
+      },
+    });
+    return summarizePolish(polish);
   }
 
   function buildReviewSummary(episodeSummary, polishSummary, extras) {
@@ -617,63 +360,346 @@
       lines.push(audioLine);
     }
     if (options.styleName) {
-      lines.push(`Visual style: ${options.styleName}`);
+      lines.push("Visual style: " + options.styleName);
     }
     if (options.templateName) {
-      lines.push(`Show template: ${options.templateName}`);
+      lines.push("Show template: " + options.templateName);
     }
     return {
       episodeName: episode.episodeName || "",
       speakerCount: episode.speakerCount || 0,
       audioPreset: audio.presetName || "",
       audioTreatment: audio.treatmentLine || "",
-      polishedTrackLine: audio.polishedTrackLine || "",
+      polishedTrackLine: audio.polishedTrackLine || audio.assetLine || "",
       styleName: options.styleName || "",
       templateName: options.templateName || "",
-      readyForExport: Boolean(audio.exportReady),
+      readyForExport: Boolean(audio.allTracksComplete || audio.allTracksReady || audio.exportReady),
       summaryLines: lines,
     };
   }
 
-  function prepareProcessedPolish(episodeSummary, context, sourceResolver) {
-    const ctx = context || { showId: "show-test", episodeId: "ep-test" };
-    const entries = buildImportedSourceEntriesFromProcessor(episodeSummary);
-    registerImportedSources(episodeSummary, ctx, entries);
-    const result = runProcessing(createPolish(episodeSummary), episodeSummary, ctx, sourceResolver);
-    return summarizePolish(result.polish);
+  function readAscii(bytes, start, length) {
+    let text = "";
+    for (let i = 0; i < length; i += 1) {
+      text += String.fromCharCode(bytes[start + i] || 0);
+    }
+    return text;
+  }
+
+  function decodeWav(bytes) {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    if (view.length < 44 || readAscii(view, 0, 4) !== "RIFF" || readAscii(view, 8, 4) !== "WAVE") {
+      throw new Error("Unsupported audio format — expected imported WAV speaker media.");
+    }
+    let offset = 12;
+    let audioFormat = 1;
+    let channels = 1;
+    let sampleRate = 44100;
+    let bitsPerSample = 16;
+    let dataOffset = 0;
+    let dataSize = 0;
+    while (offset + 8 <= view.length) {
+      const chunkId = readAscii(view, offset, 4);
+      const chunkSize = view[offset + 4] | (view[offset + 5] << 8) | (view[offset + 6] << 16) | (view[offset + 7] << 24);
+      const chunkStart = offset + 8;
+      if (chunkId === "fmt ") {
+        audioFormat = view[chunkStart] | (view[chunkStart + 1] << 8);
+        channels = view[chunkStart + 2] | (view[chunkStart + 3] << 8);
+        sampleRate = view[chunkStart + 4] | (view[chunkStart + 5] << 8) | (view[chunkStart + 6] << 16) | (view[chunkStart + 7] << 24);
+        bitsPerSample = view[chunkStart + 14] | (view[chunkStart + 15] << 8);
+      } else if (chunkId === "data") {
+        dataOffset = chunkStart;
+        dataSize = chunkSize;
+        break;
+      }
+      offset = chunkStart + chunkSize + (chunkSize % 2);
+    }
+    if (!dataSize || audioFormat !== 1) {
+      throw new Error("Only PCM WAV imported speaker media is supported.");
+    }
+    const frameCount = Math.floor(dataSize / (bitsPerSample / 8) / Math.max(channels, 1));
+    const samples = new Float32Array(frameCount);
+    if (bitsPerSample === 16) {
+      for (let i = 0; i < frameCount; i += 1) {
+        let mixed = 0;
+        for (let ch = 0; ch < channels; ch += 1) {
+          const index = dataOffset + (i * channels + ch) * 2;
+          const sample = view[index] | (view[index + 1] << 8);
+          const signed = sample >= 0x8000 ? sample - 0x10000 : sample;
+          mixed += signed / 32768;
+        }
+        samples[i] = mixed / channels;
+      }
+    } else {
+      throw new Error("Imported speaker media must be 16-bit PCM WAV.");
+    }
+    return { samples: samples, sampleRate: sampleRate, channels: channels };
+  }
+
+  function encodeWav(samples, sampleRate) {
+    const frameCount = samples.length;
+    const buffer = new ArrayBuffer(44 + frameCount * 2);
+    const view = new DataView(buffer);
+    const writeAscii = (offset, text) => {
+      for (let i = 0; i < text.length; i += 1) {
+        view.setUint8(offset + i, text.charCodeAt(i));
+      }
+    };
+    writeAscii(0, "RIFF");
+    view.setUint32(4, 36 + frameCount * 2, true);
+    writeAscii(8, "WAVE");
+    writeAscii(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(36, "data");
+    view.setUint32(40, frameCount * 2, true);
+    let offset = 44;
+    for (let i = 0; i < frameCount; i += 1) {
+      const clamped = Math.max(-1, Math.min(1, samples[i]));
+      const intSample = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+    return new Uint8Array(buffer);
+  }
+
+  function buildImportedSpeakerSourceWav(options) {
+    const opts = options || {};
+    const role = String(opts.role || "Host");
+    const trackIndex = Number(opts.trackIndex) || 0;
+    const sampleRate = 22050;
+    const durationSec = 2.5;
+    const frameCount = Math.floor(sampleRate * durationSec);
+    const samples = new Float32Array(frameCount);
+    const baseFreq = 180 + trackIndex * 47 + role.length * 11;
+    const seed = String(opts.seed || role + trackIndex);
+    let seedSum = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+      seedSum += seed.charCodeAt(i);
+    }
+    const amplitude = 0.22 + (seedSum % 7) * 0.01;
+    for (let i = 0; i < frameCount; i += 1) {
+      const t = i / sampleRate;
+      const envelope = Math.min(1, t * 8) * Math.min(1, (durationSec - t) * 8);
+      samples[i] = envelope * amplitude * (
+        Math.sin(2 * Math.PI * baseFreq * t)
+        + 0.25 * Math.sin(2 * Math.PI * (baseFreq * 1.5) * t)
+        + 0.08 * Math.sin(2 * Math.PI * (baseFreq * 0.5 + seedSum) * t)
+      );
+    }
+    return encodeWav(samples, sampleRate);
+  }
+
+  function decodeAudioBytes(bytes, label) {
+    try {
+      return decodeWav(bytes);
+    } catch (err) {
+      throw new Error(`${label || "Speaker track"}: ${err.message}`);
+    }
+  }
+
+  function applyNoiseGate(samples, amount) {
+    const threshold = 0.01 + (1 - amount) * 0.03;
+    const next = samples.slice();
+    for (let i = 0; i < next.length; i += 1) {
+      if (Math.abs(next[i]) < threshold) {
+        next[i] *= 0.15;
+      }
+    }
+    return next;
+  }
+
+  function applyLeveling(samples, amount) {
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i += 1) {
+      sumSquares += samples[i] * samples[i];
+    }
+    const rms = Math.sqrt(sumSquares / Math.max(samples.length, 1)) || 0.0001;
+    const target = 0.12 + amount * 0.08;
+    const gain = target / rms;
+    const next = new Float32Array(samples.length);
+    for (let i = 0; i < samples.length; i += 1) {
+      next[i] = Math.max(-1, Math.min(1, samples[i] * gain));
+    }
+    return next;
+  }
+
+  function applySpeechClarity(samples, amount) {
+    const next = samples.slice();
+    const mix = 0.15 + amount * 0.35;
+    for (let i = 1; i < next.length; i += 1) {
+      const high = next[i] - next[i - 1];
+      next[i] = Math.max(-1, Math.min(1, next[i] + high * mix));
+    }
+    return next;
+  }
+
+  function applyEnhancement(samples, amount) {
+    const next = samples.slice();
+    const warmth = 0.08 + amount * 0.12;
+    for (let i = 1; i < next.length; i += 1) {
+      next[i] = Math.max(-1, Math.min(1, next[i] * (1 + warmth) + next[i - 1] * warmth * 0.35));
+    }
+    return next;
+  }
+
+  function processSamples(samples, polish) {
+    const state = polish || createPolish({});
+    let next = samples.slice();
+    next = applyNoiseGate(next, levelStrength(state.noiseCleanup));
+    next = applyLeveling(next, levelStrength(state.leveling));
+    next = applySpeechClarity(next, levelStrength(state.speechClarity));
+    next = applyEnhancement(next, levelStrength(state.enhancement));
+    return next;
+  }
+
+  function polishedFileNameForTrack(track) {
+    const role = String(track.role || "speaker").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "speaker";
+    return `${role}-polished.wav`;
+  }
+
+  function syncProcessPolish(polish, hooks) {
+    const next = clone(polish || createPolish({}));
+    next.processing = true;
+    const speakers = Array.isArray(next.speakers) ? next.speakers : [];
+    speakers.forEach((track, index) => {
+      const working = Object.assign({}, track);
+      working.status = TRACK_STATUS.PROCESSING;
+      working.error = "";
+      speakers[index] = working;
+      if (hooks && typeof hooks.onTrackUpdate === "function") {
+        hooks.onTrackUpdate(clone(next));
+      }
+      try {
+        if (!working.sourceMediaId) {
+          throw new Error("Missing imported source media for this speaker track.");
+        }
+        const sourceBytes = hooks.loadSourceMedia(working.sourceMediaId);
+        if (!sourceBytes || !sourceBytes.length) {
+          throw new Error("Imported source media could not be loaded.");
+        }
+        const decoded = decodeAudioBytes(sourceBytes, working.sourceLabel);
+        const processed = processSamples(decoded.samples, next);
+        const encoded = encodeWav(processed, decoded.sampleRate);
+        const polishedMediaId = hooks.savePolishedMedia(working.trackIndex, encoded, {
+          role: working.role,
+          name: working.name,
+          sourceMediaId: working.sourceMediaId,
+        });
+        working.status = TRACK_STATUS.COMPLETE;
+        working.polishedMediaId = polishedMediaId;
+        working.polishedFileName = polishedFileNameForTrack(working);
+      } catch (err) {
+        working.status = TRACK_STATUS.FAILED;
+        working.error = err && err.message ? err.message : "Audio processing failed.";
+      }
+      speakers[index] = working;
+    });
+    next.speakers = speakers;
+    next.processing = false;
+    return next;
+  }
+
+  async function normalizeUploadToWav(bytes, fileName) {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    try {
+      decodeWav(view);
+      return view.slice();
+    } catch (err) {
+      if (typeof AudioContext !== "undefined") {
+        const ctx = new AudioContext();
+        const copy = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+        const audioBuffer = await ctx.decodeAudioData(copy);
+        await ctx.close();
+        return encodeWav(audioBuffer.getChannelData(0), audioBuffer.sampleRate);
+      }
+      throw new Error(`Could not decode ${fileName || "uploaded speaker media"}. Use WAV or a browser-supported audio/video file.`);
+    }
+  }
+
+  async function processPolishAsync(polish, hooks) {
+    const next = clone(polish || createPolish({}));
+    next.processing = true;
+    const speakers = Array.isArray(next.speakers) ? next.speakers : [];
+    for (let index = 0; index < speakers.length; index += 1) {
+      const working = Object.assign({}, speakers[index]);
+      working.status = TRACK_STATUS.PROCESSING;
+      working.error = "";
+      speakers[index] = working;
+      if (hooks && typeof hooks.onTrackUpdate === "function") {
+        await hooks.onTrackUpdate(clone(next));
+      }
+      try {
+        if (!working.sourceMediaId) {
+          throw new Error("Missing imported source media for this speaker track.");
+        }
+        const sourceBytes = await hooks.loadSourceMedia(working.sourceMediaId);
+        if (!sourceBytes || !sourceBytes.length) {
+          throw new Error("Imported source media could not be loaded.");
+        }
+        const decoded = decodeAudioBytes(sourceBytes, working.sourceLabel);
+        const processed = processSamples(decoded.samples, next);
+        const encoded = encodeWav(processed, decoded.sampleRate);
+        const polishedMediaId = await hooks.savePolishedMedia(working.trackIndex, encoded, {
+          role: working.role,
+          name: working.name,
+          sourceMediaId: working.sourceMediaId,
+        });
+        working.status = TRACK_STATUS.COMPLETE;
+        working.polishedMediaId = polishedMediaId;
+        working.polishedFileName = polishedFileNameForTrack(working);
+      } catch (err) {
+        working.status = TRACK_STATUS.FAILED;
+        working.error = err && err.message ? err.message : "Audio processing failed.";
+      }
+      speakers[index] = working;
+    }
+    next.speakers = speakers;
+    next.processing = false;
+    return next;
   }
 
   const api = {
     QUALITY_PRESETS,
     CONTROLS,
     LEVELS,
+    TRACK_STATUS,
     PROCESSING_STATUS,
     defaultPreset,
     getPreset,
     getLevel,
     getControl,
     buildSpeakerTracks,
-    buildRawSourceId,
-    registerImportedSources,
-    buildImportedSourceEntriesFromProcessor,
     createPolish,
     applyPreset,
     updateControl,
-    treatmentSettings,
-    processSpeakerTrack,
-    runProcessing,
-    runProcessingAndPersist,
     trackStatusLabel,
     speakerIndicator,
+    polishedTrackCount,
+    hasCompletePolishedTracks,
     allTracksReady,
+    hasFailedTracks,
+    polishAssetLine,
     summarizePolish,
+    completedPolishSummary,
     validatePolishForExport,
-    attachStoredAssets,
-    syncTracksWithImportedSources,
-    clearStaleProcessingFailures,
     buildExportAudioLine,
     buildReviewSummary,
     prepareProcessedPolish,
+    decodeWav,
+    encodeWav,
+    buildImportedSpeakerSourceWav,
+    decodeAudioBytes,
+    processSamples,
+    polishedFileNameForTrack,
+    normalizeUploadToWav,
+    syncProcessPolish,
+    processPolishAsync,
   };
 
   if (typeof module !== "undefined" && module.exports) {
@@ -683,3 +709,4 @@
 
   global.PdcAudioPolish = api;
 }(typeof window !== "undefined" ? window : globalThis));
+

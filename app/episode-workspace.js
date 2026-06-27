@@ -103,7 +103,10 @@
     ));
 
     // Audio -------------------------------------------------------------------
-    const audioApplied = context.audioPolish && context.audioPolish.exportReady;
+    const audioApplied = context.audioPolish
+      && (context.audioPolish.allTracksComplete || context.audioPolish.allTracksReady || context.audioPolish.exportReady);
+    const polishedTrackLine = context.audioPolish
+      && (context.audioPolish.polishedTrackLine || context.audioPolish.assetLine);
     stages.push(stage(
       "audio",
       "Audio polish",
@@ -111,8 +114,8 @@
         ? STATUS.COMPLETE
         : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
       audioApplied
-        ? context.audioPolish.polishedTrackLine
-          ? `${context.audioPolish.presetName} · ${context.audioPolish.polishedTrackCount} polished track${context.audioPolish.polishedTrackCount === 1 ? "" : "s"}`
+        ? polishedTrackLine
+          ? `${context.audioPolish.presetName} · ${polishedTrackLine}`
           : `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"}`
         : "Choose a sound quality preset for every speaker track.",
       audioApplied ? "Change audio" : "Polish audio",
