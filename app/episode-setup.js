@@ -65,6 +65,10 @@
       fileName: "",
       fileSize: 0,
       trackLabel: "",
+      // Stable token (set when real uploaded bytes are captured) used to resolve
+      // the imported source media for audio polish (#197). A plain string, so it
+      // survives the JSON clone/persist that speakers go through.
+      mediaToken: "",
       social: emptySocial(),
     };
   }
@@ -263,6 +267,7 @@
         role: trim(speaker.role),
         name: trim(speaker.name),
         sourceLabel: sourceLabel(mode, speaker),
+        mediaToken: trim(speaker.mediaToken),
         social,
       };
     });
