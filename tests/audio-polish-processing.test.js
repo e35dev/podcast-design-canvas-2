@@ -9,8 +9,10 @@ const path = require("path");
 const setup = require("../app/episode-setup.js");
 const audio = require("../app/audio-polish.js");
 const store = require("../app/speaker-media-store.js");
+const fixtures = require("../app/imported-speaker-fixtures.js");
 
 const ui = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
 const styles = fs.readFileSync(path.join(__dirname, "../app/styles.css"), "utf8");
 
 let passed = 0;
@@ -35,11 +37,7 @@ function uploadDraftWithMediaIds() {
 function seedImportedSources(episodeKey, draft) {
   store.resetMemoryStore();
   draft.speakers.forEach((speaker, index) => {
-    const wav = audio.buildImportedSpeakerSourceWav({
-      role: speaker.role,
-      trackIndex: index,
-      seed: `${episodeKey}:${speaker.name}`,
-    });
+    const wav = fixtures.loadFixtureBytesSync(speaker.role);
     store.saveMediaSync(store.buildMediaId(episodeKey, "source", index + 1), wav, {
       kind: "source",
       role: speaker.role,
@@ -124,7 +122,8 @@ test("ACCEPTANCE: UI wires Apply to async processing with per-track status and a
   assert.ok(ui.includes("audio-apply-btn"));
   assert.ok(ui.includes('id: "workspace-primary-next"'));
   assert.ok(ui.includes("workspace-handoff-layout"));
-  assert.ok(ui.includes("workspace-handoff-next"));
+  assert.ok(ui.includes("loadImportedSpeakerFixture"));
+  assert.ok(html.includes("imported-speaker-fixtures.js"));
   assert.ok(ui.includes("audio-track-status-"));
   assert.ok(ui.includes("TRACK_STATUS.COMPLETE"));
   assert.ok(ui.includes("audio-polish-asset-line"));

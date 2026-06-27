@@ -15,6 +15,7 @@
   const STY = window.PdcEpisodeStyle;
   const AP = window.PdcAudioPolish;
   const SMS = window.PdcSpeakerMediaStore;
+  const ISF = window.PdcImportedSpeakerFixtures;
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
@@ -388,12 +389,23 @@
   }
 
   async function storePlaceholderSpeakerMedia(speaker, trackIndex) {
-    const wav = AP.buildImportedSpeakerSourceWav({
-      role: speaker.role,
-      trackIndex: trackIndex,
-      seed: `${getEpisodeMediaKey()}:${speaker.role}:${trackIndex}`,
-    });
-    const fileName = (speaker.fileName || `${speaker.role || "speaker"}.wav`).replace(/\.mp4$/i, ".wav");
+    if (!ISF) {
+      throw new Error("Imported speaker fixtures are unavailable.");
+    }
+    const wav = await ISF.loadFixtureBytes(speaker.role);
+    const fileName = ISF.importedFileNameForRole(speaker.role, state.sourceMode);
+    return storeSpeakerSourceMedia(speaker, trackIndex, wav, fileName);
+  }
+
+  async function loadImportedSpeakerFixture(speaker, trackIndex, mode) {
+    if (!ISF) {
+      throw new Error("Imported speaker fixtures are unavailable.");
+    }
+    const wav = await ISF.loadFixtureBytes(speaker.role);
+    const fileName = ISF.importedFileNameForRole(speaker.role, mode);
+    speaker.trackLabel = mode === "riverside"
+      ? `Riverside synced · ${speaker.role || "Speaker"}`
+      : (speaker.fileName || fileName);
     return storeSpeakerSourceMedia(speaker, trackIndex, wav, fileName);
   }
 
@@ -401,32 +413,27 @@
     if (!SMS || !AP) {
       return false;
     }
-    const episodeKey = getEpisodeMediaKey();
     const mode = ES.normalizeMode(state.sourceMode);
-    const seedBase = mode === "riverside" ? trim(state.riversideLink) : "upload";
     for (let index = 0; index < state.speakers.length; index += 1) {
       const speaker = state.speakers[index];
       if (speaker.sourceMediaId && await SMS.hasMedia(speaker.sourceMediaId)) {
         continue;
       }
-      if (mode === "upload" && speaker.sourceMediaId) {
-        const existing = await SMS.loadMedia(speaker.sourceMediaId);
-        if (existing && existing.length) {
-          continue;
+      if (mode === "upload") {
+        if (speaker.sourceMediaId) {
+          const existing = await SMS.loadMedia(speaker.sourceMediaId);
+          if (existing && existing.length) {
+            continue;
+          }
         }
+        if (speaker.fileName && ISF) {
+          await loadImportedSpeakerFixture(speaker, index + 1, mode);
+        }
+        continue;
       }
-      const wav = AP.buildImportedSpeakerSourceWav({
-        role: speaker.role,
-        trackIndex: index,
-        seed: `${episodeKey}:${seedBase}:${speaker.role}:${speaker.name}:${index}`,
-      });
-      const fileName = mode === "upload"
-        ? (speaker.fileName || `${speaker.role || "speaker"}.wav`).replace(/\.mp4$/i, ".wav")
-        : `${String(speaker.role || "speaker").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-riverside-sync.wav`;
-      speaker.trackLabel = mode === "riverside"
-        ? `Riverside synced · ${speaker.role || "Speaker"}`
-        : (speaker.fileName || `${speaker.role || "speaker"}.wav`);
-      await storeSpeakerSourceMedia(speaker, index + 1, wav, fileName);
+      if (mode === "riverside" && ISF) {
+        await loadImportedSpeakerFixture(speaker, index + 1, mode);
+      }
     }
     if (audioPolish && AP) {
       syncAudioPolishFromSummary(summary || ES.summarize(state));

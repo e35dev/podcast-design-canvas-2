@@ -316,6 +316,14 @@
     return g.PdcSpeakerMediaStore;
   }
 
+  function importedFixturesApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./imported-speaker-fixtures.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcImportedSpeakerFixtures;
+  }
+
   function episodeMediaKey(context) {
     const ctx = context || {};
     return (ctx.showId || "show-test") + ":" + (ctx.episodeId || "ep-test");
@@ -323,6 +331,7 @@
 
   function prepareProcessedPolish(episodeSummary, context) {
     const STORE = speakerMediaStoreApi();
+    const FIX = importedFixturesApi();
     const episodeKey = episodeMediaKey(context);
     let polish = createPolish(episodeSummary);
     if (!STORE || !STORE.saveMediaSync || !STORE.loadMediaSync || !STORE.buildMediaId) {
@@ -331,11 +340,14 @@
     polish.speakers = (polish.speakers || []).map((track) => {
       const sourceMediaId = track.sourceMediaId || STORE.buildMediaId(episodeKey, "source", track.trackIndex);
       if (!STORE.loadMediaSync(sourceMediaId)) {
-        STORE.saveMediaSync(sourceMediaId, buildImportedSpeakerSourceWav({
-          role: track.role,
-          trackIndex: track.trackIndex - 1,
-          seed: episodeKey + ":" + (track.name || track.role),
-        }), { kind: "source", role: track.role, name: track.name });
+        const bytes = FIX && FIX.loadFixtureBytesSync
+          ? FIX.loadFixtureBytesSync(track.role)
+          : buildImportedSpeakerSourceWav({
+            role: track.role,
+            trackIndex: track.trackIndex - 1,
+            seed: episodeKey + ":" + (track.name || track.role),
+          });
+        STORE.saveMediaSync(sourceMediaId, bytes, { kind: "source", role: track.role, name: track.name });
       }
       return Object.assign({}, track, { sourceMediaId: sourceMediaId });
     });

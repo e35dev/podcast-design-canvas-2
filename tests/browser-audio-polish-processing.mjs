@@ -76,6 +76,7 @@ async function main() {
     await page.locator(".audio-track-status-complete").first().waitFor({ timeout: 15000 });
     log(await page.locator(".audio-track-status-complete").count() === 3, "Apply processes all speaker tracks to complete");
     log(/polished WAV assets saved/i.test(await page.locator("#audio-polish-asset-line").innerText()), "Asset line reports saved polished WAV assets");
+    log(/riverside-sync\.wav|Riverside synced/i.test(await page.locator(".audio-step").innerText()), "Tracks reference imported Riverside fixture media");
 
     await page.screenshot({ path: join(root, "tests", "audio-polish-complete.png"), fullPage: false });
 
