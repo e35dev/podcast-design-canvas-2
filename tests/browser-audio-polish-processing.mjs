@@ -72,7 +72,7 @@ async function main() {
     log(await page.locator(".audio-track-status-pending").count() >= 3, "Audio polish opens with pending imported speaker tracks");
 
     await page.locator(".audio-preset-card").first().click();
-    await page.getByRole("button", { name: "Apply audio & continue →" }).click();
+    await page.locator("#audio-apply-btn-top, #audio-apply-btn").first().click();
     await page.locator(".audio-track-status-complete").first().waitFor({ timeout: 15000 });
     log(await page.locator(".audio-track-status-complete").count() === 3, "Apply processes all speaker tracks to complete");
     log(/polished WAV assets saved/i.test(await page.locator("#audio-polish-asset-line").innerText()), "Asset line reports saved polished WAV assets");

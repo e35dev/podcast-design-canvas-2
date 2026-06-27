@@ -470,12 +470,27 @@
     };
   }
 
+  function advanceAfterAudioPolish(summary) {
+    if (STY && !appliedStyle) {
+      renderStyle(summary);
+      return;
+    }
+    renderWorkspace(summary);
+  }
+
   async function applyAudioPolishAndStay(summary) {
-    if (!AP || !SMS || audioProcessing) {
+    if (audioProcessing) {
+      return;
+    }
+    if (!AP || !SMS) {
+      errors = { audioPolish: "Audio polish is unavailable — reload the page and try again." };
+      showErrors = true;
+      renderAudioPolish(summary);
       return;
     }
     syncAudioPolishFromSummary(summary);
     audioProcessing = true;
+    showErrors = false;
     renderAudioPolish(summary);
     try {
       audioPolish = await AP.processPolishAsync(audioPolish, buildAudioPolishHooks(summary));
@@ -483,11 +498,8 @@
         appliedAudioPolish = AP.summarizePolish(audioPolish);
         persistEpisodeSession();
         audioProcessing = false;
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        renderAudioPolish(summary);
+        window.setTimeout(() => advanceAfterAudioPolish(summary), 1800);
         return;
       }
       if (AP.hasFailedTracks(audioPolish)) {
@@ -4911,10 +4923,21 @@
   function openAudioPolishStep(summary) {
     lastView = "audio";
     if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
+      audioPolish = AP ? AP.createPolish(summary) : null;
     }
+    root.innerHTML = "";
+    setStep("Step 3 of 8 · Audio polish");
+    root.appendChild(
+      el("div", { class: "audio-step audio-step-loading" },
+        el("p", { class: "hint" }, "Loading imported speaker tracks\u2026"),
+      ),
+    );
     void ingestEpisodeSourceMedia(summary).then(() => {
       syncAudioPolishFromSummary(summary);
+      renderAudioPolish(summary);
+    }).catch((err) => {
+      errors = { audioPolish: err && err.message ? err.message : "Could not load imported speaker media." };
+      showErrors = true;
       renderAudioPolish(summary);
     });
   }
@@ -4936,6 +4959,36 @@
       ),
     );
 
+    const polishComplete = AP.hasCompletePolishedTracks(audioPolish);
+    const applyLabel = audioProcessing
+      ? "Processing speaker tracks\u2026"
+      : polishComplete && appliedAudioPolish
+        ? "Continue to workspace \u2192"
+        : "Apply audio & continue \u2192";
+
+    function onAudioApplyClick() {
+      if (polishComplete && appliedAudioPolish) {
+        advanceAfterAudioPolish(summary);
+        return;
+      }
+      void applyAudioPolishAndStay(summary);
+    }
+
+    function buildApplyButton(id) {
+      const button = el(
+        "button",
+        {
+          type: "button",
+          class: "primary audio-apply-btn",
+          id: id,
+          disabled: audioProcessing ? true : null,
+        },
+        applyLabel,
+      );
+      button.addEventListener("click", onAudioApplyClick);
+      return button;
+    }
+
     view.appendChild(
       el(
         "section",
@@ -4944,8 +4997,25 @@
         el(
           "p",
           { class: "hint audio-polish-status-note" },
-          "Click Apply audio & continue to process each imported speaker track into a saved polished WAV asset.",
+          polishComplete && appliedAudioPolish
+            ? "All imported speaker tracks were processed into saved polished WAV assets."
+            : "Click Apply audio & continue to process each imported speaker track into a saved polished WAV asset.",
         ),
+      ),
+    );
+
+    view.appendChild(
+      el(
+        "section",
+        { class: "card audio-polish-apply-bar audio-polish-apply-top" },
+        el(
+          "p",
+          { class: "hint audio-polish-apply-lead" },
+          polishComplete && appliedAudioPolish
+            ? "Polish complete — review saved assets below, then continue."
+            : "Apply runs the polish pass on each stored imported source track.",
+        ),
+        el("div", { class: "actions audio-polish-apply-actions" }, buildApplyButton("audio-apply-btn-top")),
       ),
     );
 
@@ -5016,7 +5086,7 @@
           el("div", { class: "audio-track-main" },
             el("span", { class: "role-pill" }, track.role),
             el("span", { class: "summary-name" }, track.name),
-            el("span", { class: `audio-track-status ${statusClass}` }, AP.trackStatusLabel(track.status)),
+            el("span", { class: `audio-track-status ${statusClass}` }, AP.trackStatusLabel(track)),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
           track.status === AP.TRACK_STATUS.COMPLETE && track.polishedFileName
@@ -5033,25 +5103,12 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el(
-      "button",
-      {
-        type: "button",
-        class: "primary audio-apply-btn",
-        id: "audio-apply-btn",
-        disabled: audioProcessing ? true : null,
-      },
-      audioProcessing ? "Processing speaker tracks…" : "Apply audio & continue →",
-    );
-    applyButton.addEventListener("click", () => {
-      void applyAudioPolishAndStay(summary);
-    });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    view.appendChild(el("div", { class: "actions" }, buildApplyButton("audio-apply-btn"), back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });

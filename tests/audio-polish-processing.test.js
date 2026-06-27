@@ -122,11 +122,16 @@ test("ACCEPTANCE: UI wires Apply to async processing with per-track status and a
   assert.ok(ui.includes("applyAudioPolishAndStay"));
   assert.ok(ui.includes("openAudioPolishStep"));
   assert.ok(ui.includes("audio-apply-btn"));
+  assert.ok(ui.includes("audio-apply-btn-top"));
+  assert.ok(ui.includes("audio-polish-apply-top"));
   assert.ok(ui.includes("audio-track-status-"));
   assert.ok(ui.includes("TRACK_STATUS.COMPLETE"));
   assert.ok(ui.includes("audio-polish-asset-line"));
   assert.ok(ui.includes("ingestEpisodeSourceMedia"));
   assert.ok(styles.includes(".audio-track-status-complete"));
+  assert.ok(styles.includes(".audio-track-status-pending"));
+  assert.strictEqual(audio.trackStatusLabel({ status: audio.TRACK_STATUS.PENDING }), "Waiting to process");
+  assert.match(audio.trackStatusLabel({ status: audio.TRACK_STATUS.COMPLETE, polishedFileName: "host-polished.wav" }), /Saved/);
 });
 
 console.log(`\naudio polish processing: ${passed} assertions passed`);

@@ -101,6 +101,15 @@ async function main() {
     log(audioText.includes("Chris Ortiz"), "Audio polish panel lists Guest 2 track Chris Ortiz");
     log(!hasDemoLeak(audioText), "Audio polish panel does not show seeded demo speaker names");
 
+    log(audioText.includes("Waiting to process"), "Audio polish tracks show waiting-to-process status before Apply");
+
+    await page.locator(".audio-preset-card").first().click();
+    await page.locator("#audio-apply-btn-top").click();
+    await page.locator(".audio-track-status-complete").first().waitFor({ timeout: 15000 });
+    const postApplyText = await page.locator(".audio-step").innerText();
+    log(/polished WAV assets saved/i.test(postApplyText), "Apply saves polished WAV assets visible on audio polish screen");
+    log(postApplyText.includes("Saved"), "Post-apply track rows show saved polished outputs");
+
     await page.screenshot({ path: join(root, "tests", "fresh-episode-workspace-audio.png"), fullPage: false });
     log(true, "Screenshot saved to tests/fresh-episode-workspace-audio.png");
   } catch (err) {

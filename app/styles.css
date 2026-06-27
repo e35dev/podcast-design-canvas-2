@@ -1993,6 +1993,18 @@ button.ghost:hover,
 
 .audio-polish-apply-top {
   width: 100%;
+  position: sticky;
+  top: 12px;
+  z-index: 2;
+}
+
+.audio-track-status-pending {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.audio-step-loading {
+  padding: 24px 0;
 }
 
 .audio-track-status {

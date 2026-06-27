@@ -172,16 +172,16 @@
     const track = input && typeof input === "object" ? input : { status: input };
     const status = track.status || TRACK_STATUS.PENDING;
     if (status === TRACK_STATUS.PROCESSING) {
-      return "Processing?";
+      return "Processing\u2026";
     }
     if (status === TRACK_STATUS.COMPLETE) {
-      const fileName = track.polishedFileName || track.fileName || "Polished track";
-      return "Saved ? " + fileName;
+      const fileName = track.polishedFileName || track.fileName || "polished.wav";
+      return "Saved \u2713 " + fileName;
     }
     if (status === TRACK_STATUS.FAILED) {
       return track.error || "Failed";
     }
-    return "Ready to process";
+    return "Waiting to process";
   }
 
   function speakerIndicator(polish, speaker) {
