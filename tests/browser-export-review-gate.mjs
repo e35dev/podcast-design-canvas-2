@@ -47,10 +47,8 @@ async function completeSetup(page) {
 async function polishAudioFromWorkspace(page) {
   await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
   await page.locator(".audio-step").waitFor();
-  await page.locator("#audio-apply-polish").click();
-  await page.locator(".audio-track-status-ready, .audio-polish-complete").first().waitFor({ timeout: 10000 });
-  await page.locator("#audio-apply-continue").click();
-  await page.locator(".guided-workspace").waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Apply audio & continue →" }).first().click();
+  await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 15000 });
 }
 
 async function openExportFromWorkspace(page) {

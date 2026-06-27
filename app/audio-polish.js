@@ -441,8 +441,62 @@
       case PROCESSING_STATUS.FAILED:
         return track.error || "Processing failed";
       default:
+        if (track && track.sourceReady) {
+          return "Imported source ready · waiting to polish";
+        }
         return "Waiting to process";
     }
+  }
+
+  function clearStaleProcessingFailures(polish) {
+    const next = Object.assign({}, polish || createPolish({}), {
+      speakers: (polish && polish.speakers ? polish.speakers : []).map((track) => {
+        if (track.status === PROCESSING_STATUS.READY) {
+          return track;
+        }
+        return Object.assign({}, track, {
+          status: PROCESSING_STATUS.PENDING,
+          error: "",
+        });
+      }),
+    });
+    if (!allTracksReady(next)) {
+      next.processingStatus = "pending";
+      next.completedAt = null;
+    }
+    return next;
+  }
+
+  function syncTracksWithImportedSources(polish, episodeSummary, context) {
+    const ITS = importedSourcesApi();
+    const ctx = context || {};
+    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
+      ? episodeSummary.speakers
+      : [];
+    const next = Object.assign({}, polish || createPolish(episodeSummary), {
+      speakers: (polish && polish.speakers ? polish.speakers : buildSpeakerTracks(episodeSummary))
+        .map((track, index) => {
+          if (track.status === PROCESSING_STATUS.READY) {
+            return track;
+          }
+          const speaker = speakers[index] || {};
+          const rawSourceId = trim(track.rawSourceId) || buildRawSourceId(episodeSummary, speaker, index);
+          const stored = ITS && ctx.showId && ctx.episodeId
+            ? ITS.getSource(ctx.showId, ctx.episodeId, rawSourceId)
+            : null;
+          const sourceReady = Boolean(stored && stored.samples && stored.samples.length);
+          return Object.assign({}, track, {
+            rawSourceId: rawSourceId,
+            status: PROCESSING_STATUS.PENDING,
+            error: "",
+            sourceReady: sourceReady,
+          });
+        }),
+    });
+    if (!allTracksReady(next)) {
+      next.processingStatus = "pending";
+    }
+    return next;
   }
 
   function speakerIndicator(polish, speaker) {
@@ -615,6 +669,8 @@
     summarizePolish,
     validatePolishForExport,
     attachStoredAssets,
+    syncTracksWithImportedSources,
+    clearStaleProcessingFailures,
     buildExportAudioLine,
     buildReviewSummary,
     prepareProcessedPolish,

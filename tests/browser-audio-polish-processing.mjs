@@ -53,16 +53,6 @@ async function openAudioPolishFromWorkspace(page) {
   await page.locator(".audio-step").waitFor({ state: "visible" });
 }
 
-async function applyAudioPolish(page) {
-  await page.locator("#audio-apply-polish").click();
-  await page.locator(".audio-track-status-ready, .audio-polish-complete").first().waitFor({ timeout: 10000 });
-}
-
-async function continueFromAudioPolish(page) {
-  await page.locator("#audio-apply-continue").click();
-  await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 10000 });
-}
-
 async function main() {
   const server = await startServer();
   let browser;
@@ -90,19 +80,20 @@ async function main() {
     await openAudioPolishFromWorkspace(page);
     const beforeApplyText = await page.locator(".audio-step").innerText();
     log(beforeApplyText.includes("Jordan Lee"), "Audio polish panel lists Host track Jordan Lee");
-    log(await page.locator("#audio-apply-polish").isVisible(), "Apply audio polish button is visible at top of screen");
+    log(/Imported source ready|Waiting to process/i.test(beforeApplyText), "Tracks show ready-to-polish status before Apply");
+    log(!/Processing failed|Missing imported source/i.test(beforeApplyText), "Tracks do not show pre-apply source errors");
+    log(await page.locator("#audio-apply-continue").isVisible(), "Apply audio & continue button is visible at top of screen");
 
-    await applyAudioPolish(page);
+    await page.locator("#audio-apply-continue").click();
+    await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 15000 });
 
-    const audioText = await page.locator(".audio-step").innerText();
-    log(/Saved ✓ .*polished\.wav/i.test(audioText), "Apply saves polished WAV outputs per track");
-    log(/Polished audio saved/i.test(audioText), "Audio polish screen shows completion banner after Apply");
-    log(await page.locator("#audio-apply-continue").isVisible(), "Continue to workspace button appears after Apply");
+    await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/i }).first().click();
+    await page.locator(".audio-step").waitFor();
+    const appliedText = await page.locator(".audio-step").innerText();
+    log(/Saved ✓ .*polished\.wav/i.test(appliedText), "Apply saves polished WAV outputs per track");
 
     await page.screenshot({ path: join(root, "tests", "audio-polish-processing-applied.png"), fullPage: false });
     log(true, "Screenshot saved to tests/audio-polish-processing-applied.png");
-
-    await continueFromAudioPolish(page);
 
     const workspaceText = await page.locator(".guided-workspace").innerText();
     log(/polished track/i.test(workspaceText) || /Clean/.test(workspaceText), "Workspace reflects completed audio polish");
@@ -113,7 +104,7 @@ async function main() {
     await page.reload({ waitUntil: "networkidle" });
     await page.getByRole("button", { name: "Open" }).first().click();
     await page.getByRole("button", { name: "Resume →" }).first().click();
-    await page.locator(".guided-workspace, .audio-step").first().waitFor({ state: "visible" });
+    await page.locator(".guided-workspace").waitFor({ state: "visible" });
 
     const resumedText = await page.locator("body").innerText();
     log(resumedText.includes(EPISODE_NAME), "Reloaded episode resumes with saved episode data");

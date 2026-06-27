@@ -190,18 +190,40 @@ test("buildExportAudioLine references saved polished track filenames", () => {
   assert.ok(exportSummary.lines.some((entry) => /polished\.wav/.test(entry)));
 });
 
+test("syncTracksWithImportedSources marks pending tracks as source-ready before apply", () => {
+  importedSources.__resetMemoryStoreForTests();
+  const episode = setup.summarize(completeUploadDraft());
+  registerEpisodeSources(episode, { showId: "show-indie", episodeId: "ep-3" });
+  let polish = audio.createPolish(episode);
+  polish = audio.syncTracksWithImportedSources(polish, episode, { showId: "show-indie", episodeId: "ep-3" });
+  assert.strictEqual(polish.speakers.every((track) => track.status === "pending"), true);
+  assert.strictEqual(polish.speakers.every((track) => track.sourceReady), true);
+  assert.strictEqual(polish.speakers.every((track) => !track.error), true);
+});
+
+test("clearStaleProcessingFailures resets failed tracks to pending before apply", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  let polish = audio.createPolish(episode);
+  polish.speakers[0].status = "failed";
+  polish.speakers[0].error = "Imported source audio is missing for this speaker track. Complete episode setup first.";
+  polish = audio.clearStaleProcessingFailures(polish);
+  assert.strictEqual(polish.speakers[0].status, "pending");
+  assert.strictEqual(polish.speakers[0].error, "");
+});
+
 test("audio polish UI runs real processing handoff before continuing", () => {
   assert.ok(ui.includes("function applyAudioPolishHandoff"));
+  assert.ok(ui.includes("function ensureImportedSourcesRegistered"));
+  assert.ok(ui.includes("function prepareAudioPolishView"));
   assert.ok(ui.includes("function registerImportedSourcesForEpisode"));
   assert.ok(ui.includes("function restoreAudioPolishFromStorage"));
   assert.ok(ui.includes("runProcessingAndPersist"));
   const block = ui.slice(ui.indexOf("function renderAudioPolish"), ui.indexOf("// ---- Visual moments editor"));
   assert.ok(block.includes("audio-track-status"));
-  assert.ok(block.includes("audio-apply-polish"));
-  assert.ok(block.includes("Apply audio polish →"));
+  assert.ok(block.includes("audio-apply-continue"));
+  assert.ok(block.includes("Apply audio & continue →"));
   assert.ok(block.includes("Continue to workspace →"));
   assert.ok(block.includes("audio-polish-apply-bar"));
-  assert.ok(!block.includes("runInitialAudioPolishApply"));
   assert.ok(!/appliedAudioPolish = AP\.summarizePolish\(audioPolish\);\s+if \(STY && !appliedStyle\)/.test(block));
 });
 

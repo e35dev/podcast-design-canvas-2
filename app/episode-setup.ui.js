@@ -406,6 +406,33 @@
     }
   }
 
+  function ensureImportedSourcesRegistered(summary) {
+    if (!AP || !activeShowId || !activeEpisodeId) {
+      return { ok: false };
+    }
+    if (pendingSpeakerMedia.size > 0) {
+      return { ok: false, pendingUpload: true };
+    }
+    return AP.registerImportedSources(
+      summary,
+      { showId: activeShowId, episodeId: activeEpisodeId },
+      AP.buildImportedSourceEntriesFromProcessor(summary),
+    );
+  }
+
+  function prepareAudioPolishView(summary) {
+    const context = { showId: activeShowId, episodeId: activeEpisodeId };
+    ensureImportedSourcesRegistered(summary);
+    restoreAudioPolishFromStorage(summary);
+    if (!audioPolish) {
+      audioPolish = AP.createPolish(summary);
+    }
+    if (!appliedAudioPolish && !audioPolishProcessing) {
+      audioPolish = AP.clearStaleProcessingFailures(audioPolish);
+    }
+    audioPolish = AP.syncTracksWithImportedSources(audioPolish, summary, context);
+  }
+
   function registerImportedSourcesForEpisode(summary) {
     if (!AP || !activeShowId || !activeEpisodeId) {
       return Promise.resolve({ ok: false });
@@ -443,6 +470,7 @@
       return;
     }
     if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
+      continueAfterAudioPolish(summary);
       return;
     }
     if (LIB && typeof ensureFreshEpisodeRecord === "function") {
@@ -453,6 +481,9 @@
       renderAudioPolish(summary);
       return;
     }
+    const context = { showId: activeShowId, episodeId: activeEpisodeId };
+    ensureImportedSourcesRegistered(summary);
+    prepareAudioPolishView(summary);
     audioPolishProcessing = true;
     audioPolishError = "";
     audioPolish = Object.assign({}, audioPolish || AP.createPolish(summary), {
@@ -475,9 +506,13 @@
       appliedAudioPolish = AP.summarizePolish(audioPolish);
       persistEpisodeSession();
       renderAudioPolish(summary);
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(function () {
+          continueAfterAudioPolish(summary);
+        });
+      });
     }
 
-    const context = { showId: activeShowId, episodeId: activeEpisodeId };
     registerImportedSourcesForEpisode(summary).then(() => {
       const hasUploadedMedia = pendingSpeakerMedia.size > 0;
       if (hasUploadedMedia) {
@@ -2782,7 +2817,14 @@
       }
       return false;
     }
-    registerImportedSourcesForEpisode(summary);
+    if (pendingSpeakerMedia.size > 0) {
+      registerImportedSourcesForEpisode(summary).then(function () {
+        persistEpisodeSession();
+        renderWorkspace(summary);
+      });
+      return true;
+    }
+    ensureImportedSourcesRegistered(summary);
     persistEpisodeSession();
     renderWorkspace(summary);
     return true;
@@ -4913,10 +4955,7 @@
   // ---- Audio polish (#15) -----------------------------------------------------
 
   function renderAudioPolish(summary) {
-    restoreAudioPolishFromStorage(summary);
-    if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
-    }
+    prepareAudioPolishView(summary);
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -4967,10 +5006,10 @@
         {
           type: "button",
           class: "primary audio-polish-apply-top",
-          id: "audio-apply-polish",
+          id: "audio-apply-continue",
           disabled: audioPolishProcessing ? "true" : null,
         },
-        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio polish →",
+        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio & continue →",
       );
       topApply.addEventListener("click", () => {
         if (audioPolishProcessing) {
@@ -5076,10 +5115,10 @@
         {
           type: "button",
           class: "primary",
-          id: "audio-apply-polish-bottom",
+          id: "audio-apply-continue-bottom",
           disabled: audioPolishProcessing ? "true" : null,
         },
-        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio polish →",
+        audioPolishProcessing ? "Processing speaker tracks…" : "Apply audio & continue →",
       );
       applyButton.addEventListener("click", () => {
         if (audioPolishProcessing) {
