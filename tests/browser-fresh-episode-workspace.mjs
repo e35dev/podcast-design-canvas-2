@@ -104,7 +104,7 @@ async function main() {
     log(audioText.includes("Waiting to process"), "Audio polish tracks show waiting-to-process status before Apply");
 
     await page.locator(".audio-preset-card").first().click();
-    await page.locator("#audio-apply-btn-top").click();
+    await page.locator("#workspace-primary-next").click();
     await page.locator(".audio-track-status-complete").first().waitFor({ timeout: 15000 });
     const postApplyText = await page.locator(".audio-step").innerText();
     log(/polished WAV assets saved/i.test(postApplyText), "Apply saves polished WAV assets visible on audio polish screen");

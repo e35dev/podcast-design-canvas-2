@@ -47,7 +47,7 @@ async function completeSetup(page) {
 async function polishAudioFromWorkspace(page) {
   await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
   await page.locator(".audio-step").waitFor();
-  await page.getByRole("button", { name: "Apply audio & continue →" }).first().click();
+  await page.locator("#workspace-primary-next").click();
   await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 15000 });
 }
 
