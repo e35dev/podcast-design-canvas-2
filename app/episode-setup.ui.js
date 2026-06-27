@@ -50,6 +50,10 @@
   let layoutCustomized = false;
   let audioPolish = null;
   let appliedAudioPolish = null;
+  // Imported source bytes per speaker track (aligned to audioPolish.speakers), and
+  // the last real processing result, kept across navigation. #197.
+  let audioSources = null;
+  let audioProcessing = null;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
@@ -1501,6 +1505,8 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioSources = null;
+    audioProcessing = null;
     activeTemplateId = null;
     canvasDoc = null;
     canvasLayerCounter = 20;
@@ -1573,6 +1579,8 @@
     layoutCustomized = false;
     audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
     appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
+    audioSources = null;
+    audioProcessing = null;
     activeTemplateId = null;
     canvasDoc = null;
     exportJob = null;
@@ -1665,6 +1673,8 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioSources = null;
+    audioProcessing = null;
     activeTemplateId = null;
     activeGalleryListingId = null;
     canvasDoc = null;
@@ -2476,6 +2486,8 @@
     if (AP) {
       audioPolish = AP.createPolish(summary);
       appliedAudioPolish = null;
+      audioSources = null;
+      audioProcessing = null;
     }
     contextApproved = false;
     contextReview = SC ? SC.createReview(summary) : null;
@@ -3100,6 +3112,17 @@
     const reviewMeta = PR.summarizeReview(publishReview);
     checksCard.appendChild(el("p", { class: "publish-review-meta" }, reviewMeta.reviewLine));
 
+    // Confirm the review reflects the saved polished audio, not the raw tracks (#197).
+    const reviewPolished = appliedAudioPolish && appliedAudioPolish.processing;
+    if (reviewPolished && reviewPolished.savedCount > 0) {
+      checksCard.appendChild(
+        el("p", { class: `publish-review-ok${reviewPolished.allComplete ? "" : " publish-review-check-warn"}` },
+          reviewPolished.allComplete
+            ? `✓ Polished audio ready · ${reviewPolished.savedCount}/${reviewPolished.total} speaker tracks saved as WAV assets`
+            : `Polished audio incomplete · ${reviewPolished.savedCount}/${reviewPolished.total} tracks — finish audio polish before export`),
+      );
+    }
+
     const checksList = el("div", { class: "publish-review-checks" });
     publishReview.checks.forEach((item) => {
       if (item.tone === "ok") {
@@ -3565,6 +3588,37 @@
       summaryCard.appendChild(el("p", { class: "export-summary-line" }, line));
     });
     view.appendChild(summaryCard);
+
+    // The export renders from the polished WAV assets produced in audio polish.
+    const processing = ctx.audioPolish && ctx.audioPolish.processing;
+    if (processing && processing.savedCount > 0) {
+      const audioCard = el("section", { class: "card export-audio-assets" },
+        el("h3", {}, "Polished audio sources"),
+        el("p", { class: "hint" }, `${processing.savedCount} of ${processing.total} speaker tracks export from saved polished audio rather than the raw recordings.`),
+      );
+      const assetList = el("div", { class: "audio-track-list" });
+      (processing.assets || []).filter((asset) => asset.status === "saved").forEach((asset) => {
+        const row = el("div", { class: "audio-track audio-track-saved" },
+          el("div", { class: "audio-track-main" },
+            el("span", { class: "role-pill" }, asset.role),
+            el("span", { class: "summary-name" }, asset.assetName),
+          ),
+          el("p", { class: "summary-source" }, `${Math.max(1, Math.round(asset.byteLength / 1024))} KB · ${(asset.durationMs / 1000).toFixed(1)}s · ${asset.presetId} treatment`),
+        );
+        if (asset.dataBase64) {
+          row.appendChild(
+            el("a", {
+              class: "audio-asset-download",
+              href: `data:audio/wav;base64,${asset.dataBase64}`,
+              download: asset.assetName,
+            }, "Download polished WAV"),
+          );
+        }
+        assetList.appendChild(row);
+      });
+      audioCard.appendChild(assetList);
+      view.appendChild(audioCard);
+    }
 
     const grid = el("div", { class: "export-layout" });
 
@@ -4743,21 +4797,131 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
+  // Real shipped sample studio recordings under app/samples/. They are fetched
+  // as actual WAV files (genuine imported media); buildSampleSource produces the
+  // byte-identical fallback so the flow never breaks when fetch is unavailable.
+  const SAMPLE_FILES = [
+    "studio-take-host.wav",
+    "studio-take-guest-1.wav",
+    "studio-take-guest-2.wav",
+    "studio-take-guest-3.wav",
+  ];
+  const sampleSourceCache = {};
+  let sampleSourcesPrefetched = false;
+
+  function prefetchSampleSources() {
+    if (sampleSourcesPrefetched || typeof fetch !== "function") {
+      return;
+    }
+    sampleSourcesPrefetched = true;
+    SAMPLE_FILES.forEach((name, index) => {
+      fetch(`app/samples/${name}`)
+        .then((res) => (res.ok ? res.arrayBuffer() : null))
+        .then((buf) => {
+          if (buf) {
+            sampleSourceCache[index] = { name: name, bytes: new Uint8Array(buf) };
+          }
+        })
+        .catch(() => {
+          /* fall back to buildSampleSource */
+        });
+    });
+  }
+
+  function sampleSourceFor(index) {
+    const cached = sampleSourceCache[index];
+    if (cached && cached.bytes && cached.bytes.length) {
+      return cached;
+    }
+    return AP.buildSampleSource(index);
+  }
+
+  // Ensure every speaker track has an imported source to polish. Uploaded WAV
+  // bytes are kept as-is; any track without its own upload is offered a real
+  // shipped sample studio recording so the polish flow can be exercised. This is
+  // an explicit, replaceable creator action — never a hidden synthetic fallback.
+  function ensureAudioSources(summary) {
+    const speakers = (audioPolish && audioPolish.speakers) || [];
+    if (!Array.isArray(audioSources) || audioSources.length !== speakers.length) {
+      const previous = Array.isArray(audioSources) ? audioSources : [];
+      audioSources = speakers.map((_, index) => previous[index] || null);
+    }
+    let loadedSamples = 0;
+    audioSources = speakers.map((speaker, index) => {
+      const existing = audioSources[index];
+      if (existing && existing.bytes && existing.bytes.length) {
+        return existing;
+      }
+      const sample = sampleSourceFor(index);
+      loadedSamples += 1;
+      return { name: sample.name, bytes: sample.bytes, sample: true, role: speaker.role };
+    });
+    return loadedSamples;
+  }
+
+  function readUploadedSource(file, index, summary) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const bytes = new Uint8Array(reader.result);
+        AP.decodeWav(bytes); // validate it is a usable 16-bit PCM WAV before keeping it
+        audioSources[index] = { name: file.name, bytes: bytes, sample: false };
+        // A new source invalidates a previously saved result for that track.
+        audioProcessing = null;
+        appliedAudioPolish = appliedAudioPolish
+          ? Object.assign({}, appliedAudioPolish, { processing: null })
+          : appliedAudioPolish;
+        renderAudioPolish(summary);
+      } catch (err) {
+        window.alert(`That file can't be polished: ${err.message}. Use a 16-bit PCM WAV recording.`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function applyAudioPolish(summary) {
+    ensureAudioSources(summary);
+    audioProcessing = AP.processEpisode(audioPolish, audioSources);
+    appliedAudioPolish = Object.assign(AP.summarizePolish(audioPolish), {
+      processing: audioProcessing,
+    });
+    persistEpisodeSession();
+    renderAudioPolish(summary);
+  }
+
   function renderAudioPolish(summary) {
     if (!audioPolish) {
       audioPolish = AP.createPolish(summary);
     }
+    // Restore a previously saved processing result (e.g. after reload) so the
+    // step reopens already complete instead of dropping the polished assets.
+    if (!audioProcessing && appliedAudioPolish && appliedAudioPolish.processing) {
+      audioProcessing = appliedAudioPolish.processing;
+    }
+    const loadedSamples = ensureAudioSources(summary);
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
+
+    const processed = Boolean(audioProcessing);
+    const allComplete = processed && audioProcessing.allComplete;
 
     const view = el("div", { class: "audio-step" });
     view.appendChild(
       el("div", { class: "workspace-head" },
         el("p", { class: "eyebrow" }, "Audio polish"),
         el("h2", {}, `Shape the sound for ${summary.episodeName}`),
-        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Each speaker track below will get this treatment."),
+        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Apply runs real processing on each imported speaker track and saves a polished audio file the rest of the episode uses."),
       ),
     );
+
+    if (loadedSamples > 0 && !processed) {
+      view.appendChild(
+        el("div", { class: "audio-sample-note" },
+          el("strong", {}, `Loaded ${loadedSamples} sample studio recording${loadedSamples === 1 ? "" : "s"} so you can try audio polish.`),
+          el("span", {}, " Replace any track with your own WAV upload, then Apply to save polished audio."),
+        ),
+      );
+    }
 
     const grid = el("div", { class: "audio-layout" });
 
@@ -4777,6 +4941,7 @@
       );
       card.addEventListener("click", () => {
         audioPolish = AP.applyPreset(audioPolish, preset.id);
+        audioProcessing = null; // changing quality means re-polishing
         renderAudioPolish(summary);
       });
       presetGrid.appendChild(card);
@@ -4795,48 +4960,111 @@
       });
       select.addEventListener("change", (e) => {
         audioPolish = AP.updateControl(audioPolish, control.id, e.target.value);
+        audioProcessing = null;
         renderAudioPolish(summary);
       });
       controls.appendChild(field(control.label, select, null, control.hint));
     });
     grid.appendChild(controls);
 
-    const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
+    const tracksCard = el("section", { class: "card audio-tracks-card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+      el("p", { class: "hint" }, processed
+        ? "Each imported source was processed into a polished WAV asset below."
+        : "Each imported source receives the treatment you choose above when you Apply."),
     );
     const trackList = el("div", { class: "audio-track-list" });
-    audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+    audioPolish.speakers.forEach((track, index) => {
+      const source = audioSources[index];
+      const asset = processed ? audioProcessing.assets[index] : null;
+      const row = el("div", { class: `audio-track${asset && asset.status === "saved" ? " audio-track-saved" : ""}` });
+      row.appendChild(
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
         ),
       );
+
+      if (asset && asset.status === "saved") {
+        row.appendChild(el("span", { class: "audio-track-status audio-status-saved" }, "Polished ✓ saved"));
+        row.appendChild(
+          el("p", { class: "summary-source" },
+            `${asset.assetName} · ${Math.max(1, Math.round(asset.byteLength / 1024))} KB · ${(asset.durationMs / 1000).toFixed(1)}s · peak ${asset.peakDb} dB`),
+        );
+      } else if (asset && asset.status !== "saved") {
+        row.appendChild(el("span", { class: "audio-track-status audio-status-needs" }, "Needs a recording"));
+        row.appendChild(el("p", { class: "summary-source" }, asset.error || "Add a WAV recording for this speaker, then Apply again."));
+      } else {
+        const sourceName = source ? source.name : "";
+        const sampleTag = source && source.sample ? " (sample studio take)" : "";
+        row.appendChild(el("p", { class: "summary-source" }, sourceName ? `Source: ${sourceName}${sampleTag}` : "No recording loaded yet"));
+        row.appendChild(el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)));
+      }
+
+      // Always allow swapping in a real upload for this track.
+      const fileInput = el("input", {
+        type: "file",
+        accept: ".wav,audio/wav,audio/x-wav",
+        class: "audio-track-upload",
+        id: `audio-upload-${index}`,
+      });
+      fileInput.addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (file) {
+          readUploadedSource(file, index, summary);
+        }
+      });
+      row.appendChild(el("label", { class: "audio-track-replace", for: `audio-upload-${index}` },
+        asset && asset.status === "saved" ? "Replace recording & re-polish" : "Use my own recording"));
+      row.appendChild(fileInput);
+
+      trackList.appendChild(row);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
+    if (processed) {
+      const banner = el("div", { class: `audio-result-banner${allComplete ? " complete" : " partial"}` });
+      if (allComplete) {
+        banner.appendChild(el("strong", {}, `${audioProcessing.savedCount} polished WAV asset${audioProcessing.savedCount === 1 ? "" : "s"} saved.`));
+        banner.appendChild(el("span", {}, ` ${audioProcessing.presetName} treatment · ${Math.max(1, Math.round((audioProcessing.totalBytes || 0) / 1024))} KB total. Review and export now use these polished tracks instead of the raw audio.`));
       } else {
-        renderWorkspace(summary);
+        banner.appendChild(el("strong", {}, `${audioProcessing.savedCount} of ${audioProcessing.total} tracks polished.`));
+        banner.appendChild(el("span", {}, " Add a recording to the remaining track, then Apply again to finish."));
       }
-    });
+      view.appendChild(banner);
+    }
+
+    const actions = el("div", { class: "actions" });
+    if (allComplete) {
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      continueButton.addEventListener("click", () => {
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
+      });
+      const rePolish = el("button", { type: "button", class: "ghost" }, "Re-polish");
+      rePolish.addEventListener("click", () => {
+        audioProcessing = null;
+        renderAudioPolish(summary);
+      });
+      actions.appendChild(continueButton);
+      actions.appendChild(rePolish);
+    } else {
+      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+      applyButton.addEventListener("click", () => applyAudioPolish(summary));
+      actions.appendChild(applyButton);
+    }
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    actions.appendChild(back);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -5405,6 +5633,9 @@
   if (TM) {
     templateStore = TM.hydrateTemplateStore(safeLoadTemplates(), showLibrary);
     persistTemplates();
+  }
+  if (AP) {
+    prefetchSampleSources();
   }
   renderShowLibrary();
 }());

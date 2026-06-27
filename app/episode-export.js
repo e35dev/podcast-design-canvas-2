@@ -157,6 +157,14 @@
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
       lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
     }
+    // Render the long-form episode from the saved polished WAV assets (#197).
+    const polished = ctx.audioPolish && ctx.audioPolish.processing;
+    if (polished && polished.savedCount > 0) {
+      const names = (polished.assets || [])
+        .filter((asset) => asset.status === "saved")
+        .map((asset) => asset.assetName);
+      lines.push(`Polished audio source: ${polished.savedCount}/${polished.total} speaker tracks (${names.join(", ")})`);
+    }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
         `Visual style: ${ctx.appliedStyle.presetName} · ${ctx.appliedStyle.layoutLabel || "layout"} · ${ctx.appliedStyle.pacingLabel || "pacing"}`,
