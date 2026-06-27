@@ -98,6 +98,7 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
 
   polish = audio.applyPreset(polish, "clean");
   polish = audio.updateControl(polish, "speechClarity", "strong");
+  audio.registerImportedSources(episode, { showId: "show-test", episodeId: "ep-test" }, audio.buildImportedSourceEntriesFromProcessor(episode));
   const processed = audio.runProcessing(polish, episode, { showId: "show-test", episodeId: "ep-test" });
   const applied = audio.summarizePolish(processed.polish);
   assert.strictEqual(applied.presetName, "Clean");

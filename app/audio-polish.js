@@ -22,6 +22,14 @@
     return g.PdcAudioMediaStore;
   };
 
+  const importedSourcesApi = () => {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./imported-track-sources.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcImportedTrackSources;
+  };
+
   const QUALITY_PRESETS = [
     {
       id: "natural",
@@ -221,19 +229,79 @@
     return `pa-${showId}-${episodeId}-t${track.trackIndex}-${polish.presetId}`.replace(/[^a-zA-Z0-9-]+/g, "-");
   }
 
-  function resolveTrackSourceSamples(episodeSummary, track, sourceResolver) {
+  function resolveTrackSourceSamples(episodeSummary, track, context, sourceResolver) {
     const PROC = processorApi();
     if (!PROC) {
       return null;
     }
     if (sourceResolver && typeof sourceResolver === "function") {
       const resolved = sourceResolver(track);
-      if (resolved && resolved.samples) {
+      if (resolved && resolved.samples && resolved.samples.length) {
         return resolved;
       }
     }
-    const seed = track.rawSourceId || `${track.sourceLabel}:${track.role}:${track.name}`;
-    return PROC.synthesizeSourceSamples(seed, 0.5);
+    const ctx = context || {};
+    const ITS = importedSourcesApi();
+    if (ITS && ctx.showId && ctx.episodeId) {
+      const stored = ITS.getSource(ctx.showId, ctx.episodeId, track.rawSourceId);
+      if (stored && stored.samples && stored.samples.length) {
+        return stored;
+      }
+    }
+    return null;
+  }
+
+  function registerImportedSources(episodeSummary, context, entries) {
+    const ITS = importedSourcesApi();
+    const ctx = context || {};
+    if (!ITS || !ctx.showId || !ctx.episodeId) {
+      return { ok: false, error: "Missing episode context for imported track sources." };
+    }
+    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
+      ? episodeSummary.speakers
+      : [];
+    const payload = speakers.map((speaker, index) => {
+      const provided = Array.isArray(entries) ? entries[index] : null;
+      const rawSourceId = buildRawSourceId(episodeSummary, speaker, index);
+      if (provided && provided.samples && provided.samples.length) {
+        return {
+          rawSourceId: rawSourceId,
+          trackIndex: index + 1,
+          role: speaker.role,
+          name: speaker.name,
+          sourceLabel: speaker.sourceLabel,
+          samples: provided.samples,
+          sampleRate: provided.sampleRate || 44100,
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    if (payload.length !== speakers.length) {
+      return { ok: false, error: "Every imported speaker track needs a registered source before audio polish." };
+    }
+    ITS.saveEpisodeSources(ctx.showId, ctx.episodeId, payload);
+    return { ok: true, count: payload.length };
+  }
+
+  function buildImportedSourceEntriesFromProcessor(episodeSummary) {
+    const PROC = processorApi();
+    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
+      ? episodeSummary.speakers
+      : [];
+    return speakers.map((speaker, index) => {
+      const rawSourceId = buildRawSourceId(episodeSummary, speaker, index);
+      const seed = rawSourceId || `${speaker.sourceLabel}:${speaker.role}:${speaker.name}`;
+      const source = PROC.synthesizeSourceSamples(seed, 0.75);
+      return {
+        rawSourceId: rawSourceId,
+        trackIndex: index + 1,
+        role: speaker.role,
+        name: speaker.name,
+        sourceLabel: speaker.sourceLabel,
+        samples: source.samples,
+        sampleRate: source.sampleRate,
+      };
+    });
   }
 
   function processSpeakerTrack(polish, trackIndex, episodeSummary, context, sourceResolver) {
@@ -255,11 +323,11 @@
         polish: Object.assign({}, polish, { speakers: tracks }),
       };
     }
-    const source = resolveTrackSourceSamples(episodeSummary, Object.assign({}, track, { rawSourceId: rawSourceId }), sourceResolver);
+    const source = resolveTrackSourceSamples(episodeSummary, Object.assign({}, track, { rawSourceId: rawSourceId }), context, sourceResolver);
     if (!source || !source.samples || !source.samples.length) {
       tracks[trackIndex] = Object.assign({}, track, {
         status: PROCESSING_STATUS.FAILED,
-        error: "Could not read imported audio for this speaker track.",
+        error: "Imported source audio is missing for this speaker track. Complete episode setup first.",
       });
       return {
         ok: false,
@@ -357,16 +425,6 @@
     const STORE = mediaStoreApi();
     if (STORE && STORE.saveAssetsSync && context && context.showId && context.episodeId) {
       STORE.saveAssetsSync(context.showId, context.episodeId, result.assets);
-    }
-    if (!STORE || typeof STORE.saveAsset !== "function") {
-      return result;
-    }
-    try {
-      result.assets.forEach((asset) => {
-        STORE.saveAsset(Object.assign({}, asset, { wavBytes: asset.wavBytes }));
-      });
-    } catch (err) {
-      /* localStorage/memory sync already saved the outputs */
     }
     return result;
   }
@@ -524,10 +582,10 @@
   }
 
   function prepareProcessedPolish(episodeSummary, context, sourceResolver) {
-    const result = runProcessing(createPolish(episodeSummary), episodeSummary, context || {
-      showId: "show-test",
-      episodeId: "ep-test",
-    }, sourceResolver);
+    const ctx = context || { showId: "show-test", episodeId: "ep-test" };
+    const entries = buildImportedSourceEntriesFromProcessor(episodeSummary);
+    registerImportedSources(episodeSummary, ctx, entries);
+    const result = runProcessing(createPolish(episodeSummary), episodeSummary, ctx, sourceResolver);
     return summarizePolish(result.polish);
   }
 
@@ -542,6 +600,8 @@
     getControl,
     buildSpeakerTracks,
     buildRawSourceId,
+    registerImportedSources,
+    buildImportedSourceEntriesFromProcessor,
     createPolish,
     applyPreset,
     updateControl,

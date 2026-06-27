@@ -52,8 +52,9 @@ async function polishAndApply(page) {
   await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/i }).first().click();
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").filter({ hasText: "Studio" }).click();
-  await page.getByRole("button", { name: "Apply audio & continue →" }).click();
+  await page.getByRole("button", { name: "Apply audio polish →" }).click();
   await page.locator(".audio-track-status-ready, .audio-polish-complete").first().waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: "Continue to workspace →" }).click();
   await page.locator(".guided-workspace").waitFor({ state: "visible", timeout: 10000 });
 }
 

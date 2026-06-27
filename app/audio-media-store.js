@@ -137,11 +137,20 @@
     const payload = {
       key: key,
       listKey: listKey(record.showId, record.episodeId),
-      record: clone(record),
+      record: Object.assign({}, record, {
+        wavBytes: undefined,
+      }),
       wavBytes: record.wavBytes instanceof Uint8Array ? record.wavBytes : new Uint8Array(record.wavBytes || []),
     };
+    payload.record = clone(payload.record);
     memoryStore.set(key, payload);
-    saveAssetsToLocalStorage(record.showId, record.episodeId, [record]);
+    const merged = listAssetsSync(record.showId, record.episodeId);
+    saveAssetsToLocalStorage(record.showId, record.episodeId, merged.map((asset) => {
+      const stored = memoryStore.get(assetKey(record.showId, record.episodeId, asset.id));
+      return Object.assign({}, asset, {
+        wavBytes: stored ? stored.wavBytes : new Uint8Array(0),
+      });
+    }));
     if (typeof indexedDB === "undefined") {
       return Promise.resolve(payload.record);
     }

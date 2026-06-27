@@ -15,6 +15,7 @@
   const STY = window.PdcEpisodeStyle;
   const AP = window.PdcAudioPolish;
   const AMS = window.PdcAudioMediaStore;
+  const ITS = window.PdcImportedTrackSources;
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
@@ -405,6 +406,38 @@
     }
   }
 
+  function registerImportedSourcesForEpisode(summary) {
+    if (!AP || !activeShowId || !activeEpisodeId) {
+      return Promise.resolve({ ok: false });
+    }
+    const context = { showId: activeShowId, episodeId: activeEpisodeId };
+    if (pendingSpeakerMedia.size > 0) {
+      return Promise.all((summary.speakers || []).map((speaker, index) => {
+        const file = pendingSpeakerMedia.get(index);
+        return file ? decodeSpeakerMedia(file) : Promise.resolve(null);
+      })).then((decodedSources) => {
+        const entries = (summary.speakers || []).map((speaker, index) => {
+          const decoded = decodedSources[index];
+          if (decoded && decoded.samples) {
+            return {
+              samples: decoded.samples,
+              sampleRate: decoded.sampleRate,
+            };
+          }
+          return null;
+        });
+        return AP.registerImportedSources(summary, context, entries);
+      });
+    }
+    return Promise.resolve(
+      AP.registerImportedSources(
+        summary,
+        context,
+        AP.buildImportedSourceEntriesFromProcessor(summary),
+      ),
+    );
+  }
+
   function applyAudioPolishHandoff(summary) {
     if (!AP || audioPolishProcessing) {
       return;
@@ -439,37 +472,47 @@
       appliedAudioPolish = AP.summarizePolish(audioPolish);
       persistEpisodeSession();
       renderAudioPolish(summary);
-      window.setTimeout(function () {
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
-      }, 400);
     }
 
     const context = { showId: activeShowId, episodeId: activeEpisodeId };
-    const hasUploadedMedia = pendingSpeakerMedia.size > 0;
-    if (hasUploadedMedia) {
-      Promise.all((audioPolish.speakers || []).map((track, index) => {
-        const file = pendingSpeakerMedia.get(index);
-        return file ? decodeSpeakerMedia(file) : Promise.resolve(null);
-      })).then((decodedSources) => {
-        finishProcessing(AP.runProcessingAndPersist(
-          audioPolish,
-          summary,
-          context,
-          buildAudioSourceResolver(decodedSources),
-        ));
-      }).catch((err) => {
-        audioPolishProcessing = false;
-        audioPolishError = err && err.message ? err.message : String(err);
-        renderAudioPolish(summary);
-      });
+    registerImportedSourcesForEpisode(summary).then(() => {
+      const hasUploadedMedia = pendingSpeakerMedia.size > 0;
+      if (hasUploadedMedia) {
+        Promise.all((audioPolish.speakers || []).map((track, index) => {
+          const file = pendingSpeakerMedia.get(index);
+          return file ? decodeSpeakerMedia(file) : Promise.resolve(null);
+        })).then((decodedSources) => {
+          finishProcessing(AP.runProcessingAndPersist(
+            audioPolish,
+            summary,
+            context,
+            buildAudioSourceResolver(decodedSources),
+          ));
+        }).catch((err) => {
+          audioPolishProcessing = false;
+          audioPolishError = err && err.message ? err.message : String(err);
+          renderAudioPolish(summary);
+        });
+        return;
+      }
+
+      finishProcessing(AP.runProcessingAndPersist(audioPolish, summary, context, null));
+    }).catch((err) => {
+      audioPolishProcessing = false;
+      audioPolishError = err && err.message ? err.message : String(err);
+      renderAudioPolish(summary);
+    });
+  }
+
+  function continueAfterAudioPolish(summary) {
+    if (!appliedAudioPolish || !appliedAudioPolish.allTracksReady) {
       return;
     }
-
-    finishProcessing(AP.runProcessingAndPersist(audioPolish, summary, context, null));
+    if (STY && !appliedStyle) {
+      renderStyle(summary);
+    } else {
+      renderWorkspace(summary);
+    }
   }
 
   // Tiny DOM helper: el("div", {class:"x", onclick:fn}, child, child...).
@@ -2736,6 +2779,7 @@
       }
       return false;
     }
+    registerImportedSourcesForEpisode(summary);
     persistEpisodeSession();
     renderWorkspace(summary);
     return true;
@@ -4969,30 +5013,45 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyLabel = audioPolishProcessing
-      ? "Processing speaker tracks…"
-      : "Apply audio & continue →";
-    const applyButton = el(
-      "button",
-      {
-        type: "button",
-        class: "primary",
-        disabled: audioPolishProcessing ? "true" : null,
-      },
-      applyLabel,
-    );
-    applyButton.addEventListener("click", () => {
-      if (audioPolishProcessing) {
-        return;
-      }
-      applyAudioPolishHandoff(summary);
-    });
+    const actions = el("div", { class: "actions" });
+    if (appliedAudioPolish && appliedAudioPolish.allTracksReady) {
+      const continueButton = el(
+        "button",
+        { type: "button", class: "primary audio-polish-continue" },
+        "Continue to workspace →",
+      );
+      continueButton.addEventListener("click", () => {
+        continueAfterAudioPolish(summary);
+      });
+      actions.appendChild(continueButton);
+    } else {
+      const applyLabel = audioPolishProcessing
+        ? "Processing speaker tracks…"
+        : "Apply audio polish →";
+      const applyButton = el(
+        "button",
+        {
+          type: "button",
+          class: "primary",
+          disabled: audioPolishProcessing ? "true" : null,
+        },
+        applyLabel,
+      );
+      applyButton.addEventListener("click", () => {
+        if (audioPolishProcessing) {
+          return;
+        }
+        applyAudioPolishHandoff(summary);
+      });
+      actions.appendChild(applyButton);
+    }
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    actions.appendChild(back);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
