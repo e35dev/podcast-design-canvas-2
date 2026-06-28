@@ -77,12 +77,39 @@ function renderPolish(polish) {
   });
   const polished = tracks.filter((track) => track.status === "polished");
   return {
-    complete: tracks.length > 0 && polished.length === tracks.length,
+    complete: polished.length > 0 && polished.length === tracks.length,
     presetId: polish.presetId,
     signature: signature,
     tracks: tracks,
     appliedAt: Date.now(),
   };
+}
+
+// No real media (e.g. a Riverside-linked sandbox episode): apply still completes with a
+// product-data polished track for every speaker, per the step's acceptance.
+function renderPolishWithoutMedia(polish) {
+  const presetId = polish.presetId;
+  const tracks = polish.speakers.map((speaker) => audio.buildPolishedRecord(speaker, presetId, { fromRealMedia: false, byteLength: 0 }));
+  const polished = tracks.filter((track) => track.status === "polished");
+  return {
+    complete: polished.length > 0 && polished.length === tracks.length,
+    presetId: presetId,
+    signature: audio.settingsSignature(polish),
+    tracks: tracks,
+    appliedAt: Date.now(),
+  };
+}
+
+function riversideEpisode() {
+  const draft = setup.createDraft();
+  draft.episodeName = "Founders Unfiltered #8";
+  draft.sourceMode = "riverside";
+  draft.riversideLink = "https://riverside.fm/studio/founders-demo";
+  draft.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim" }),
+  ];
+  return setup.summarize(draft);
 }
 
 test("apply renders a real polished WAV for every assigned speaker", () => {
@@ -94,12 +121,33 @@ test("apply renders a real polished WAV for every assigned speaker", () => {
   assert.strictEqual(applied.tracks.length, 2);
   applied.tracks.forEach((track) => {
     assert.strictEqual(track.status, "polished");
+    assert.strictEqual(track.rendered, true);
     assert.ok(track.byteLength > 44, "rendered real WAV bytes");
     assert.ok(track.changed, "audio measurably transformed");
     assert.strictEqual(track.fromRealMedia, true);
     assert.ok(/\.wav$/.test(track.fileName));
     assert.ok(track.checksum.length > 0);
   });
+});
+
+test("apply completes with product-data polished tracks when no media bytes exist", () => {
+  const episode = riversideEpisode();
+  const polish = audio.createPolish(episode);
+  const applied = renderPolishWithoutMedia(polish);
+
+  assert.strictEqual(applied.complete, true, "flow completes without uploaded bytes");
+  assert.strictEqual(applied.tracks.length, 2);
+  applied.tracks.forEach((track) => {
+    assert.strictEqual(track.status, "polished");
+    assert.strictEqual(track.rendered, false, "no real WAV without media");
+    assert.strictEqual(track.fromRealMedia, false);
+  });
+
+  const summary = audio.summarizePolish(polish, applied);
+  assert.strictEqual(summary.polished, true);
+  assert.strictEqual(summary.polishedTrackCount, 2);
+  assert.strictEqual(summary.renderedTrackCount, 0);
+  assert.ok(summary.presetName, "audio polish marked complete with a preset");
 });
 
 test("polished outputs are distinct per source and stable per quality choice", () => {

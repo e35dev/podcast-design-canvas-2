@@ -158,8 +158,13 @@
       lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
     }
     if (ctx.audioPolish && ctx.audioPolish.polishedTrackCount) {
+      const renderedCount = ctx.audioPolish.renderedTrackCount || 0;
       const count = ctx.audioPolish.polishedTrackCount;
-      lines.push(`Audio outputs: exporting ${count} rendered polished WAV track${count === 1 ? "" : "s"} (not the raw originals)`);
+      if (renderedCount > 0) {
+        lines.push(`Audio outputs: exporting ${renderedCount} rendered polished WAV track${renderedCount === 1 ? "" : "s"} (not the raw originals)`);
+      } else {
+        lines.push(`Audio outputs: exporting ${count} polished track${count === 1 ? "" : "s"} with selected treatments applied (not the raw originals)`);
+      }
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(

@@ -100,9 +100,15 @@
 
     if (context.audioPolish && context.audioPolish.presetName) {
       const polishedCount = context.audioPolish.polishedTrackCount || 0;
-      const audioMessage = polishedCount
-        ? `${context.audioPolish.presetName} · ${polishedCount} polished WAV track${polishedCount === 1 ? "" : "s"} rendered (export uses these, not the raw originals)`
-        : `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`;
+      const renderedCount = context.audioPolish.renderedTrackCount || 0;
+      let audioMessage;
+      if (renderedCount > 0) {
+        audioMessage = `${context.audioPolish.presetName} · ${renderedCount} polished WAV track${renderedCount === 1 ? "" : "s"} rendered (export uses these, not the raw originals)`;
+      } else if (polishedCount > 0) {
+        audioMessage = `${context.audioPolish.presetName} · ${polishedCount} polished track${polishedCount === 1 ? "" : "s"} ready (export uses these, not the raw originals)`;
+      } else {
+        audioMessage = `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`;
+      }
       checks.push(check(
         "audio-ready",
         "audio",

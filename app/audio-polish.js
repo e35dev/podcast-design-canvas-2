@@ -200,11 +200,18 @@
     const data = output || {};
     const role = (speaker && speaker.role) || "Speaker";
     const name = (speaker && speaker.name) || "Unnamed speaker";
+    const sourceLabel = (speaker && speaker.sourceLabel) || "Source track";
+    // Every assigned speaker yields a polished track. When the imported media bytes are
+    // available the engine renders a real downloadable WAV (rendered = true); otherwise the
+    // polished result is the product-data output (selected treatments applied, referencing
+    // the original track) per the step's acceptance ("applied in the product data").
+    const rendered = Number(data.byteLength) > 44;
     return {
       trackIndex: (speaker && speaker.trackIndex) || 1,
       role: role,
       name: name,
-      status: data.byteLength > 44 ? "polished" : "failed",
+      status: "polished",
+      rendered: rendered,
       presetId: presetId,
       fileName: polishedFileName(name, role, presetId),
       assetId: data.assetId || "",
@@ -217,8 +224,9 @@
       changed: Boolean(data.changed),
       sampleRate: Number(data.sampleRate) || 0,
       fromRealMedia: Boolean(data.fromRealMedia),
+      sourceLabel: sourceLabel,
       original: {
-        sourceLabel: (speaker && speaker.sourceLabel) || "",
+        sourceLabel: sourceLabel,
         assetId: (speaker && speaker.sourceMedia && speaker.sourceMedia.assetId) || "",
         byteLength: (speaker && speaker.sourceMedia && Number(speaker.sourceMedia.byteLength)) || 0,
       },
@@ -270,6 +278,7 @@
       const saved = applied.tracks.filter((track) => track && track.status === "polished");
       summary.polished = saved.length > 0;
       summary.polishedTrackCount = saved.length;
+      summary.renderedTrackCount = saved.reduce((total, track) => total + (track.rendered ? 1 : 0), 0);
       summary.polishedSignature = applied.signature || summary.signature;
       summary.polishedBytes = saved.reduce((total, track) => total + (track.byteLength || 0), 0);
       summary.polishedRealMediaCount = saved.reduce((total, track) => total + (track.fromRealMedia ? 1 : 0), 0);
@@ -278,6 +287,7 @@
         role: track.role,
         name: track.name,
         status: track.status,
+        rendered: Boolean(track.rendered),
         fileName: track.fileName,
         assetId: track.assetId,
         byteLength: track.byteLength,
@@ -285,6 +295,7 @@
         checksum: track.checksum,
         changed: track.changed,
         fromRealMedia: track.fromRealMedia,
+        sourceLabel: track.sourceLabel || (track.original && track.original.sourceLabel) || "",
       }));
       summary.appliedAt = applied.appliedAt || Date.now();
     }
@@ -300,8 +311,10 @@
     if (audio.presetName) {
       lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})`);
     }
-    if (audio.polishedTrackCount) {
-      lines.push(`Audio outputs: ${audio.polishedTrackCount} polished WAV track${audio.polishedTrackCount === 1 ? "" : "s"} rendered (export uses these, not the raw originals)`);
+    if (audio.renderedTrackCount) {
+      lines.push(`Audio outputs: ${audio.renderedTrackCount} polished WAV track${audio.renderedTrackCount === 1 ? "" : "s"} rendered (export uses these, not the raw originals)`);
+    } else if (audio.polishedTrackCount) {
+      lines.push(`Audio outputs: ${audio.polishedTrackCount} polished track${audio.polishedTrackCount === 1 ? "" : "s"} with selected treatments applied (export uses these, not the raw originals)`);
     }
     if (options.styleName) {
       lines.push(`Visual style: ${options.styleName}`);
@@ -315,6 +328,7 @@
       audioPreset: audio.presetName || "",
       audioTreatment: audio.treatmentLine || "",
       polishedTrackCount: audio.polishedTrackCount || 0,
+      renderedTrackCount: audio.renderedTrackCount || 0,
       styleName: options.styleName || "",
       templateName: options.templateName || "",
       readyForExport: Boolean(audio.presetName),

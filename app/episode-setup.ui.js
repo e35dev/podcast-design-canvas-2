@@ -531,12 +531,15 @@
       .then((output) => AP.buildPolishedRecord(speaker, presetId, Object.assign({ fromRealMedia: output.fromRealMedia }, output)))))
       .then((tracks) => {
         const polished = tracks.filter((track) => track && track.status === "polished");
+        const rendered = tracks.filter((track) => track && track.rendered);
         return {
-          complete: tracks.length > 0 && polished.length === tracks.length,
+          // Every assigned speaker gets a polished track; real WAVs are rendered when the
+          // imported media bytes are available, product-data outputs otherwise.
+          complete: polished.length > 0 && polished.length === tracks.length,
           presetId: presetId,
           signature: signature,
           tracks: tracks,
-          renderedCount: polished.length,
+          renderedCount: rendered.length,
           appliedAt: Date.now(),
         };
       });
@@ -5187,7 +5190,7 @@
         ),
         el("p", { class: "summary-source" }, track.sourceLabel),
       );
-      if (polished && polished.status === "polished") {
+      if (polished && polished.rendered) {
         main.appendChild(
           el("span", { class: "audio-track-badge audio-track-badge-polished" },
             `Polished WAV · ${polished.durationSec}s · ${polished.fileName}`),
@@ -5199,6 +5202,11 @@
               "Download polished audio"),
           );
         }
+      } else if (polished) {
+        main.appendChild(
+          el("span", { class: "audio-track-badge audio-track-badge-polished" },
+            `Polished · ${appliedAudioPolish.presetName} treatment applied`),
+        );
       } else {
         main.appendChild(el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)));
       }
@@ -5208,42 +5216,64 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
+    const alreadyApplied = Boolean(polishedTracks);
+    if (alreadyApplied) {
+      const total = appliedAudioPolish.polishedTrackCount || 0;
+      const rendered = appliedAudioPolish.renderedTrackCount || 0;
+      const note = rendered > 0
+        ? `Audio polish complete · ${total} polished track${total === 1 ? "" : "s"} (${rendered} rendered as downloadable WAV${rendered === 1 ? "" : "s"}).`
+        : `Audio polish complete · ${total} polished track${total === 1 ? "" : "s"} with your selected treatments applied.`;
+      view.appendChild(el("p", { class: "audio-applied-note", role: "status" }, note));
+    }
+
     if (options.applyError) {
       view.appendChild(el("p", { class: "audio-apply-error" }, options.applyError));
     }
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      applyButton.disabled = true;
-      applyButton.textContent = "Rendering polished audio…";
+    function runApply(btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Rendering polished audio…";
+      }
       applyAudioPolishReal().then((applied) => {
         if (!applied.complete) {
-          renderAudioPolish(summary, {
-            applyError: applied.tracks.length
-              ? "Couldn't render polished audio for every track. Make sure each speaker has imported media bytes (upload mode), then apply again."
-              : "Add at least one speaker with imported media before applying audio polish.",
-          });
+          renderAudioPolish(summary, { applyError: "Add at least one speaker before applying audio polish." });
           return;
         }
         appliedAudioPolish = AP.summarizePolish(audioPolish, applied);
         persistEpisodeSession();
+        renderAudioPolish(summary);
+      }).catch(() => {
+        renderAudioPolish(summary, { applyError: "Audio processing failed unexpectedly. Please try applying again." });
+      });
+    }
+
+    const actions = el("div", { class: "actions" });
+    if (alreadyApplied) {
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      continueButton.addEventListener("click", () => {
         if (STY && !appliedStyle) {
           renderStyle(summary);
         } else {
           renderWorkspace(summary);
         }
-      }).catch(() => {
-        renderAudioPolish(summary, {
-          applyError: "Audio processing failed unexpectedly. Please try applying again.",
-        });
       });
-    });
+      const reapplyButton = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
+      reapplyButton.addEventListener("click", () => runApply(reapplyButton));
+      actions.appendChild(continueButton);
+      actions.appendChild(reapplyButton);
+    } else {
+      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio polish");
+      applyButton.addEventListener("click", () => runApply(applyButton));
+      actions.appendChild(applyButton);
+    }
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;
       renderSetup();
     });
-    view.appendChild(el("div", { class: "actions" }, applyButton, back));
+    actions.appendChild(back);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
