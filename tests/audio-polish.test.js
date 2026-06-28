@@ -231,6 +231,27 @@ test("REGRESSION (#197): changing a setting and reprocessing changes the synthes
   });
 });
 
+test("REGRESSION (PR #249 follow-up): polished audio depends on the actual imported file, not just the speaker's name", () => {
+  const draftA = completeUploadDraft();
+  const draftB = completeUploadDraft();
+  // Same speaker name and role on both — but a different file was actually chosen.
+  draftB.speakers[0].fileName = "totally-different-recording.mp4";
+
+  const episodeA = setup.summarize(draftA);
+  const episodeB = setup.summarize(draftB);
+  assert.strictEqual(episodeA.speakers[0].name, episodeB.speakers[0].name);
+  assert.strictEqual(episodeA.speakers[0].role, episodeB.speakers[0].role);
+  assert.notStrictEqual(episodeA.speakers[0].sourceLabel, episodeB.speakers[0].sourceLabel);
+
+  const processedA = audio.processTracks(audio.createPolish(episodeA));
+  const processedB = audio.processTracks(audio.createPolish(episodeB));
+  assert.notStrictEqual(
+    processedA.speakers[0].assetBase64,
+    processedB.speakers[0].assetBase64,
+    "swapping which file was imported must change the synthesized output even when the speaker's role/name and settings are identical",
+  );
+});
+
 test("audioDataUrl exposes a playable data URL only for processed tracks", () => {
   const episode = setup.summarize(completeUploadDraft());
   const pending = audio.createPolish(episode);

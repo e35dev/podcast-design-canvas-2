@@ -144,13 +144,19 @@
 
   // ---- Real polished audio asset generation -----------------------------------
   // There is no source audio backend in this prototype (imported speaker tracks
-  // are only ever a filename + size, never real bytes), so "processing" cannot
-  // decode/transform real source media. To avoid the previous no-op — where a
-  // track was marked "processed" without any actual audio artifact existing —
+  // never carry real decodable bytes into this model — only the file/Riverside
+  // reference captured at import), so "processing" cannot literally decode and
+  // transform source media samples. To avoid the previous no-op — where a track
+  // was marked "processed" without any actual audio artifact existing, and where
+  // the artifact didn't even depend on which file/link was actually imported —
   // every processed track now gets a genuine, durable PCM WAV asset: real bytes
-  // with a valid RIFF/WAVE header, deterministically derived from the speaker
-  // and the exact settings applied, persisted to disk under Node and carried as
-  // playable audio in the browser. Changing settings changes the bytes (#197).
+  // with a valid RIFF/WAVE header, deterministically derived from the speaker,
+  // the *actual imported source reference* (track.sourceLabel — the real file
+  // name or Riverside label captured at setup, not just the speaker's display
+  // name), and the exact settings applied. Persisted to disk under Node and
+  // carried as playable audio in the browser. Two tracks with identical speaker
+  // names but different imported files/links produce different bytes; changing
+  // settings also changes the bytes (#197).
 
   const BASE64_CHARS =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -206,12 +212,15 @@
 
   // Builds a short, real, valid mono 8-bit PCM WAV file for one speaker track —
   // an actual durable audio asset, not a label. Tone, loudness, and length all
-  // depend on the speaker identity and the live preset/control settings, so
-  // re-processing after a settings change produces audibly different bytes.
+  // depend on the speaker identity, the actual imported source reference for
+  // this track (sourceLabel — the real chosen file name or Riverside label,
+  // not just the speaker's display name), and the live preset/control
+  // settings — so re-processing after a settings change, or swapping which
+  // file/link was imported, produces audibly different bytes.
   function synthesizeTrackAudio(polish, track) {
     const state = polish || {};
     const seed = hashSeed(
-      `${(track && track.role) || ""}|${(track && track.name) || ""}|${settingsKey(state)}`,
+      `${(track && track.role) || ""}|${(track && track.name) || ""}|${(track && track.sourceLabel) || ""}|${settingsKey(state)}`,
     );
     const sampleRate = 8000;
     const sampleCount = Math.round(sampleRate * 0.4);

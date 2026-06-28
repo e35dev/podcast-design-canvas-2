@@ -6,11 +6,16 @@
 // treating audio as complete / export-ready. Run with: `node tests/audio-processing-gate.test.js`.
 
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
 const setup = require("../app/episode-setup.js");
 const audio = require("../app/audio-polish.js");
 const workspace = require("../app/episode-workspace.js");
 const exportModel = require("../app/episode-export.js");
 const review = require("../app/publish-review.js");
+
+const uiSource = fs.readFileSync(path.join(__dirname, "../app/episode-setup.ui.js"), "utf8");
+const stylesSource = fs.readFileSync(path.join(__dirname, "../app/styles.css"), "utf8");
 
 let passed = 0;
 function test(name, fn) {
@@ -108,6 +113,25 @@ test("publish-review: approves audio section and unlocks export readiness once t
   assert.strictEqual(audioCheck.passed, true);
   const exportCheck = r.checks.find((item) => item.id === "export-ready");
   assert.ok(exportCheck, "export should be marked ready once audio and style are both fully set");
+});
+
+test("REGRESSION (PR #249 review): the style-preset explore/preview shortcut must not fabricate pre-processed audio", () => {
+  const fnMatch = uiSource.match(/function openStylePickerDemo\(\)\s*\{[\s\S]*?\n  \}/);
+  assert.ok(fnMatch, "expected to find openStylePickerDemo() in episode-setup.ui.js");
+  assert.ok(
+    !fnMatch[0].includes("AP.processTracks"),
+    "this explore-only shortcut must not call processTracks — only the real Apply audio & continue action may mark speaker tracks as polished",
+  );
+  assert.ok(
+    fnMatch[0].includes("AP.createPolish"),
+    "the shortcut should still seed an (unprocessed) polish object so the audio step renders normally if visited",
+  );
+});
+
+test("REGRESSION (#197 PR #249 follow-up): Apply audio & continue renders a visible, one-time completion confirmation", () => {
+  assert.ok(uiSource.includes("audioPolishJustApplied"), "a transient just-applied flag should drive a completion banner after Apply");
+  assert.ok(uiSource.includes("audio-polish-applied-banner"), "the workspace should render a dedicated completion banner after Apply");
+  assert.ok(stylesSource.includes(".audio-polish-applied-banner"), "the completion banner needs its own visible styling, not the default warning-banner look");
 });
 
 console.log(`\naudio processing gate: ${passed} assertions passed`);

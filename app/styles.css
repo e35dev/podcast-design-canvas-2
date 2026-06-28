@@ -224,6 +224,13 @@ input[type="file"] {
   font-size: 14px;
 }
 
+.audio-polish-applied-banner {
+  background: #effaf3;
+  border-color: #bfe6cf;
+  color: var(--ok);
+  font-weight: 600;
+}
+
 .mode-row {
   display: flex;
   gap: 12px;

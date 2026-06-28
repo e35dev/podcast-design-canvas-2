@@ -50,6 +50,10 @@
   let layoutCustomized = false;
   let audioPolish = null;
   let appliedAudioPolish = null;
+  // Transient, in-memory only — never persisted/restored — so the workspace can
+  // show a one-time "just applied" completion confirmation right after Apply
+  // audio & continue, without that banner reappearing on every later reload (#197).
+  let audioPolishJustApplied = false;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
@@ -1501,6 +1505,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishJustApplied = false;
     activeTemplateId = null;
     canvasDoc = null;
     canvasLayerCounter = 20;
@@ -1571,8 +1576,12 @@
     appliedStyle = null;
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
-    audioPolish = AP ? AP.processTracks(AP.createPolish(ES.summarize(state))) : null;
-    appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
+    // This is an explore/preview shortcut, not the real Apply audio & continue
+    // action — it must NOT pre-process audio for the creator. Doing so made the
+    // step look already "complete" without ever exercising Apply, which is
+    // exactly the no-real-creator-action problem #197 exists to fix.
+    audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
+    appliedAudioPolish = null;
     activeTemplateId = null;
     canvasDoc = null;
     exportJob = null;
@@ -2966,6 +2975,20 @@
     const identityBanner = renderShowIdentityBanner();
     if (identityBanner) {
       view.appendChild(identityBanner);
+    }
+    if (audioPolishJustApplied) {
+      // One-time, visible completion result for the Apply audio & continue
+      // action — proves the step actually finished (not a silent no-op) and
+      // shows how many speaker tracks now have a saved polished output (#197).
+      const applied = appliedAudioPolish || {};
+      view.appendChild(
+        el(
+          "div",
+          { class: "banner audio-polish-applied-banner", role: "status" },
+          `Audio polish applied — ${applied.processedTrackCount || 0}/${applied.tracksTotal || 0} speaker tracks polished and saved.`,
+        ),
+      );
+      audioPolishJustApplied = false;
     }
     view.appendChild(
       el(
@@ -4874,6 +4897,9 @@
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {
+        // Visible completion evidence for the action that just ran — the
+        // workspace renders a one-time confirmation banner then clears this (#197).
+        audioPolishJustApplied = true;
         renderWorkspace(summary);
       }
     });
