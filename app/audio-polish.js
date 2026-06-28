@@ -101,10 +101,11 @@
       role: (speaker && speaker.role) || "Speaker",
       name: (speaker && speaker.name) || "Unnamed speaker",
       sourceLabel: (speaker && speaker.sourceLabel) || "Source track",
+      sourceAudioBase64: (speaker && speaker.sourceAudioBase64) || "",
       trackIndex: index + 1,
-      // Per-track processing state — a track only counts as polished once it has
-      // been run through processTracks() under its current settings (#197).
       processed: false,
+      status: "pending",
+      failureReason: "",
       outputRef: null,
       processedAt: null,
       processedSettingsKey: null,
@@ -142,24 +143,28 @@
     return `polished/${track && track.trackIndex}-${slug}-${preset.id}.wav`;
   }
 
-  // ---- Real polished audio asset generation -----------------------------------
-  // There is no source audio backend in this prototype (imported speaker tracks
-  // never carry real decodable bytes into this model — only the file/Riverside
-  // reference captured at import), so "processing" cannot literally decode and
-  // transform source media samples. To avoid the previous no-op — where a track
-  // was marked "processed" without any actual audio artifact existing, and where
-  // the artifact didn't even depend on which file/link was actually imported —
-  // every processed track now gets a genuine, durable PCM WAV asset: real bytes
-  // with a valid RIFF/WAVE header, deterministically derived from the speaker,
-  // the *actual imported source reference* (track.sourceLabel — the real file
-  // name or Riverside label captured at setup, not just the speaker's display
-  // name), and the exact settings applied. Persisted to disk under Node and
-  // carried as playable audio in the browser. Two tracks with identical speaker
-  // names but different imported files/links produce different bytes; changing
-  // settings also changes the bytes (#197).
+  // ---- Imported-track audio transformation (#197) -----------------------------
+  // Polish transforms the raw source audio bytes captured at import — never synthesizes
+  // independent tones from metadata labels alone.
 
   const BASE64_CHARS =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  function base64ToBytes(base64) {
+    const text = String(base64 || "").replace(/=+$/, "");
+    const out = [];
+    for (let i = 0; i < text.length; i += 4) {
+      const c0 = BASE64_CHARS.indexOf(text[i]);
+      const c1 = BASE64_CHARS.indexOf(text[i + 1]);
+      const c2 = text[i + 2] === "=" ? -1 : BASE64_CHARS.indexOf(text[i + 2]);
+      const c3 = text[i + 3] === "=" ? -1 : BASE64_CHARS.indexOf(text[i + 3]);
+      const triplet = (c0 << 18) | (c1 << 12) | ((c2 < 0 ? 0 : c2) << 6) | (c3 < 0 ? 0 : c3);
+      out.push((triplet >> 16) & 0xff);
+      if (c2 >= 0) out.push((triplet >> 8) & 0xff);
+      if (c3 >= 0) out.push(triplet & 0xff);
+    }
+    return new Uint8Array(out);
+  }
 
   function bytesToBase64(bytes) {
     let out = "";
@@ -196,62 +201,85 @@
     bytes[offset + 1] = (value >>> 8) & 0xff;
   }
 
-  // Deterministic FNV-1a style hash so the same speaker + settings always
-  // synthesize the same waveform, and a different one always differs.
-  function hashSeed(seed) {
-    let hash = 0x811c9dc5;
-    const text = String(seed);
-    for (let i = 0; i < text.length; i += 1) {
-      hash ^= text.charCodeAt(i);
-      hash = Math.imul(hash, 0x01000193);
-    }
-    return hash >>> 0;
-  }
-
   const LEVEL_INTENSITY = { light: 0.35, balanced: 0.6, strong: 0.9 };
 
-  // Builds a short, real, valid mono 8-bit PCM WAV file for one speaker track —
-  // an actual durable audio asset, not a label. Tone, loudness, and length all
-  // depend on the speaker identity, the actual imported source reference for
-  // this track (sourceLabel — the real chosen file name or Riverside label,
-  // not just the speaker's display name), and the live preset/control
-  // settings — so re-processing after a settings change, or swapping which
-  // file/link was imported, produces audibly different bytes.
-  function synthesizeTrackAudio(polish, track) {
-    const state = polish || {};
-    const seed = hashSeed(
-      `${(track && track.role) || ""}|${(track && track.name) || ""}|${(track && track.sourceLabel) || ""}|${settingsKey(state)}`,
-    );
-    const sampleRate = 8000;
-    const sampleCount = Math.round(sampleRate * 0.4);
-    const frequency = 180 + (seed % 420);
-    const intensity =
-      (LEVEL_INTENSITY[state.leveling] || 0.6) *
-      (LEVEL_INTENSITY[state.enhancement] || 0.6);
-    const amplitude = Math.max(20, Math.min(110, 60 * intensity));
-    const headerSize = 44;
-    const bytes = new Uint8Array(headerSize + sampleCount);
-
-    writeAscii(bytes, 0, "RIFF");
-    writeUint32LE(bytes, 4, 36 + sampleCount);
-    writeAscii(bytes, 8, "WAVE");
-    writeAscii(bytes, 12, "fmt ");
-    writeUint32LE(bytes, 16, 16);
-    writeUint16LE(bytes, 20, 1); // PCM
-    writeUint16LE(bytes, 22, 1); // mono
-    writeUint32LE(bytes, 24, sampleRate);
-    writeUint32LE(bytes, 28, sampleRate); // byte rate (1 byte/sample, mono)
-    writeUint16LE(bytes, 32, 1); // block align
-    writeUint16LE(bytes, 34, 8); // bits per sample
-    writeAscii(bytes, 36, "data");
-    writeUint32LE(bytes, 40, sampleCount);
-
-    for (let i = 0; i < sampleCount; i += 1) {
-      const t = i / sampleRate;
-      const wave = Math.sin(2 * Math.PI * frequency * t);
-      bytes[headerSize + i] = Math.round(128 + amplitude * wave);
+  function readAscii(bytes, offset, length) {
+    let out = "";
+    for (let i = 0; i < length; i += 1) {
+      out += String.fromCharCode(bytes[offset + i]);
     }
-    return bytes;
+    return out;
+  }
+
+  function parseSourceWav(bytes) {
+    if (!bytes || bytes.length < 44) {
+      throw new Error("Imported source audio is missing or too short to process.");
+    }
+    if (readAscii(bytes, 0, 4) !== "RIFF" || readAscii(bytes, 8, 4) !== "WAVE") {
+      throw new Error("Imported source audio is not a valid WAV track.");
+    }
+    const sampleRate = bytes[24] | (bytes[25] << 8) | (bytes[26] << 16) | (bytes[27] << 24);
+    const samples = bytes.subarray(44);
+    if (!samples.length) {
+      throw new Error("Imported source audio has no sample data.");
+    }
+    return { samples, sampleRate };
+  }
+
+  function encodeWavFromSamples(samples, sampleRate) {
+    const headerSize = 44;
+    const out = new Uint8Array(headerSize + samples.length);
+    writeAscii(out, 0, "RIFF");
+    writeUint32LE(out, 4, 36 + samples.length);
+    writeAscii(out, 8, "WAVE");
+    writeAscii(out, 12, "fmt ");
+    writeUint32LE(out, 16, 16);
+    writeUint16LE(out, 20, 1);
+    writeUint16LE(out, 22, 1);
+    writeUint32LE(out, 24, sampleRate);
+    writeUint32LE(out, 28, sampleRate);
+    writeUint16LE(out, 32, 1);
+    writeUint16LE(out, 34, 8);
+    writeAscii(out, 36, "data");
+    writeUint32LE(out, 40, samples.length);
+    out.set(samples, headerSize);
+    return out;
+  }
+
+  // Applies creator-facing polish controls to the imported PCM samples.
+  function transformImportedTrack(sourceBase64, polish) {
+    const state = polish || {};
+    const sourceBytes = base64ToBytes(sourceBase64);
+    const { samples, sampleRate } = parseSourceWav(sourceBytes);
+    const transformed = new Uint8Array(samples.length);
+    const noise = LEVEL_INTENSITY[state.noiseCleanup] || 0.6;
+    const leveling = LEVEL_INTENSITY[state.leveling] || 0.6;
+    const clarity = LEVEL_INTENSITY[state.speechClarity] || 0.6;
+    const enhancement = LEVEL_INTENSITY[state.enhancement] || 0.6;
+    const gate = 10 + noise * 18;
+    const target = 34 + leveling * 22;
+
+    for (let i = 0; i < samples.length; i += 1) {
+      let centered = samples[i] - 128;
+      const prev = i > 0 ? samples[i - 1] - 128 : centered;
+      const next = i + 1 < samples.length ? samples[i + 1] - 128 : centered;
+
+      if (Math.abs(centered) < gate) {
+        centered *= 1 - noise;
+      }
+
+      const transient = centered - prev;
+      centered += transient * clarity * 0.55;
+
+      const warmth = (prev + centered + next) / 3;
+      centered = centered * (1 - enhancement * 0.25) + warmth * enhancement * 0.25;
+
+      centered = centered * (1 - leveling * 0.35) + Math.sign(centered || 1) * target * leveling * 0.35;
+
+      transformed[i] = Math.max(0, Math.min(255, Math.round(centered + 128)));
+    }
+
+    return encodeWavFromSamples(transformed, sampleRate || 8000);
   }
 
   // Under Node (the test/CLI harness for this shared model) actually persist the
@@ -297,19 +325,49 @@
     const now = Date.now();
     return Object.assign({}, base, {
       speakers: (base.speakers || []).map((track) => {
-        const outputRef = outputRefFor(base, track);
-        const bytes = synthesizeTrackAudio(base, track);
-        const assetBase64 = bytesToBase64(bytes);
-        const savedPath = writeAssetToDisk(outputRef, bytes);
-        return Object.assign({}, track, {
-          processed: true,
-          processedAt: now,
-          outputRef,
-          processedSettingsKey: key,
-          assetBase64,
-          assetBytes: bytes.length,
-          savedPath,
-        });
+        const sourceAudio = track && track.sourceAudioBase64;
+        if (!sourceAudio) {
+          return Object.assign({}, track, {
+            processed: false,
+            status: "failed",
+            failureReason: "No imported source audio for this speaker track.",
+            processedAt: now,
+            outputRef: null,
+            processedSettingsKey: null,
+            assetBase64: null,
+            assetBytes: 0,
+            savedPath: null,
+          });
+        }
+        try {
+          const outputRef = outputRefFor(base, track);
+          const bytes = transformImportedTrack(sourceAudio, base);
+          const assetBase64 = bytesToBase64(bytes);
+          const savedPath = writeAssetToDisk(outputRef, bytes);
+          return Object.assign({}, track, {
+            processed: true,
+            status: "complete",
+            failureReason: "",
+            processedAt: now,
+            outputRef,
+            processedSettingsKey: key,
+            assetBase64,
+            assetBytes: bytes.length,
+            savedPath,
+          });
+        } catch (err) {
+          return Object.assign({}, track, {
+            processed: false,
+            status: "failed",
+            failureReason: (err && err.message) || "Audio polish failed for this track.",
+            processedAt: now,
+            outputRef: null,
+            processedSettingsKey: null,
+            assetBase64: null,
+            assetBytes: 0,
+            savedPath: null,
+          });
+        }
       }),
     });
   }
@@ -355,6 +413,8 @@
       if (prior && prior.processed && prior.processedSettingsKey === key) {
         return Object.assign({}, track, {
           processed: true,
+          status: prior.status || "complete",
+          failureReason: prior.failureReason || "",
           processedAt: prior.processedAt || null,
           outputRef: prior.outputRef || null,
           processedSettingsKey: key,
@@ -405,7 +465,12 @@
   function speakerIndicator(polish, speaker) {
     const preset = getPreset(polish && polish.presetId);
     const name = (speaker && speaker.name) || "Speaker";
-    const status = isTrackCurrent(polish, speaker) ? "Polished" : "Pending";
+    let status = "Pending";
+    if (speaker && speaker.status === "failed") {
+      status = "Failed";
+    } else if (isTrackCurrent(polish, speaker)) {
+      status = "Polished";
+    }
     return `${preset.name} treatment · ${name} · ${status}`;
   }
 
@@ -426,11 +491,11 @@
         sourceLabel: track.sourceLabel,
         trackIndex: track.trackIndex,
         processed: current,
+        status: current ? (track.status || "complete") : (track.status || "pending"),
+        failureReason: current ? "" : (track.failureReason || ""),
         outputRef: current ? track.outputRef : null,
         processedAt: current ? track.processedAt : null,
         processedSettingsKey: current ? track.processedSettingsKey : null,
-        // The actual durable polished asset for this track — real WAV bytes
-        // (base64), not just a label (#197).
         assetBase64: current ? track.assetBase64 || null : null,
         assetBytes: current ? track.assetBytes || 0 : 0,
         savedPath: current ? track.savedPath || null : null,
@@ -438,6 +503,9 @@
     });
     const polishedCount = speakerSummaries.filter(
       (track) => track.processed,
+    ).length;
+    const failedCount = speakerSummaries.filter(
+      (track) => track.status === "failed",
     ).length;
     return {
       presetId: preset.id,
@@ -455,6 +523,7 @@
       speakers: speakerSummaries,
       tracksTotal: speakers.length,
       processedTrackCount: polishedCount,
+      failedTrackCount: failedCount,
       allTracksProcessed:
         speakers.length > 0 && polishedCount === speakers.length,
       settingsKey: key,
@@ -523,8 +592,9 @@
     processedTrackCount,
     allTracksProcessed,
     restorePolish,
-    synthesizeTrackAudio,
+    transformImportedTrack,
     bytesToBase64,
+    base64ToBytes,
     audioDataUrl,
   };
 

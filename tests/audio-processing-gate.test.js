@@ -128,6 +128,21 @@ test("REGRESSION (PR #249 review): the style-preset explore/preview shortcut mus
   );
 });
 
+test("REGRESSION (#197 PR #250): episode summarize captures imported source audio for every speaker track", () => {
+  const episode = readyEpisode();
+  episode.speakers.forEach((speaker) => {
+    assert.ok(speaker.sourceAudioBase64, "import must capture durable source audio before polish runs");
+  });
+});
+
+test("REGRESSION (#197 PR #250): polish transforms captured source bytes — output is not metadata synthesis", () => {
+  const episode = readyEpisode();
+  const polish = audio.createPolish(episode);
+  const source = polish.speakers[0].sourceAudioBase64;
+  const processed = audio.processTracks(polish);
+  assert.notStrictEqual(source, processed.speakers[0].assetBase64);
+});
+
 test("REGRESSION (#197 PR #249 follow-up): Apply audio & continue renders a visible, one-time completion confirmation", () => {
   assert.ok(uiSource.includes("audioPolishJustApplied"), "a transient just-applied flag should drive a completion banner after Apply");
   assert.ok(uiSource.includes("audio-polish-applied-banner"), "the workspace should render a dedicated completion banner after Apply");

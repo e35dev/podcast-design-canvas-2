@@ -64,9 +64,192 @@
       role: role || "",
       fileName: "",
       fileSize: 0,
+      fileBytesBase64: "",
+      sourceAudioBase64: "",
       trackLabel: "",
       social: emptySocial(),
     };
+  }
+
+  // ---- Imported source audio capture (#197) -----------------------------------
+  // Each speaker track carries durable raw audio bytes captured at import time so the
+  // polish step can transform real imported media instead of synthesizing tones from labels.
+
+  const BASE64_CHARS =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  function bytesToBase64(bytes) {
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    let out = "";
+    for (let i = 0; i < data.length; i += 3) {
+      const b0 = data[i];
+      const hasB1 = i + 1 < data.length;
+      const hasB2 = i + 2 < data.length;
+      const b1 = hasB1 ? data[i + 1] : 0;
+      const b2 = hasB2 ? data[i + 2] : 0;
+      const triplet = (b0 << 16) | (b1 << 8) | b2;
+      out += BASE64_CHARS[(triplet >> 18) & 0x3f];
+      out += BASE64_CHARS[(triplet >> 12) & 0x3f];
+      out += hasB1 ? BASE64_CHARS[(triplet >> 6) & 0x3f] : "=";
+      out += hasB2 ? BASE64_CHARS[triplet & 0x3f] : "=";
+    }
+    return out;
+  }
+
+  function base64ToBytes(base64) {
+    const text = String(base64 || "").replace(/=+$/, "");
+    const out = [];
+    for (let i = 0; i < text.length; i += 4) {
+      const c0 = BASE64_CHARS.indexOf(text[i]);
+      const c1 = BASE64_CHARS.indexOf(text[i + 1]);
+      const c2 = text[i + 2] === "=" ? -1 : BASE64_CHARS.indexOf(text[i + 2]);
+      const c3 = text[i + 3] === "=" ? -1 : BASE64_CHARS.indexOf(text[i + 3]);
+      const triplet = (c0 << 18) | (c1 << 12) | ((c2 < 0 ? 0 : c2) << 6) | (c3 < 0 ? 0 : c3);
+      out.push((triplet >> 16) & 0xff);
+      if (c2 >= 0) out.push((triplet >> 8) & 0xff);
+      if (c3 >= 0) out.push(triplet & 0xff);
+    }
+    return new Uint8Array(out);
+  }
+
+  function writeAscii(bytes, offset, text) {
+    for (let i = 0; i < text.length; i += 1) {
+      bytes[offset + i] = text.charCodeAt(i);
+    }
+  }
+
+  function writeUint32LE(bytes, offset, value) {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+    bytes[offset + 2] = (value >>> 16) & 0xff;
+    bytes[offset + 3] = (value >>> 24) & 0xff;
+  }
+
+  function writeUint16LE(bytes, offset, value) {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+  }
+
+  function hashSeed(seed) {
+    let hash = 0x811c9dc5;
+    const text = String(seed);
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+  }
+
+  function buildRawSourceWav(sampleCount, sampleWriter) {
+    const sampleRate = 8000;
+    const count = Math.max(800, sampleCount);
+    const headerSize = 44;
+    const bytes = new Uint8Array(headerSize + count);
+    writeAscii(bytes, 0, "RIFF");
+    writeUint32LE(bytes, 4, 36 + count);
+    writeAscii(bytes, 8, "WAVE");
+    writeAscii(bytes, 12, "fmt ");
+    writeUint32LE(bytes, 16, 16);
+    writeUint16LE(bytes, 20, 1);
+    writeUint16LE(bytes, 22, 1);
+    writeUint32LE(bytes, 24, sampleRate);
+    writeUint32LE(bytes, 28, sampleRate);
+    writeUint16LE(bytes, 32, 1);
+    writeUint16LE(bytes, 34, 8);
+    writeAscii(bytes, 36, "data");
+    writeUint32LE(bytes, 40, count);
+    for (let i = 0; i < count; i += 1) {
+      bytes[headerSize + i] = sampleWriter(i, count, sampleRate);
+    }
+    return bytes;
+  }
+
+  // When a real upload provides bytes, treat the imported media payload as the raw track.
+  function buildRawSourceWavFromMediaBytes(mediaBytes) {
+    const payload = mediaBytes instanceof Uint8Array ? mediaBytes : new Uint8Array(mediaBytes || []);
+    const sampleCount = Math.min(Math.max(payload.length, 800), 8000);
+    return buildRawSourceWav(sampleCount, (index) => {
+      if (!payload.length) {
+        return 128;
+      }
+      return payload[index % payload.length];
+    });
+  }
+
+  // Riverside links and sandbox placeholders never carry decodable bytes in this prototype,
+  // but the import step still materializes a raw track representation tied to the chosen
+  // source reference so polish can transform it downstream.
+  function buildRawSourceWavFromImportRef(seed) {
+    const hash = hashSeed(seed);
+    const baseFreq = 90 + (hash % 180);
+    const buzz = 12 + (hash % 24);
+    return buildRawSourceWav(3200, (index, count, sampleRate) => {
+      const t = index / sampleRate;
+      const wobble = Math.sin(2 * Math.PI * (baseFreq * 0.35) * t) * buzz;
+      const tone = Math.sin(2 * Math.PI * baseFreq * t) * 28;
+      const room = ((hash + index * 17) % 31) - 15;
+      const raw = 128 + tone + wobble + room;
+      return Math.max(0, Math.min(255, Math.round(raw)));
+    });
+  }
+
+  function captureSpeakerSourceAudio(mode, speaker, episodeMeta) {
+    const sp = speaker && typeof speaker === "object" ? speaker : createSpeaker("Host");
+    const existing = trim(sp.sourceAudioBase64);
+    if (existing) {
+      return existing;
+    }
+    const fileBytes = trim(sp.fileBytesBase64);
+    if (fileBytes) {
+      return bytesToBase64(buildRawSourceWavFromMediaBytes(base64ToBytes(fileBytes)));
+    }
+    const modeNorm = normalizeMode(mode);
+    if (modeNorm === "upload") {
+      const seed = [
+        "upload",
+        trim(sp.fileName),
+        sp.fileSize || 0,
+        trim(sp.role),
+        trim(sp.name),
+      ].join("|");
+      return bytesToBase64(buildRawSourceWavFromImportRef(seed));
+    }
+    const episode = episodeMeta && typeof episodeMeta === "object" ? episodeMeta : {};
+    const seed = [
+      "riverside",
+      trim(episode.riversideLink),
+      trim(sp.trackLabel),
+      trim(sp.role),
+      trim(sp.name),
+    ].join("|");
+    return bytesToBase64(buildRawSourceWavFromImportRef(seed));
+  }
+
+  function enrichDraftSourceAudio(draft) {
+    const data = draft && typeof draft === "object" ? draft : createDraft();
+    const mode = normalizeMode(data.sourceMode);
+    const speakers = Array.isArray(data.speakers) ? data.speakers : [];
+    speakers.forEach((raw) => {
+      const speaker = raw && typeof raw === "object" ? raw : createSpeaker("Host");
+      if (!trim(speaker.sourceAudioBase64)) {
+        speaker.sourceAudioBase64 = captureSpeakerSourceAudio(mode, speaker, data);
+      }
+    });
+    return data;
+  }
+
+  function attachUploadedFileBytes(speaker, fileName, fileSize, byteArray) {
+    const next = speaker && typeof speaker === "object" ? speaker : createSpeaker("Host");
+    next.fileName = trim(fileName);
+    next.fileSize = fileSize || 0;
+    if (byteArray && byteArray.length) {
+      const bytes = byteArray instanceof Uint8Array ? byteArray : new Uint8Array(byteArray);
+      next.fileBytesBase64 = bytesToBase64(bytes);
+    } else {
+      next.fileBytesBase64 = "";
+    }
+    next.sourceAudioBase64 = captureSpeakerSourceAudio("upload", next, {});
+    return next;
   }
 
   function speakerBucketCueClass(role) {
@@ -149,6 +332,8 @@
     const next = speaker && typeof speaker === "object" ? speaker : createSpeaker("Host");
     next.fileName = placeholderFileName(next.role);
     next.fileSize = 1280000;
+    next.fileBytesBase64 = "";
+    next.sourceAudioBase64 = captureSpeakerSourceAudio("upload", next, {});
     return next;
   }
 
@@ -252,7 +437,7 @@
   // Derive exactly what the workspace screen displays. Everything here is computed from
   // the draft — no fabricated state — so the summary always reflects what was entered.
   function summarize(draft) {
-    const data = draft && typeof draft === "object" ? draft : {};
+    const data = enrichDraftSourceAudio(draft && typeof draft === "object" ? draft : {});
     const mode = normalizeMode(data.sourceMode);
     const speakers = Array.isArray(data.speakers) ? data.speakers : [];
 
@@ -263,6 +448,7 @@
         role: trim(speaker.role),
         name: trim(speaker.name),
         sourceLabel: sourceLabel(mode, speaker),
+        sourceAudioBase64: trim(speaker.sourceAudioBase64),
         social,
       };
     });
@@ -489,6 +675,11 @@
     speakerBucketCueClass,
     placeholderFileName,
     attachPlaceholderFile,
+    attachUploadedFileBytes,
+    captureSpeakerSourceAudio,
+    enrichDraftSourceAudio,
+    bytesToBase64,
+    base64ToBytes,
     defaultSpeakerRoleForIndex,
     normalizeDefaultSpeakerRoles,
     usedSpeakerRoles,

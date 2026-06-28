@@ -44,6 +44,9 @@ test("createPolish seeds speaker tracks from the episode summary", () => {
   assert.strictEqual(polish.speakers.length, 3);
   assert.deepStrictEqual(polish.speakers.map((track) => track.role), ["Host", "Guest 1", "Guest 2"]);
   assert.strictEqual(polish.speakers[0].sourceLabel, "sam.mp4");
+  polish.speakers.forEach((track) => {
+    assert.ok(track.sourceAudioBase64, "each imported track must carry captured source audio");
+  });
 });
 
 test("applyPreset updates all polish controls", () => {
@@ -206,14 +209,27 @@ test("REGRESSION (#197): processTracks persists each polished asset to a real fi
   });
 });
 
-test("REGRESSION (#197): the same speaker and settings always synthesize identical audio bytes", () => {
+test("REGRESSION (#197): processTracks transforms imported source audio instead of synthesizing metadata tones", () => {
   const episode = setup.summarize(completeUploadDraft());
-  const first = audio.processTracks(audio.createPolish(episode));
-  const second = audio.processTracks(audio.createPolish(episode));
+  const polish = audio.createPolish(episode);
+  const source = polish.speakers[0].sourceAudioBase64;
+  const processed = audio.processTracks(polish);
+  const polished = processed.speakers[0].assetBase64;
 
-  first.speakers.forEach((track, index) => {
-    assert.strictEqual(track.assetBase64, second.speakers[index].assetBase64, "identical settings must reproduce identical bytes");
-  });
+  assert.ok(source);
+  assert.ok(polished);
+  assert.notStrictEqual(source, polished, "polished output must differ from the imported source it transformed");
+
+  const sourceSamples = Buffer.from(source, "base64").subarray(44);
+  const polishedSamples = Buffer.from(polished, "base64").subarray(44);
+  assert.ok(polishedSamples.length > 0);
+  let changedSamples = 0;
+  for (let i = 0; i < Math.min(sourceSamples.length, polishedSamples.length); i += 1) {
+    if (sourceSamples[i] !== polishedSamples[i]) {
+      changedSamples += 1;
+    }
+  }
+  assert.ok(changedSamples > 0, "polish must modify the imported sample data");
 });
 
 test("REGRESSION (#197): changing a setting and reprocessing changes the synthesized audio bytes", () => {
@@ -231,25 +247,38 @@ test("REGRESSION (#197): changing a setting and reprocessing changes the synthes
   });
 });
 
-test("REGRESSION (PR #249 follow-up): polished audio depends on the actual imported file, not just the speaker's name", () => {
+test("REGRESSION (PR #249 follow-up): polished audio depends on the actual imported file bytes, not just the speaker name", () => {
   const draftA = completeUploadDraft();
   const draftB = completeUploadDraft();
-  // Same speaker name and role on both — but a different file was actually chosen.
-  draftB.speakers[0].fileName = "totally-different-recording.mp4";
+  draftB.speakers[0] = setup.attachUploadedFileBytes(
+    draftB.speakers[0],
+    "totally-different-recording.mp4",
+    2048,
+    new Uint8Array([12, 44, 88, 120, 5, 199, 33, 77, 201, 44, 90, 11]),
+  );
 
   const episodeA = setup.summarize(draftA);
   const episodeB = setup.summarize(draftB);
   assert.strictEqual(episodeA.speakers[0].name, episodeB.speakers[0].name);
-  assert.strictEqual(episodeA.speakers[0].role, episodeB.speakers[0].role);
-  assert.notStrictEqual(episodeA.speakers[0].sourceLabel, episodeB.speakers[0].sourceLabel);
+  assert.notStrictEqual(episodeA.speakers[0].sourceAudioBase64, episodeB.speakers[0].sourceAudioBase64);
 
   const processedA = audio.processTracks(audio.createPolish(episodeA));
   const processedB = audio.processTracks(audio.createPolish(episodeB));
   assert.notStrictEqual(
     processedA.speakers[0].assetBase64,
     processedB.speakers[0].assetBase64,
-    "swapping which file was imported must change the synthesized output even when the speaker's role/name and settings are identical",
+    "swapping imported file bytes must change the polished output even when speaker identity and settings match",
   );
+});
+
+test("REGRESSION (#197): tracks without imported source audio fail processing with a visible reason", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.createPolish(episode);
+  polish.speakers[0].sourceAudioBase64 = "";
+  const processed = audio.processTracks(polish);
+  assert.strictEqual(processed.speakers[0].status, "failed");
+  assert.ok(processed.speakers[0].failureReason);
+  assert.strictEqual(audio.allTracksProcessed(processed), false);
 });
 
 test("audioDataUrl exposes a playable data URL only for processed tracks", () => {

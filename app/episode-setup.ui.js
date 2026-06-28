@@ -2386,9 +2386,20 @@
       );
       fileInput.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
-        speaker.fileName = file ? file.name : "";
-        speaker.fileSize = file ? file.size : 0;
-        chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
+        if (!file) {
+          speaker.fileName = "";
+          speaker.fileSize = 0;
+          speaker.fileBytesBase64 = "";
+          speaker.sourceAudioBase64 = "";
+          chosen.textContent = "No file chosen yet";
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          ES.attachUploadedFileBytes(speaker, file.name, file.size, new Uint8Array(reader.result));
+          chosen.textContent = speaker.fileName ? `Selected: ${speaker.fileName}` : "No file chosen yet";
+        };
+        reader.readAsArrayBuffer(file);
       });
       sourceBlock.appendChild(field("Speaker video file", fileInput, `speaker:${index}:source`));
       sourceBlock.appendChild(chosen);
@@ -2613,6 +2624,7 @@
       }
       return false;
     }
+    state = ES.enrichDraftSourceAudio(state);
     const summary = ES.summarize(state);
     if (STY && styleSelection) {
       appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
@@ -4873,8 +4885,11 @@
         el("p", { class: "summary-source" }, track.sourceLabel),
         el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
       );
-      // Tangible proof a polished audio asset exists for this track — not just a
-      // "processed" label — so the creator (and reviewers) can hear it (#197).
+      if (track.status === "failed" && track.failureReason) {
+        trackRow.appendChild(
+          el("p", { class: "field-error audio-track-error", role: "alert" }, track.failureReason),
+        );
+      }
       const dataUrl = track.processed ? AP.audioDataUrl(track) : null;
       if (dataUrl) {
         trackRow.appendChild(
@@ -4889,16 +4904,16 @@
 
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     applyButton.addEventListener("click", () => {
-      // Actually process every speaker track under the chosen settings — picking
-      // a preset alone never used to save polished output for any track (#197).
       audioPolish = AP.processTracks(audioPolish);
       appliedAudioPolish = AP.summarizePolish(audioPolish);
       persistEpisodeSession();
+      if (!appliedAudioPolish.allTracksProcessed) {
+        renderAudioPolish(summary);
+        return;
+      }
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {
-        // Visible completion evidence for the action that just ran — the
-        // workspace renders a one-time confirmation banner then clears this (#197).
         audioPolishJustApplied = true;
         renderWorkspace(summary);
       }
