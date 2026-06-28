@@ -453,6 +453,7 @@
           audioPolish = Object.assign({}, audioPolish, { polishedTracks: savedResults });
           const applied = AP.summarizePolish(audioPolish, { polishedTracks: savedResults });
           appliedAudioPolish = applied;
+          lastView = "audio";
           persistEpisodeSession();
           return { ok: true, applied, outcome: Object.assign({}, outcome, { results: savedResults }) };
         });
@@ -1793,6 +1794,88 @@
   // One-click audio polish demo (#257): seed an uploaded episode whose speakers carry
   // bundled real recordings, then land on Audio Polish so Apply can be exercised and the
   // transformed per-speaker outputs proven in the running product without any file upload.
+  function ensureDemoEpisodeSession(summary) {
+    if (!LIB) {
+      return;
+    }
+    const demoShowName = "Audio Polish Demo";
+    let show = (showLibrary.shows || []).find((entry) => entry.name === demoShowName);
+    if (!show) {
+      show = LIB.createShow(demoShowName, {});
+      showLibrary = LIB.addShow(showLibrary, show);
+    }
+    activeShowId = show.id;
+    const episodes = LIB.listEpisodes(showLibrary, show.id);
+    const episodeName = (summary && summary.episodeName) || "Founders Unfiltered #7";
+    let episode = episodes.find((entry) => entry.name === episodeName);
+    if (!episode) {
+      episode = LIB.createEpisode(show.id, episodeName, {
+        speakerRoles: (summary && summary.speakers ? summary.speakers : []).map((speaker) => speaker.role),
+        status: LIB.EPISODE_STATUS.IN_PROGRESS,
+      });
+      showLibrary = LIB.addEpisode(showLibrary, show.id, episode);
+    } else {
+      showLibrary = LIB.updateEpisode(showLibrary, show.id, episode.id, {
+        status: LIB.EPISODE_STATUS.IN_PROGRESS,
+        updatedAt: Date.now(),
+      });
+    }
+    activeEpisodeId = episode.id;
+    persistShowLibrary();
+    persistEpisodeSession();
+  }
+
+  function restorePolishedPreviewUrls(polishedTracks) {
+    const tracks = Array.isArray(polishedTracks) ? polishedTracks : [];
+    const jobs = tracks.map((track) => {
+      const asset = track && track.polishedAsset ? track.polishedAsset : null;
+      if (!asset || !asset.assetId || polishedPreviewById[asset.assetId]) {
+        return Promise.resolve(null);
+      }
+      return loadSourceMediaBlob(asset.assetId).then((blob) => blobToArrayBuffer(blob)).then((buffer) => {
+        polishedPreviewById[asset.assetId] = polishedWavDataUrl(new Uint8Array(buffer));
+        return polishedPreviewById[asset.assetId];
+      }).catch(() => null);
+    });
+    return Promise.all(jobs);
+  }
+
+  function resumeEpisodeView(destination, summary) {
+    if (destination === "workspace") {
+      lastView = "workspace";
+      renderWorkspace(summary);
+      return;
+    }
+    if (destination === "audio") {
+      lastView = "audio";
+      if (!audioPolish) {
+        audioPolish = AP.createPolish(summary);
+      }
+      if (appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)) {
+        audioPolish = Object.assign({}, audioPolish, { polishedTracks: appliedAudioPolish.polishedTracks });
+        restorePolishedPreviewUrls(appliedAudioPolish.polishedTracks).then(() => renderAudioPolish(summary));
+        return;
+      }
+      renderAudioPolish(summary);
+      return;
+    }
+    if (destination === "style") {
+      lastView = "style";
+      renderStyle(summary);
+      return;
+    }
+    if (destination === "context") {
+      lastView = "context";
+      if (!contextReview) {
+        contextReview = SC.createReview(summary);
+      }
+      renderContextReview(summary);
+      return;
+    }
+    lastView = "setup";
+    renderSetup();
+  }
+
   function openAudioPolishDemo() {
     if (!AP || !SR) {
       return;
@@ -1832,6 +1915,7 @@
     publishReviewApprovedAt = null;
     lastView = "audio";
     const summary = ES.summarize(state);
+    ensureDemoEpisodeSession(summary);
     setPageIntro("episode-setup");
     renderAudioPolish(summary);
   }
@@ -2048,13 +2132,7 @@
 
     const destination = FLOW ? FLOW.resumeDestination(snapshot || buildEpisodeSessionSnapshot()) : "setup";
     setPageIntro("episode-setup");
-    if (destination === "workspace") {
-      lastView = "workspace";
-      renderWorkspace(ES.summarize(state));
-    } else {
-      lastView = "setup";
-      renderSetup();
-    }
+    resumeEpisodeView(destination, ES.summarize(state));
     persistEpisodeSession();
   }
 
@@ -5146,6 +5224,21 @@
     if (!audioPolish) {
       audioPolish = AP.createPolish(summary);
     }
+    if (appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)) {
+      audioPolish = Object.assign({}, audioPolish, { polishedTracks: appliedAudioPolish.polishedTracks });
+      const missingPreview = appliedAudioPolish.polishedTracks.some((track) => {
+        const asset = track && track.polishedAsset;
+        return asset && asset.assetId && !polishedPreviewById[asset.assetId];
+      });
+      if (missingPreview && !renderAudioPolish._restoringPreviews) {
+        renderAudioPolish._restoringPreviews = true;
+        restorePolishedPreviewUrls(appliedAudioPolish.polishedTracks).finally(() => {
+          renderAudioPolish._restoringPreviews = false;
+          renderAudioPolish(summary);
+        });
+        return;
+      }
+    }
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -5248,6 +5341,8 @@
     if (hasApplied) {
       const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
       continueButton.addEventListener("click", () => {
+        lastView = STY && !appliedStyle ? "style" : "workspace";
+        persistEpisodeSession();
         if (STY && !appliedStyle) {
           renderStyle(summary);
         } else {
