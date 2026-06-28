@@ -2706,9 +2706,6 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
       renderAudioPolish(summary);
       return;
     }
@@ -2752,9 +2749,6 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
       renderAudioPolish(summary);
       return;
     }
@@ -4741,12 +4735,35 @@
     view.scrollIntoView({ block: "start" });
   }
 
-  // ---- Audio polish (#15) -----------------------------------------------------
+  // ---- Audio polish (#15, real processing #197) -------------------------------
 
-  function renderAudioPolish(summary) {
-    if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
+  // Reopen the polish step on the settings the creator already applied (after a reload or
+  // navigating back), instead of resetting to the default preset.
+  function ensureAudioPolish(summary) {
+    if (audioPolish) {
+      return audioPolish;
     }
+    if (appliedAudioPolish && AP.restorePolish) {
+      return AP.restorePolish(appliedAudioPolish, summary);
+    }
+    return AP.createPolish(summary);
+  }
+
+  // Per-track polished outputs from the applied processing, but only while they still match
+  // the settings currently shown (so changing a control invalidates the stale "Polished" badge).
+  function appliedPolishedTracks() {
+    if (!appliedAudioPolish || !appliedAudioPolish.processed) {
+      return null;
+    }
+    if (appliedAudioPolish.polishedSignature !== AP.settingsSignature(audioPolish)) {
+      return null;
+    }
+    return appliedAudioPolish.polishedTracks || null;
+  }
+
+  function renderAudioPolish(summary, opts) {
+    const options = opts || {};
+    audioPolish = ensureAudioPolish(summary);
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -4806,7 +4823,15 @@
       el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
     );
     const trackList = el("div", { class: "audio-track-list" });
+    const polishedTracks = appliedPolishedTracks();
     audioPolish.speakers.forEach((track) => {
+      const polished = polishedTracks
+        ? polishedTracks.find((item) => item.trackIndex === track.trackIndex && item.status === "saved")
+        : null;
+      const badge = polished
+        ? el("span", { class: "audio-track-badge audio-track-badge-saved" },
+            `Polished · ${polished.durationSec}s · ${polished.fileName}`)
+        : el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track));
       trackList.appendChild(
         el("div", { class: "audio-track" },
           el("div", { class: "audio-track-main" },
@@ -4814,7 +4839,7 @@
             el("span", { class: "summary-name" }, track.name),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+          badge,
         ),
       );
     });
@@ -4822,9 +4847,34 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+    if (options.processingError) {
+      view.appendChild(
+        el("p", { class: "form-error", role: "alert" },
+          `Audio processing did not finish: ${options.processingError} No tracks were saved — adjust the settings and try again.`),
+      );
+    } else if (polishedTracks) {
+      const savedCount = polishedTracks.filter((item) => item.status === "saved").length;
+      view.appendChild(
+        el("p", { class: "hint audio-applied-note" },
+          `${savedCount} polished track${savedCount === 1 ? "" : "s"} saved — review and export will use this treated audio.`),
+      );
+    }
+
+    const applyLabel = polishedTracks ? "Re-apply audio & continue →" : "Apply audio & continue →";
+    const applyButton = el("button", { type: "button", class: "primary" }, applyLabel);
     applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
+      // Real processing (#197): turn the chosen treatment into durable polished audio for
+      // every imported track. The step only continues once every track is genuinely saved.
+      const processing = AP.processTracks(audioPolish, summary);
+      if (!processing.complete) {
+        const failed = (processing.tracks || []).find((item) => item.status !== "saved");
+        renderAudioPolish(summary, {
+          processingError: (failed && failed.error) || "Some speaker tracks could not be processed.",
+        });
+        return;
+      }
+      appliedAudioPolish = AP.summarizePolish(audioPolish, processing);
+      persistEpisodeSession();
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {
