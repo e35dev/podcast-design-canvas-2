@@ -115,10 +115,20 @@
     return { ok: true };
   }
 
+  function audioPolishApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./audio-polish.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcAudioPolish;
+  }
+
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    const AP = audioPolishApi();
+    const audioReady = AP ? AP.isPolishReady(ctx.audioPolish) : Boolean(ctx.audioPolish && ctx.audioPolish.presetName);
+    if (!audioReady) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -155,7 +165,11 @@
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const polishedCount = ctx.audioPolish.polishedTrackCount || 0;
+      const audioLine = polishedCount > 0
+        ? `Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"}) · ${polishedCount} polished track${polishedCount === 1 ? "" : "s"}`
+        : `Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`;
+      lines.push(audioLine);
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
