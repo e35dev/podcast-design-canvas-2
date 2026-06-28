@@ -119,8 +119,27 @@ test("summarizePolish reflects the chosen treatment", () => {
   assert.strictEqual(summary.polishComplete, false);
 });
 
+function decodeSampleRecording(index) {
+  const rec = require("../app/sample-recordings.js").sampleRecording(index || 0);
+  const base64 = rec.dataUrl.split(",")[1];
+  const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
+  return audio.decodeWav(bytes);
+}
+
+test("ships real sample recordings that decode to 16-bit PCM audio", () => {
+  const recordings = require("../app/sample-recordings.js").SAMPLE_RECORDINGS;
+  assert.ok(recordings.length >= 2);
+  recordings.forEach((rec) => {
+    assert.ok(rec.dataUrl.indexOf("data:audio/wav;base64,") === 0);
+    assert.ok(rec.byteLength > 44);
+  });
+  const decoded = decodeSampleRecording(0);
+  assert.ok(decoded.sampleRate > 0);
+  assert.ok(decoded.samples.length > 0);
+});
+
 test("polishSamples transforms audio and encodeWav round-trips in Node", () => {
-  const { samples, sampleRate } = audio.createTestSamples(0.25, 44100);
+  const { samples, sampleRate } = decodeSampleRecording(0);
   const before = audio.rmsOfSamples(samples);
   const polished = audio.polishSamples(samples, sampleRate, {
     noiseCleanup: "strong",
@@ -141,13 +160,15 @@ test("polishSamples transforms audio and encodeWav round-trips in Node", () => {
 test("processPolishTracks creates polished outputs for every source track", () => {
   const episode = setup.summarize(completeUploadDraft());
   const polish = audio.createPolish(episode);
-  const outcome = audio.processPolishTracks(polish, () => audio.createTestSamples(0.2, 44100));
+  const outcome = audio.processPolishTracks(polish, audio.defaultSampleLoader);
   assert.strictEqual(outcome.complete, true);
   assert.strictEqual(outcome.results.length, 3);
   outcome.results.forEach((track) => {
     assert.strictEqual(track.status, "complete");
     assert.ok(track.polishedAsset && track.polishedAsset.assetId);
     assert.ok(track.byteLength > 44);
+    assert.ok(track.metrics && typeof track.metrics.inputRms === "number");
+    assert.ok(track.metrics.outputRms >= 0);
   });
   const applied = audio.summarizePolish(outcome.polish, { polishedTracks: outcome.results });
   assert.strictEqual(applied.polishedTrackCount, 3);

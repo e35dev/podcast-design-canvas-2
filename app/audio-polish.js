@@ -316,6 +316,42 @@
     return Math.sqrt(sum / pcm.length);
   }
 
+  function peakOfSamples(samples) {
+    const pcm = samples instanceof Float32Array ? samples : new Float32Array(samples || []);
+    let peak = 0;
+    for (let i = 0; i < pcm.length; i += 1) {
+      const abs = Math.abs(pcm[i]);
+      if (abs > peak) {
+        peak = abs;
+      }
+    }
+    return peak;
+  }
+
+  function toDecibels(value) {
+    return value > 0 ? 20 * Math.log10(value) : -Infinity;
+  }
+
+  function measureTransform(inputSamples, outputSamples, sampleRate) {
+    const inputRms = rmsOfSamples(inputSamples);
+    const outputRms = rmsOfSamples(outputSamples);
+    const inputPeak = peakOfSamples(inputSamples);
+    const outputPeak = peakOfSamples(outputSamples);
+    const rate = Number(sampleRate) > 0 ? Number(sampleRate) : 44100;
+    const length = inputSamples instanceof Float32Array ? inputSamples.length : (inputSamples || []).length;
+    const gainDb = toDecibels(outputRms) - toDecibels(inputRms);
+    return {
+      inputRms: Number(inputRms.toFixed(4)),
+      outputRms: Number(outputRms.toFixed(4)),
+      inputPeak: Number(inputPeak.toFixed(4)),
+      outputPeak: Number(outputPeak.toFixed(4)),
+      gainDb: Number.isFinite(gainDb) ? Number(gainDb.toFixed(2)) : 0,
+      durationSec: Number((length / rate).toFixed(3)),
+      sampleRate: rate,
+      changed: inputRms !== outputRms || inputPeak !== outputPeak,
+    };
+  }
+
   function polishedAssetId(track, polish) {
     const role = (track && track.role) || "speaker";
     const slug = role.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "speaker";
@@ -340,15 +376,42 @@
     };
   }
 
-  function createTestSamples(durationSec, sampleRate) {
-    const rate = Number(sampleRate) > 0 ? Number(sampleRate) : 44100;
-    const length = Math.max(1, Math.floor((Number(durationSec) || 0.2) * rate));
-    const samples = new Float32Array(length);
-    for (let i = 0; i < length; i += 1) {
-      const t = i / rate;
-      samples[i] = Math.sin(2 * Math.PI * 220 * t) * 0.2 + (Math.random() - 0.5) * 0.06;
+  function sampleRecordingsApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./sample-recordings.js");
     }
-    return { samples, sampleRate: rate };
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcSampleRecordings;
+  }
+
+  function decodeDataUrlWav(dataUrl) {
+    const text = typeof dataUrl === "string" ? dataUrl : "";
+    const base64 = text.split(",")[1] || "";
+    const decode = typeof atob === "function"
+      ? atob
+      : (value) => Buffer.from(value, "base64").toString("binary");
+    const binary = decode(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return decodeWav(bytes);
+  }
+
+  // Default loader for DOM-free contexts (tests, Node): decode the track's own inline
+  // recording when present, otherwise fall back to a bundled real sample recording.
+  // This processes genuine WAV media rather than synthesizing audio from track identity.
+  function defaultSampleLoader(track) {
+    const inline = track && track.sourceMedia && track.sourceMedia.dataUrl;
+    if (inline) {
+      return decodeDataUrlWav(inline);
+    }
+    const SR = sampleRecordingsApi();
+    const rec = SR ? SR.sampleRecording((track && track.trackIndex ? track.trackIndex - 1 : 0)) : null;
+    if (!rec) {
+      throw new Error("No sample recording is available to decode.");
+    }
+    return decodeDataUrlWav(rec.dataUrl);
   }
 
   function computePolishCompletion(speakers, polishedTracks) {
@@ -397,6 +460,7 @@
     const polished = polishSamples(loaded.samples, loaded.sampleRate, state);
     const wavBytes = encodeWav(polished, loaded.sampleRate);
     const polishedAsset = buildPolishedAsset(track, wavBytes, state);
+    const metrics = measureTransform(loaded.samples, polished, loaded.sampleRate);
     return {
       trackIndex: track.trackIndex,
       role: track.role,
@@ -405,6 +469,7 @@
       polishedAsset,
       wavBytes,
       byteLength: wavBytes.byteLength,
+      metrics,
       usesOriginal: false,
     };
   }
@@ -456,7 +521,7 @@
 
   function applyPolishForEpisode(episodeSummary, polishState, loadTrackSamples) {
     const polish = polishState || createPolish(episodeSummary);
-    const loader = loadTrackSamples || (() => createTestSamples(0.2, 44100));
+    const loader = loadTrackSamples || defaultSampleLoader;
     const outcome = processPolishTracks(polish, loader);
     const applied = summarizePolish(outcome.polish, { polishedTracks: outcome.results });
     return { polish: outcome.polish, applied, outcome };
@@ -477,6 +542,7 @@
       status: track.status,
       assetId: track.polishedAsset ? track.polishedAsset.assetId : "",
       fileName: track.polishedAsset ? track.polishedAsset.fileName : "",
+      metrics: track.metrics || null,
       usesPolishedAudio: track.status === "complete",
       usesOriginal: Boolean(track.usesOriginal),
     }));
@@ -577,8 +643,10 @@
     encodeWav,
     decodeWav,
     rmsOfSamples,
+    peakOfSamples,
+    measureTransform,
     buildPolishedAsset,
-    createTestSamples,
+    defaultSampleLoader,
     processPolishTracks,
     runPolish,
     applyPolishForEpisode,

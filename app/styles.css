@@ -2053,6 +2053,39 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-applied-note {
+  font-weight: 600;
+  color: #1f8a4c;
+  background: rgba(31, 138, 76, 0.08);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.audio-track-evidence {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.audio-track-metrics {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #555);
+  margin: 0;
+}
+
+.audio-track-preview {
+  width: 100%;
+  max-width: 320px;
+  height: 34px;
+}
+
+.audio-track-download {
+  font-size: 12px;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;
