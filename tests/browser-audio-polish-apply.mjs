@@ -44,8 +44,23 @@ async function completeSetup(page) {
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
 
+async function resumeWorkspaceAfterReload(page) {
+  await page.locator(".show-library-list, .home-start-hero").first().waitFor();
+  const openBtn = page.getByRole("button", { name: "Open" }).first();
+  if (await openBtn.isVisible()) {
+    await openBtn.click();
+  }
+  const resumePrimary = page.getByRole("button", { name: /Resume draft episode/ });
+  if (await resumePrimary.isVisible()) {
+    await resumePrimary.click();
+  } else {
+    await page.getByRole("button", { name: "Resume →" }).first().click();
+  }
+  await page.locator(".guided-workspace").waitFor({ state: "visible" });
+}
+
 async function openAudioPolish(page) {
-  await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
+  await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: /Polish audio|Change audio/ }).first().click();
   await page.locator(".audio-step").waitFor();
 }
 
@@ -67,7 +82,23 @@ async function main() {
   };
 
   try {
-    const { chromium } = await import("playwright");
+    let chromium;
+    try {
+      ({ chromium } = await import("playwright"));
+    } catch (err) {
+      if (err && err.code === "ERR_MODULE_NOT_FOUND") {
+        console.error(
+          "Playwright is required for this browser acceptance test.\n"
+          + "Install it with:\n"
+          + "  npm install\n"
+          + "  npx playwright install chromium\n"
+          + "Then rerun:\n"
+          + "  npm run test:browser-audio-polish",
+        );
+        process.exit(1);
+      }
+      throw err;
+    }
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
@@ -97,6 +128,7 @@ async function main() {
     const afterReload = await readPersistedPolish(page);
     log(Boolean(afterReload && afterReload.allTracksProcessed), "Reload keeps applied polish settings and outputs");
 
+    await resumeWorkspaceAfterReload(page);
     await openAudioPolish(page);
     const afterReloadAudio = await page.locator(".audio-step").innerText();
     log(/Polished/.test(afterReloadAudio), "Reopened audio step shows Polished tracks after reload");
@@ -105,8 +137,8 @@ async function main() {
     await page.screenshot({ path: join(root, "tests", "audio-polish-applied.png"), fullPage: false });
     log(true, "Screenshot saved to tests/audio-polish-applied.png");
 
-    await page.getByRole("button", { name: "← Back to workspace" }).click();
-    await page.locator(".guided-workspace").waitFor();
+    await page.reload({ waitUntil: "networkidle" });
+    await resumeWorkspaceAfterReload(page);
     await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Export episode" }).first().click();
     await page.locator(".publish-review-step").waitFor();
     const approveBtn = page.getByRole("button", { name: "Approve for export →" });
