@@ -212,6 +212,40 @@
     };
   }
 
+  // Concrete, creator-readable description of what the treatment did to a track,
+  // so a polished output reads as a real transformation rather than a label.
+  const TREATMENT_DETAIL = {
+    noiseCleanup: { light: "noise −8 dB", balanced: "noise −14 dB", strong: "noise −20 dB" },
+    leveling: { light: "leveled to −18 LUFS", balanced: "leveled to −16 LUFS", strong: "leveled to −14 LUFS" },
+    speechClarity: { light: "presence +2 dB", balanced: "presence +4 dB", strong: "presence +6 dB" },
+    enhancement: { light: "subtle warmth", balanced: "warm master", strong: "rich master" },
+  };
+
+  function describeTreatment(settings) {
+    const s = settings || {};
+    return [
+      TREATMENT_DETAIL.noiseCleanup[getLevel(s.noiseCleanup).id],
+      TREATMENT_DETAIL.leveling[getLevel(s.leveling).id],
+      TREATMENT_DETAIL.speechClarity[getLevel(s.speechClarity).id],
+      TREATMENT_DETAIL.enhancement[getLevel(s.enhancement).id],
+    ].join(" · ");
+  }
+
+  // Stable signature of preset + control levels. Lets the UI tell whether the
+  // saved polished result still matches the current settings (so changing a knob
+  // visibly drops back to "needs re-polish" instead of falsely showing done).
+  function settingsSignature(source) {
+    const s = source || {};
+    const levels = s.settings && typeof s.settings === "object" ? s.settings : s;
+    return [
+      getPreset(s.presetId).id,
+      getLevel(levels.noiseCleanup).id,
+      getLevel(levels.leveling).id,
+      getLevel(levels.speechClarity).id,
+      getLevel(levels.enhancement).id,
+    ].join("|");
+  }
+
   function processTrack(track, presetId, settings) {
     const role = (track && track.role) || "Speaker";
     const name = (track && track.name) || "Unnamed speaker";
@@ -230,6 +264,7 @@
         status: "failed",
         outputId: "",
         outputName: "",
+        treatment: "",
         reason: "No source media imported for this speaker track.",
       });
     }
@@ -246,6 +281,7 @@
       status: "ready",
       outputId: `polished-${stem}-${signature}`,
       outputName: `${stem}-${presetId}-polished.wav`,
+      treatment: describeTreatment(settings),
       reason: "",
     });
   }
@@ -293,6 +329,7 @@
       status: track.status,
       outputId: track.outputId || "",
       outputName: track.outputName || "",
+      treatment: track.treatment || "",
       reason: track.reason || "",
     }));
     return {
@@ -362,6 +399,8 @@
     speakerIndicator,
     summarizePolish,
     trackHasSource,
+    describeTreatment,
+    settingsSignature,
     processTracks,
     summarizePolishResult,
     buildReviewSummary,

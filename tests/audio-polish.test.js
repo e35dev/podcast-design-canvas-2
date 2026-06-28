@@ -113,7 +113,20 @@ test("processTracks saves a polished output for every imported speaker track", (
     assert.ok(track.outputId, "each ready track has a durable polished asset id");
     assert.ok(track.outputName.endsWith("-studio-polished.wav"), "output reflects the chosen preset");
     assert.strictEqual(track.settings.noiseCleanup, "strong");
+    assert.ok(track.treatment.includes("noise") && track.treatment.includes("presence"), "ready track describes the applied treatment");
   });
+});
+
+test("settingsSignature changes when settings change, so a saved polish goes stale", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const clean = audio.applyPreset(audio.createPolish(episode), "clean");
+  const studio = audio.applyPreset(clean, "studio");
+  const result = audio.processTracks(clean, episode);
+
+  // The result matches the settings it was produced from...
+  assert.strictEqual(audio.settingsSignature(result), audio.settingsSignature(clean));
+  // ...but not a different preset, so the UI can detect a stale polish.
+  assert.notStrictEqual(audio.settingsSignature(result), audio.settingsSignature(studio));
 });
 
 test("processTracks fails the step when a track has no imported source", () => {

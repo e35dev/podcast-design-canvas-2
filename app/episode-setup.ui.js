@@ -4759,29 +4759,41 @@
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
+    // Is the saved polish result still for the *current* settings? Changing any
+    // knob invalidates it, so the screen visibly drops back to "raw / not polished"
+    // instead of falsely looking done.
+    const currentSig = AP.settingsSignature(audioPolish);
+    const resultCurrent = Boolean(audioPolishResult)
+      && AP.settingsSignature(audioPolishResult) === currentSig;
+    const polishedCurrent = resultCurrent && audioPolishResult.status === "complete";
+    const trackTotal = audioPolish.speakers.length;
+    const polishedNow = polishedCurrent ? audioPolishResult.readyCount : 0;
+
     const view = el("div", { class: "audio-step" });
     view.appendChild(
       el("div", { class: "workspace-head" },
         el("p", { class: "eyebrow" }, "Audio polish"),
         el("h2", {}, `Shape the sound for ${summary.episodeName}`),
-        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Each speaker track below will get this treatment."),
+        el("p", { class: "hint" }, "Choose the quality you want — not technical settings. Then apply it to process every imported speaker track into polished audio."),
+        el("p", {
+          class: `audio-progress-line ${polishedCurrent ? "done" : "pending"}`,
+          role: "status",
+        }, `${polishedNow} of ${trackTotal} track${trackTotal === 1 ? "" : "s"} polished`),
       ),
     );
 
-    if (audioPolishResult) {
-      if (audioPolishResult.status === "complete") {
-        view.appendChild(
-          el("div", { class: "audio-result-banner ok", role: "status" },
-            `Polished audio saved for ${audioPolishResult.readyCount} of ${audioPolishResult.trackCount} speaker track${audioPolishResult.trackCount === 1 ? "" : "s"}.`,
-          ),
-        );
-      } else {
-        view.appendChild(
-          el("div", { class: "audio-result-banner attention", role: "alert" },
-            `${audioPolishResult.failedCount} track${audioPolishResult.failedCount === 1 ? "" : "s"} still need imported audio before this step can finish. Fix the source below, then apply again.`,
-          ),
-        );
-      }
+    if (resultCurrent && audioPolishResult.status === "complete") {
+      view.appendChild(
+        el("div", { class: "audio-result-banner ok", role: "status" },
+          `✓ Polished audio saved for ${audioPolishResult.readyCount} of ${audioPolishResult.trackCount} speaker track${audioPolishResult.trackCount === 1 ? "" : "s"}. Continue to keep these treated tracks for review and export.`,
+        ),
+      );
+    } else if (resultCurrent && audioPolishResult.status === "failed") {
+      view.appendChild(
+        el("div", { class: "audio-result-banner attention", role: "alert" },
+          `${audioPolishResult.failedCount} track${audioPolishResult.failedCount === 1 ? "" : "s"} still need imported audio before this step can finish. Fix the source below, then apply again.`,
+        ),
+      );
     }
 
     const grid = el("div", { class: "audio-layout" });
@@ -4828,9 +4840,13 @@
 
     const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+      el("p", { class: "hint" }, polishedCurrent
+        ? "Each imported source has been processed into a polished audio output."
+        : "Each imported source below is still raw — apply to process it into polished audio."),
     );
-    const polishedOutputs = audioPolishResult && Array.isArray(audioPolishResult.tracks)
+    // Only surface per-track outputs when the result matches the current settings;
+    // a stale result never makes raw tracks look polished.
+    const polishedOutputs = resultCurrent && Array.isArray(audioPolishResult.tracks)
       ? audioPolishResult.tracks
       : [];
     function outputForTrack(track) {
@@ -4839,24 +4855,33 @@
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
       const output = outputForTrack(track);
-      const row = el("div", { class: "audio-track" },
+      const ready = output && output.status === "ready";
+      const failed = output && output.status === "failed";
+      const statusLabel = ready ? "Polished" : failed ? "No source" : "Raw — not polished";
+      const statusClass = ready ? "ready" : failed ? "failed" : "raw";
+      const row = el("div", { class: `audio-track audio-track-${statusClass}` },
         el("div", { class: "audio-track-main" },
           el("span", { class: "role-pill" }, track.role),
           el("span", { class: "summary-name" }, track.name),
+          el("span", { class: `audio-track-status ${statusClass}` }, statusLabel),
         ),
         el("p", { class: "summary-source" }, track.sourceLabel),
-        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
       );
-      if (output) {
-        if (output.status === "ready") {
-          row.appendChild(
-            el("p", { class: "audio-track-output ready" }, `Polished · ${output.outputName}`),
-          );
-        } else {
-          row.appendChild(
-            el("p", { class: "audio-track-output failed" }, output.reason || "Could not polish this track."),
-          );
+      if (ready) {
+        row.appendChild(
+          el("p", { class: "audio-track-output ready" }, `✓ ${output.outputName}`),
+        );
+        if (output.treatment) {
+          row.appendChild(el("p", { class: "audio-track-treatment" }, output.treatment));
         }
+      } else if (failed) {
+        row.appendChild(
+          el("p", { class: "audio-track-output failed" }, output.reason || "Could not polish this track."),
+        );
+      } else {
+        row.appendChild(
+          el("p", { class: "audio-track-output raw" }, `${AP.getPreset(audioPolish.presetId).name} treatment queued — not applied yet.`),
+        );
       }
       trackList.appendChild(row);
     });
@@ -4864,25 +4889,36 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-    applyButton.addEventListener("click", () => {
-      // Real handoff: process each imported track into a durable polished asset.
-      // The step only completes once every track has a saved polished output.
-      audioPolishResult = AP.processTracks(audioPolish, summary);
-      if (audioPolishResult.status !== "complete") {
-        appliedAudioPolish = null;
-        persistEpisodeSession();
-        renderAudioPolish(summary);
-        return;
-      }
-      appliedAudioPolish = AP.summarizePolishResult(audioPolishResult);
-      persistEpisodeSession();
+    function continueFromAudio() {
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {
         renderWorkspace(summary);
       }
-    });
+    }
+
+    let primaryButton;
+    if (polishedCurrent) {
+      // Processing already done for the current settings: let the result stay on
+      // screen and offer an explicit Continue, so completion is visible (not skipped).
+      primaryButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      primaryButton.addEventListener("click", continueFromAudio);
+    } else {
+      const label = `Apply audio & polish ${trackTotal} track${trackTotal === 1 ? "" : "s"} →`;
+      primaryButton = el("button", { type: "button", class: "primary" }, label);
+      primaryButton.addEventListener("click", () => {
+        // Real handoff: process each imported track into a durable polished asset.
+        // Re-render in place so the saved outputs and completion are visible before
+        // continuing — the step completes only once every track has an output.
+        audioPolishResult = AP.processTracks(audioPolish, summary);
+        appliedAudioPolish = audioPolishResult.status === "complete"
+          ? AP.summarizePolishResult(audioPolishResult)
+          : null;
+        persistEpisodeSession();
+        renderAudioPolish(summary);
+      });
+    }
+    const applyButton = primaryButton;
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
       showErrors = false;

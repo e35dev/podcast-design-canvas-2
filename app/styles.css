@@ -1997,6 +1997,71 @@ button.ghost:hover,
   color: #b42318;
 }
 
+.audio-track-output.raw {
+  color: var(--muted, #6b7280);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.audio-track-treatment {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted, #6b7280);
+}
+
+.audio-track-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-track-status {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.audio-track-status.raw {
+  color: #6b7280;
+  background: rgba(107, 114, 128, 0.12);
+}
+
+.audio-track-status.ready {
+  color: #18794e;
+  background: rgba(24, 121, 78, 0.12);
+}
+
+.audio-track-status.failed {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.12);
+}
+
+.audio-track.audio-track-ready {
+  border-color: rgba(24, 121, 78, 0.4);
+}
+
+.audio-track.audio-track-failed {
+  border-color: rgba(180, 35, 24, 0.4);
+}
+
+.audio-progress-line {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.audio-progress-line.pending {
+  color: #b42318;
+}
+
+.audio-progress-line.done {
+  color: #18794e;
+}
+
 .audio-result-banner {
   margin: 14px 0 4px;
   padding: 12px 16px;

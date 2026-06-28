@@ -48,7 +48,11 @@ async function polishAudioFromWorkspace(page) {
   await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").first().click();
-  await page.getByRole("button", { name: "Apply audio & continue →" }).click();
+  // Apply processes the imported tracks and shows the saved polished outputs in
+  // place; the step only completes once every track has an output, then Continue.
+  await page.getByRole("button", { name: /^Apply audio & polish/ }).click();
+  await page.locator(".audio-result-banner.ok").waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Continue →" }).click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
 
