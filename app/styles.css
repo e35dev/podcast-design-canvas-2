@@ -2053,6 +2053,17 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-track-badge-polished {
+  color: #1a7f4b;
+  background: rgba(26, 127, 75, 0.12);
+}
+
+.audio-applied-note {
+  margin-top: 12px;
+  font-weight: 600;
+  color: #1a7f4b;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;

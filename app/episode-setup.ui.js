@@ -2900,9 +2900,6 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
       renderAudioPolish(summary);
       return;
     }
@@ -2946,9 +2943,6 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
       renderAudioPolish(summary);
       return;
     }
@@ -4937,10 +4931,32 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
-  function renderAudioPolish(summary) {
-    if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
+  // Reopen the polish step on the settings the creator already applied (after a reload or
+  // navigating back), instead of resetting to the default preset.
+  function ensureAudioPolish(summary) {
+    if (audioPolish) {
+      return audioPolish;
     }
+    if (appliedAudioPolish && appliedAudioPolish.polished && AP.restorePolish) {
+      return AP.restorePolish(appliedAudioPolish, summary);
+    }
+    return AP.createPolish(summary);
+  }
+
+  // The polished outputs from the applied run, shown only while they still match the
+  // settings currently on screen (changing a control invalidates the stale "Polished" badge).
+  function appliedPolishedTracks() {
+    if (!appliedAudioPolish || !appliedAudioPolish.polished) {
+      return null;
+    }
+    if (appliedAudioPolish.polishedSignature !== AP.settingsSignature(audioPolish)) {
+      return null;
+    }
+    return appliedAudioPolish.polishedTracks || null;
+  }
+
+  function renderAudioPolish(summary) {
+    audioPolish = ensureAudioPolish(summary);
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -5000,7 +5016,15 @@
       el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
     );
     const trackList = el("div", { class: "audio-track-list" });
+    const polishedTracks = appliedPolishedTracks();
     audioPolish.speakers.forEach((track) => {
+      const polished = polishedTracks
+        ? polishedTracks.find((item) => item.trackIndex === track.trackIndex)
+        : null;
+      const badge = polished
+        ? el("span", { class: "audio-track-badge audio-track-badge-polished" },
+            `Polished · ${polished.outputName}`)
+        : el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track));
       trackList.appendChild(
         el("div", { class: "audio-track" },
           el("div", { class: "audio-track-main" },
@@ -5008,7 +5032,7 @@
             el("span", { class: "summary-name" }, track.name),
           ),
           el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+          badge,
         ),
       );
     });
@@ -5016,9 +5040,25 @@
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+    if (polishedTracks) {
+      view.appendChild(
+        el("p", { class: "hint audio-applied-note", role: "status" },
+          `${polishedTracks.length} polished track${polishedTracks.length === 1 ? "" : "s"} created — review and export will use these instead of the raw originals.`),
+      );
+    }
+
+    const applyLabel = polishedTracks ? "Re-apply audio & continue →" : "Apply audio & continue →";
+    const applyButton = el("button", { type: "button", class: "primary" }, applyLabel);
     applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
+      // #257: applying creates a concrete polished output for every assigned speaker,
+      // preserving the original imported tracks. The step completes only when all are made.
+      const applied = AP.applyPolish(audioPolish, summary);
+      if (!applied.complete) {
+        renderAudioPolish(summary);
+        return;
+      }
+      appliedAudioPolish = AP.summarizePolish(audioPolish, applied);
+      persistEpisodeSession();
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {
