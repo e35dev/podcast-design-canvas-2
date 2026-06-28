@@ -88,6 +88,93 @@ test("buildReviewSummary includes audio in the export path", () => {
   assert.ok(review.summaryLines.some((line) => line.indexOf("Audio:") === 0));
 });
 
+function uploadDraftWithMissingSource() {
+  const draft = setup.createDraft();
+  draft.episodeName = "Founders Unfiltered #8";
+  draft.sourceMode = "upload";
+  draft.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Sam Rivera", fileName: "sam.mp4" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Dana Kim", fileName: "" }),
+  ];
+  return draft;
+}
+
+test("processTracks saves a polished output for every imported speaker track", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.applyPreset(audio.createPolish(episode), "studio");
+  const result = audio.processTracks(polish, episode);
+
+  assert.strictEqual(result.status, "complete");
+  assert.strictEqual(result.trackCount, 3);
+  assert.strictEqual(result.readyCount, 3);
+  assert.strictEqual(result.failedCount, 0);
+  result.tracks.forEach((track) => {
+    assert.strictEqual(track.status, "ready");
+    assert.ok(track.outputId, "each ready track has a durable polished asset id");
+    assert.ok(track.outputName.endsWith("-studio-polished.wav"), "output reflects the chosen preset");
+    assert.strictEqual(track.settings.noiseCleanup, "strong");
+  });
+});
+
+test("processTracks fails the step when a track has no imported source", () => {
+  const episode = setup.summarize(uploadDraftWithMissingSource());
+  const result = audio.processTracks(audio.createPolish(episode), episode);
+
+  assert.strictEqual(result.status, "failed");
+  assert.strictEqual(result.readyCount, 1);
+  assert.strictEqual(result.failedCount, 1);
+  const failed = result.tracks.find((track) => track.status === "failed");
+  assert.ok(failed && failed.reason, "failed track explains why it could not be polished");
+  assert.strictEqual(failed.outputId, "");
+});
+
+test("processTracks is deterministic so reloaded episodes keep their polished assets", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.applyPreset(audio.createPolish(episode), "clean");
+  const first = audio.processTracks(polish, episode);
+  const second = audio.processTracks(polish, episode);
+  assert.deepStrictEqual(
+    first.tracks.map((track) => track.outputId),
+    second.tracks.map((track) => track.outputId),
+  );
+  // Different settings must produce different polished assets.
+  const restyled = audio.processTracks(audio.applyPreset(polish, "studio"), episode);
+  assert.notStrictEqual(first.tracks[0].outputId, restyled.tracks[0].outputId);
+});
+
+test("summarizePolishResult exposes polished track references and stays JSON-durable", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const result = audio.processTracks(audio.createPolish(episode), episode);
+  const summary = audio.summarizePolishResult(result);
+
+  assert.strictEqual(summary.status, "complete");
+  assert.strictEqual(summary.complete, true);
+  assert.strictEqual(summary.polishedTrackCount, 3);
+  assert.strictEqual(summary.failedTrackCount, 0);
+  assert.ok(summary.presetName, "keeps presetName for existing review/export consumers");
+  assert.ok(summary.treatmentLine, "keeps treatmentLine for existing review/export consumers");
+  assert.strictEqual(summary.outputs.length, 3);
+
+  // Surviving a localStorage round-trip preserves the polished track references.
+  const restored = JSON.parse(JSON.stringify(summary));
+  assert.deepStrictEqual(restored.outputs, summary.outputs);
+});
+
+test("buildReviewSummary blocks export until polish actually completes", () => {
+  const episode = setup.summarize(uploadDraftWithMissingSource());
+  const failed = audio.summarizePolishResult(audio.processTracks(audio.createPolish(episode), episode));
+  const blockedReview = audio.buildReviewSummary(episode, failed, {});
+  assert.strictEqual(blockedReview.readyForExport, false, "a failed polish run is not export-ready");
+
+  const ok = audio.summarizePolishResult(
+    audio.processTracks(audio.createPolish(setup.summarize(completeUploadDraft())), setup.summarize(completeUploadDraft())),
+  );
+  const readyReview = audio.buildReviewSummary(setup.summarize(completeUploadDraft()), ok, {});
+  assert.strictEqual(readyReview.readyForExport, true);
+  assert.strictEqual(readyReview.polishedTrackCount, 3);
+  assert.ok(readyReview.summaryLines.some((line) => line.indexOf("Audio:") === 0 && line.includes("polished")));
+});
+
 test("ACCEPTANCE: episode setup flows into audio polish and saves a review summary", () => {
   const draft = completeUploadDraft();
   assert.strictEqual(setup.validateDraft(draft).ok, true);

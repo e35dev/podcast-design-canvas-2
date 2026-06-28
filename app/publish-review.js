@@ -98,13 +98,21 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    const audioPolish = context.audioPolish || null;
+    // When a real polish run is present, only treat audio as ready if it completed
+    // with saved polished tracks — a failed run must not pass the publish gate.
+    const audioReady = audioPolish && audioPolish.presetName
+      && (typeof audioPolish.status === "string" ? audioPolish.status === "complete" : true);
+    if (audioReady) {
+      const polishedNote = typeof audioPolish.polishedTrackCount === "number"
+        ? ` · ${audioPolish.polishedTrackCount} polished track${audioPolish.polishedTrackCount === 1 ? "" : "s"}`
+        : "";
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${audioPolish.presetName} · ${audioPolish.treatmentLine || "treatment applied"}${polishedNote}`,
         null,
       ));
     } else {
@@ -218,7 +226,7 @@
       ));
     }
 
-    const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+    const exportReady = Boolean(audioReady
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(

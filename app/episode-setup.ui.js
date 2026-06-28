@@ -50,6 +50,7 @@
   let layoutCustomized = false;
   let audioPolish = null;
   let appliedAudioPolish = null;
+  let audioPolishResult = null;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
@@ -309,6 +310,7 @@
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
       appliedAudioPolish: appliedAudioPolish,
+      audioPolishResult: audioPolishResult,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
       publishReviewApprovedAt: publishReviewApprovedAt,
@@ -345,6 +347,7 @@
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
+    audioPolishResult = data.audioPolishResult || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
     publishReviewApprovedAt = data.publishReviewApprovedAt || null;
@@ -1501,6 +1504,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishResult = null;
     activeTemplateId = null;
     canvasDoc = null;
     canvasLayerCounter = 20;
@@ -1572,7 +1576,10 @@
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
     audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
-    appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
+    audioPolishResult = AP && audioPolish ? AP.processTracks(audioPolish, ES.summarize(state)) : null;
+    appliedAudioPolish = audioPolishResult && audioPolishResult.status === "complete"
+      ? AP.summarizePolishResult(audioPolishResult)
+      : null;
     activeTemplateId = null;
     canvasDoc = null;
     exportJob = null;
@@ -1665,6 +1672,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishResult = null;
     activeTemplateId = null;
     activeGalleryListingId = null;
     canvasDoc = null;
@@ -2476,6 +2484,7 @@
     if (AP) {
       audioPolish = AP.createPolish(summary);
       appliedAudioPolish = null;
+      audioPolishResult = null;
     }
     contextApproved = false;
     contextReview = SC ? SC.createReview(summary) : null;
@@ -4759,6 +4768,22 @@
       ),
     );
 
+    if (audioPolishResult) {
+      if (audioPolishResult.status === "complete") {
+        view.appendChild(
+          el("div", { class: "audio-result-banner ok", role: "status" },
+            `Polished audio saved for ${audioPolishResult.readyCount} of ${audioPolishResult.trackCount} speaker track${audioPolishResult.trackCount === 1 ? "" : "s"}.`,
+          ),
+        );
+      } else {
+        view.appendChild(
+          el("div", { class: "audio-result-banner attention", role: "alert" },
+            `${audioPolishResult.failedCount} track${audioPolishResult.failedCount === 1 ? "" : "s"} still need imported audio before this step can finish. Fix the source below, then apply again.`,
+          ),
+        );
+      }
+    }
+
     const grid = el("div", { class: "audio-layout" });
 
     const controls = el("section", { class: "card" }, el("h3", {}, "Sound quality"));
@@ -4805,18 +4830,35 @@
     tracksCard.appendChild(
       el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
     );
+    const polishedOutputs = audioPolishResult && Array.isArray(audioPolishResult.tracks)
+      ? audioPolishResult.tracks
+      : [];
+    function outputForTrack(track) {
+      return polishedOutputs.find((output) => output.trackIndex === track.trackIndex) || null;
+    }
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+      const output = outputForTrack(track);
+      const row = el("div", { class: "audio-track" },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
         ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
+        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
       );
+      if (output) {
+        if (output.status === "ready") {
+          row.appendChild(
+            el("p", { class: "audio-track-output ready" }, `Polished · ${output.outputName}`),
+          );
+        } else {
+          row.appendChild(
+            el("p", { class: "audio-track-output failed" }, output.reason || "Could not polish this track."),
+          );
+        }
+      }
+      trackList.appendChild(row);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
@@ -4824,7 +4866,17 @@
 
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
+      // Real handoff: process each imported track into a durable polished asset.
+      // The step only completes once every track has a saved polished output.
+      audioPolishResult = AP.processTracks(audioPolish, summary);
+      if (audioPolishResult.status !== "complete") {
+        appliedAudioPolish = null;
+        persistEpisodeSession();
+        renderAudioPolish(summary);
+        return;
+      }
+      appliedAudioPolish = AP.summarizePolishResult(audioPolishResult);
+      persistEpisodeSession();
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {

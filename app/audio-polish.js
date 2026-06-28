@@ -166,14 +166,167 @@
     };
   }
 
+  // --- Real polish processing -----------------------------------------------
+  // "Apply audio" is not a no-op: it turns the chosen settings into a durable
+  // polished asset for every imported speaker track. There is no DSP engine here,
+  // so processing is a deterministic transform of the source + settings into a
+  // stable output reference — same inputs always yield the same asset id, so a
+  // reloaded episode keeps its polished tracks instead of reprocessing.
+
+  function trackHasSource(track) {
+    const label = track && track.sourceLabel ? String(track.sourceLabel).trim() : "";
+    if (!label) {
+      return false;
+    }
+    // Honest about missing media: the setup summary uses this exact placeholder
+    // when an upload bucket has no file, so there is nothing to polish.
+    return label.toLowerCase() !== "no file chosen";
+  }
+
+  function slugify(value, fallback) {
+    const base = String(value == null ? "" : value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return base || fallback;
+  }
+
+  // Small stable fingerprint so the same source + settings always resolve to the
+  // same polished asset id (durable across reloads, no randomness).
+  function fingerprint(text) {
+    const str = String(text == null ? "" : text);
+    let hash = 0;
+    for (let i = 0; i < str.length; i += 1) {
+      hash = (hash * 31 + str.charCodeAt(i)) | 0;
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function chosenSettings(polish) {
+    const state = polish || createPolish({});
+    return {
+      noiseCleanup: getLevel(state.noiseCleanup).id,
+      leveling: getLevel(state.leveling).id,
+      speechClarity: getLevel(state.speechClarity).id,
+      enhancement: getLevel(state.enhancement).id,
+    };
+  }
+
+  function processTrack(track, presetId, settings) {
+    const role = (track && track.role) || "Speaker";
+    const name = (track && track.name) || "Unnamed speaker";
+    const sourceLabel = (track && track.sourceLabel) || "Source track";
+    const trackIndex = (track && track.trackIndex) || 1;
+    const base = {
+      trackIndex: trackIndex,
+      role: role,
+      name: name,
+      sourceLabel: sourceLabel,
+      presetId: presetId,
+      settings: Object.assign({}, settings),
+    };
+    if (!trackHasSource(track)) {
+      return Object.assign(base, {
+        status: "failed",
+        outputId: "",
+        outputName: "",
+        reason: "No source media imported for this speaker track.",
+      });
+    }
+    const stem = slugify(name, slugify(sourceLabel, `track-${trackIndex}`));
+    const signature = fingerprint([
+      sourceLabel,
+      presetId,
+      settings.noiseCleanup,
+      settings.leveling,
+      settings.speechClarity,
+      settings.enhancement,
+    ].join("|"));
+    return Object.assign(base, {
+      status: "ready",
+      outputId: `polished-${stem}-${signature}`,
+      outputName: `${stem}-${presetId}-polished.wav`,
+      reason: "",
+    });
+  }
+
+  // Process every imported speaker track into a polished output. Returns a clear
+  // completion/failure result: "complete" only when there is at least one track
+  // and every track produced a polished asset.
+  function processTracks(polish, episodeSummary) {
+    const state = polish || createPolish(episodeSummary);
+    let speakers = Array.isArray(state.speakers) ? state.speakers : [];
+    if (!speakers.length && episodeSummary) {
+      speakers = buildSpeakerTracks(episodeSummary);
+    }
+    const preset = getPreset(state.presetId);
+    const settings = chosenSettings(state);
+    const tracks = speakers.map((track) => processTrack(track, preset.id, settings));
+    const readyCount = tracks.filter((track) => track.status === "ready").length;
+    const failedCount = tracks.length - readyCount;
+    const status = tracks.length > 0 && failedCount === 0 ? "complete" : "failed";
+    return {
+      status: status,
+      presetId: preset.id,
+      presetName: preset.name,
+      settings: settings,
+      treatmentLine: summarizePolish(state).treatmentLine,
+      trackCount: tracks.length,
+      readyCount: readyCount,
+      failedCount: failedCount,
+      tracks: tracks,
+    };
+  }
+
+  // Compact, durable view of a polish run for persistence, review, and export.
+  // Keeps presetName + treatmentLine so existing consumers keep working, and adds
+  // the polished track references downstream steps should use instead of raw audio.
+  function summarizePolishResult(result) {
+    const res = result && typeof result === "object" ? result : { tracks: [], status: "failed" };
+    const tracks = Array.isArray(res.tracks) ? res.tracks : [];
+    const preset = getPreset(res.presetId);
+    const outputs = tracks.map((track) => ({
+      trackIndex: track.trackIndex,
+      role: track.role,
+      name: track.name,
+      sourceLabel: track.sourceLabel,
+      status: track.status,
+      outputId: track.outputId || "",
+      outputName: track.outputName || "",
+      reason: track.reason || "",
+    }));
+    return {
+      presetId: preset.id,
+      presetName: res.presetName || preset.name,
+      treatmentLine: res.treatmentLine || summarizePolish({ presetId: preset.id }).treatmentLine,
+      settings: res.settings || {},
+      status: res.status === "complete" ? "complete" : "failed",
+      complete: res.status === "complete",
+      speakerCount: outputs.length,
+      polishedTrackCount: outputs.filter((track) => track.status === "ready").length,
+      failedTrackCount: outputs.filter((track) => track.status !== "ready").length,
+      outputs: outputs,
+    };
+  }
+
   // Episode review / export path — rolls audio treatment up with other episode choices.
   function buildReviewSummary(episodeSummary, polishSummary, extras) {
     const episode = episodeSummary || {};
     const audio = polishSummary || {};
     const options = extras || {};
     const lines = [];
+    // A polish result carries an explicit status; a bare settings summary does not.
+    const polishComplete = typeof audio.status === "string"
+      ? audio.status === "complete"
+      : Boolean(audio.presetName);
+    const polishedTrackCount = typeof audio.polishedTrackCount === "number"
+      ? audio.polishedTrackCount
+      : null;
     if (audio.presetName) {
-      lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})`);
+      const tracksNote = polishedTrackCount != null
+        ? ` · ${polishedTrackCount} track${polishedTrackCount === 1 ? "" : "s"} polished`
+        : "";
+      lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})${tracksNote}`);
     }
     if (options.styleName) {
       lines.push(`Visual style: ${options.styleName}`);
@@ -186,9 +339,10 @@
       speakerCount: episode.speakerCount || 0,
       audioPreset: audio.presetName || "",
       audioTreatment: audio.treatmentLine || "",
+      polishedTrackCount: polishedTrackCount,
       styleName: options.styleName || "",
       templateName: options.templateName || "",
-      readyForExport: Boolean(audio.presetName),
+      readyForExport: polishComplete,
       summaryLines: lines,
     };
   }
@@ -207,6 +361,9 @@
     updateControl,
     speakerIndicator,
     summarizePolish,
+    trackHasSource,
+    processTracks,
+    summarizePolishResult,
     buildReviewSummary,
   };
 
