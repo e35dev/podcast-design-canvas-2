@@ -118,7 +118,9 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    // Every speaker track must actually be polished before export can use it —
+    // a chosen preset alone used to satisfy this check (#197).
+    if (!ctx.audioPolish || !ctx.audioPolish.presetName || !ctx.audioPolish.allTracksProcessed) {
       missing.push("audio");
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
@@ -155,7 +157,10 @@
     lines.push(`${episode.speakerCount || 0} speaker${episode.speakerCount === 1 ? "" : "s"} · ${episode.sourceModeLabel || "sources"}`);
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
-      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const trackNote = ctx.audioPolish.tracksTotal
+        ? ` · ${ctx.audioPolish.processedTrackCount || 0}/${ctx.audioPolish.tracksTotal} tracks polished`
+        : "";
+      lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})${trackNote}`);
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
@@ -193,6 +198,11 @@
       platformName: platform.name,
       resolutionLabel: resolution.label,
       captionLabel: captions.label,
+      // The render/export job consumes these polished output refs — never the
+      // speaker tracks' original raw source files (#197).
+      polishedAudioTracks: ctx.audioPolish && Array.isArray(ctx.audioPolish.speakers)
+        ? ctx.audioPolish.speakers.filter((track) => track.processed)
+        : [],
     };
   }
 

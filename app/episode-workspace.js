@@ -103,7 +103,12 @@
     ));
 
     // Audio -------------------------------------------------------------------
-    const audioApplied = context.audioPolish && context.audioPolish.presetName;
+    // Complete requires every speaker track to actually be polished, not just a
+    // preset having been picked — choosing a preset alone used to be enough,
+    // which made this stage a no-op (#197).
+    const audioPreset = context.audioPolish && context.audioPolish.presetName;
+    const audioApplied = Boolean(audioPreset && context.audioPolish.allTracksProcessed);
+    const audioPartial = Boolean(audioPreset && !context.audioPolish.allTracksProcessed);
     stages.push(stage(
       "audio",
       "Audio polish",
@@ -111,8 +116,10 @@
         ? STATUS.COMPLETE
         : setupComplete ? STATUS.ACTIVE : STATUS.PENDING,
       audioApplied
-        ? `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"}`
-        : "Choose a sound quality preset for every speaker track.",
+        ? `${context.audioPolish.presetName} — ${context.audioPolish.treatmentLine || "treatment applied"} · ${context.audioPolish.processedTrackCount || 0}/${context.audioPolish.tracksTotal || 0} tracks polished`
+        : audioPartial
+          ? `${context.audioPolish.presetName} chosen — apply it so every speaker track is polished.`
+          : "Choose a sound quality preset for every speaker track.",
       audioApplied ? "Change audio" : "Polish audio",
       ACTION_TARGETS.audio,
     ));

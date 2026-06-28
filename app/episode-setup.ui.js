@@ -1571,7 +1571,7 @@
     appliedStyle = null;
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
-    audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
+    audioPolish = AP ? AP.processTracks(AP.createPolish(ES.summarize(state))) : null;
     appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
     activeTemplateId = null;
     canvasDoc = null;
@@ -2707,7 +2707,7 @@
     }
     if (target === "audio") {
       if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
+        audioPolish = appliedAudioPolish ? AP.restorePolish(summary, appliedAudioPolish) : AP.createPolish(summary);
       }
       renderAudioPolish(summary);
       return;
@@ -2753,7 +2753,7 @@
     }
     if (target === "audio") {
       if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
+        audioPolish = appliedAudioPolish ? AP.restorePolish(summary, appliedAudioPolish) : AP.createPolish(summary);
       }
       renderAudioPolish(summary);
       return;
@@ -4745,7 +4745,10 @@
 
   function renderAudioPolish(summary) {
     if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
+      // Reopening this step after a reload should pick up where the creator left
+      // off — including which speaker tracks are already polished (#197) —
+      // rather than silently resetting to default settings.
+      audioPolish = appliedAudioPolish ? AP.restorePolish(summary, appliedAudioPolish) : AP.createPolish(summary);
     }
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
@@ -4824,7 +4827,11 @@
 
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     applyButton.addEventListener("click", () => {
+      // Actually process every speaker track under the chosen settings — picking
+      // a preset alone never used to save polished output for any track (#197).
+      audioPolish = AP.processTracks(audioPolish);
       appliedAudioPolish = AP.summarizePolish(audioPolish);
+      persistEpisodeSession();
       if (STY && !appliedStyle) {
         renderStyle(summary);
       } else {

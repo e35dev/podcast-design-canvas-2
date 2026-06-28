@@ -79,7 +79,9 @@
   }
 
   function getPreset(id) {
-    return QUALITY_PRESETS.find((preset) => preset.id === id) || defaultPreset();
+    return (
+      QUALITY_PRESETS.find((preset) => preset.id === id) || defaultPreset()
+    );
   }
 
   function getLevel(id) {
@@ -91,15 +93,124 @@
   }
 
   function buildSpeakerTracks(episodeSummary) {
-    const speakers = episodeSummary && Array.isArray(episodeSummary.speakers)
-      ? episodeSummary.speakers
-      : [];
+    const speakers =
+      episodeSummary && Array.isArray(episodeSummary.speakers)
+        ? episodeSummary.speakers
+        : [];
     return speakers.map((speaker, index) => ({
       role: (speaker && speaker.role) || "Speaker",
       name: (speaker && speaker.name) || "Unnamed speaker",
       sourceLabel: (speaker && speaker.sourceLabel) || "Source track",
       trackIndex: index + 1,
+      // Per-track processing state — a track only counts as polished once it has
+      // been run through processTracks() under its current settings (#197).
+      processed: false,
+      outputRef: null,
+      processedAt: null,
+      processedSettingsKey: null,
     }));
+  }
+
+  // A settings fingerprint covering the preset and every individual control.
+  // Used to tell whether a track's saved polished output still matches the
+  // creator's current choices, or whether it has gone stale and needs reprocessing.
+  function settingsKey(polish) {
+    const state = polish || {};
+    return [
+      state.presetId,
+      state.noiseCleanup,
+      state.leveling,
+      state.speechClarity,
+      state.enhancement,
+    ].join("|");
+  }
+
+  // A track is "current" only if it has been processed AND that processing
+  // happened under the exact settings the polish currently holds.
+  function isTrackCurrent(polish, track) {
+    if (!track || !track.processed) {
+      return false;
+    }
+    return track.processedSettingsKey === settingsKey(polish);
+  }
+
+  function outputRefFor(polish, track) {
+    const preset = getPreset(polish && polish.presetId);
+    const slug = `${(track && track.role) || "speaker"}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-");
+    return `polished/${track && track.trackIndex}-${slug}-${preset.id}.wav`;
+  }
+
+  // Runs the current preset/control settings against every speaker track and
+  // saves a polished output reference for each — this is the actual "processing"
+  // step. Without calling this, changing presets/controls only edits intent;
+  // no speaker track is considered polished (#197).
+  function processTracks(polish) {
+    const base = polish || createPolish({});
+    const key = settingsKey(base);
+    const now = Date.now();
+    return Object.assign({}, base, {
+      speakers: (base.speakers || []).map((track) =>
+        Object.assign({}, track, {
+          processed: true,
+          processedAt: now,
+          outputRef: outputRefFor(base, track),
+          processedSettingsKey: key,
+        }),
+      ),
+    });
+  }
+
+  function processedTrackCount(polish) {
+    const state = polish || {};
+    const speakers = Array.isArray(state.speakers) ? state.speakers : [];
+    return speakers.filter((track) => isTrackCurrent(state, track)).length;
+  }
+
+  function allTracksProcessed(polish) {
+    const state = polish || {};
+    const speakers = Array.isArray(state.speakers) ? state.speakers : [];
+    return (
+      speakers.length > 0 && processedTrackCount(state) === speakers.length
+    );
+  }
+
+  // Rebuilds a working polish object from a previously saved summary (e.g. after
+  // reloading the episode) so the creator's preset/control choices — and any
+  // speaker tracks that are still validly polished under those choices — survive
+  // a reload instead of silently resetting to defaults (#197).
+  function restorePolish(episodeSummary, polishSummary) {
+    const base = createPolish(episodeSummary);
+    const saved = polishSummary || null;
+    if (!saved) {
+      return base;
+    }
+    const preset = getPreset(saved.presetId);
+    const restored = Object.assign({}, base, {
+      presetId: preset.id,
+      noiseCleanup: getLevel(saved.noiseCleanup).id,
+      leveling: getLevel(saved.leveling).id,
+      speechClarity: getLevel(saved.speechClarity).id,
+      enhancement: getLevel(saved.enhancement).id,
+    });
+    const key = settingsKey(restored);
+    const savedTracks = Array.isArray(saved.speakers) ? saved.speakers : [];
+    restored.speakers = base.speakers.map((track) => {
+      const prior = savedTracks.find(
+        (item) => item && item.role === track.role && item.name === track.name,
+      );
+      if (prior && prior.processed && prior.processedSettingsKey === key) {
+        return Object.assign({}, track, {
+          processed: true,
+          processedAt: prior.processedAt || null,
+          outputRef: prior.outputRef || null,
+          processedSettingsKey: key,
+        });
+      }
+      return track;
+    });
+    return restored;
   }
 
   function createPolish(episodeSummary) {
@@ -139,7 +250,8 @@
   function speakerIndicator(polish, speaker) {
     const preset = getPreset(polish && polish.presetId);
     const name = (speaker && speaker.name) || "Speaker";
-    return `${preset.name} treatment · ${name}`;
+    const status = isTrackCurrent(polish, speaker) ? "Polished" : "Pending";
+    return `${preset.name} treatment · ${name} · ${status}`;
   }
 
   function summarizePolish(polish) {
@@ -149,6 +261,24 @@
       const level = getLevel(state[control.id]);
       return `${control.label}: ${level.label}`;
     });
+    const speakers = Array.isArray(state.speakers) ? state.speakers : [];
+    const key = settingsKey(state);
+    const speakerSummaries = speakers.map((track) => {
+      const current = isTrackCurrent(state, track);
+      return {
+        role: track.role,
+        name: track.name,
+        sourceLabel: track.sourceLabel,
+        trackIndex: track.trackIndex,
+        processed: current,
+        outputRef: current ? track.outputRef : null,
+        processedAt: current ? track.processedAt : null,
+        processedSettingsKey: current ? track.processedSettingsKey : null,
+      };
+    });
+    const polishedCount = speakerSummaries.filter(
+      (track) => track.processed,
+    ).length;
     return {
       presetId: preset.id,
       presetName: preset.name,
@@ -161,19 +291,33 @@
       speechClarityLabel: getLevel(state.speechClarity).label,
       enhancement: state.enhancement,
       enhancementLabel: getLevel(state.enhancement).label,
-      speakerCount: Array.isArray(state.speakers) ? state.speakers.length : 0,
+      speakerCount: speakers.length,
+      speakers: speakerSummaries,
+      tracksTotal: speakers.length,
+      processedTrackCount: polishedCount,
+      allTracksProcessed:
+        speakers.length > 0 && polishedCount === speakers.length,
+      settingsKey: key,
       treatmentLine: controlSummary.join(" · "),
     };
   }
 
   // Episode review / export path — rolls audio treatment up with other episode choices.
+  // readyForExport requires every speaker track to actually be polished, not just a
+  // preset having been chosen at some point (#197).
   function buildReviewSummary(episodeSummary, polishSummary, extras) {
     const episode = episodeSummary || {};
     const audio = polishSummary || {};
     const options = extras || {};
     const lines = [];
+    const tracksPolished = Boolean(audio.allTracksProcessed);
     if (audio.presetName) {
-      lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})`);
+      const trackNote = audio.tracksTotal
+        ? ` · ${audio.processedTrackCount || 0}/${audio.tracksTotal} tracks polished`
+        : "";
+      lines.push(
+        `Audio: ${audio.presetName} (${audio.treatmentLine})${trackNote}`,
+      );
     }
     if (options.styleName) {
       lines.push(`Visual style: ${options.styleName}`);
@@ -188,7 +332,12 @@
       audioTreatment: audio.treatmentLine || "",
       styleName: options.styleName || "",
       templateName: options.templateName || "",
-      readyForExport: Boolean(audio.presetName),
+      tracksTotal: audio.tracksTotal || 0,
+      processedTrackCount: audio.processedTrackCount || 0,
+      polishedTracks: Array.isArray(audio.speakers)
+        ? audio.speakers.filter((track) => track.processed)
+        : [],
+      readyForExport: Boolean(audio.presetName) && tracksPolished,
       summaryLines: lines,
     };
   }
@@ -208,6 +357,12 @@
     speakerIndicator,
     summarizePolish,
     buildReviewSummary,
+    settingsKey,
+    isTrackCurrent,
+    processTracks,
+    processedTrackCount,
+    allTracksProcessed,
+    restorePolish,
   };
 
   if (typeof module !== "undefined" && module.exports) {
@@ -216,4 +371,4 @@
   }
 
   global.PdcAudioPolish = api;
-}(typeof window !== "undefined" ? window : globalThis));
+})(typeof window !== "undefined" ? window : globalThis);

@@ -98,14 +98,27 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    const audioPreset = context.audioPolish && context.audioPolish.presetName;
+    const audioFullyPolished = Boolean(audioPreset && context.audioPolish.allTracksProcessed);
+    if (audioFullyPolished) {
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${context.audioPolish.presetName} · ${context.audioPolish.processedTrackCount || 0}/${context.audioPolish.tracksTotal || 0} tracks polished`,
         null,
+      ));
+    } else if (audioPreset) {
+      // A preset was chosen, but not every speaker track has been processed
+      // under it yet — this used to count as "ready" on its own (#197).
+      checks.push(check(
+        "audio-incomplete",
+        "audio",
+        "blocker",
+        "Audio polish incomplete",
+        "Apply your audio settings so every speaker track is polished before publishing.",
+        { label: "Polish audio", target: FIX_TARGETS.audio },
       ));
     } else {
       checks.push(check(
@@ -219,6 +232,7 @@
     }
 
     const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+      && context.audioPolish.allTracksProcessed
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(
@@ -286,7 +300,9 @@
         id: "audio",
         label: "Audio polish",
         time: "15:00",
-        summary: context.audioPolish ? context.audioPolish.presetName : "Not set",
+        summary: context.audioPolish
+          ? `${context.audioPolish.presetName}${context.audioPolish.tracksTotal ? ` · ${context.audioPolish.processedTrackCount || 0}/${context.audioPolish.tracksTotal} polished` : ""}`
+          : "Not set",
         status: sectionStatus("audio"),
       },
       {

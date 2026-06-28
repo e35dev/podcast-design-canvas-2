@@ -33,7 +33,9 @@ function completeUploadDraft() {
 function completeContext(episode) {
   const selection = style.createSelection();
   const appliedStyle = style.summarizeStyle(selection, episode.speakerCount);
-  const polish = audio.summarizePolish(audio.createPolish(episode));
+  // Audio is only export-ready once every speaker track has been processed,
+  // not merely after a preset is picked (#197).
+  const polish = audio.summarizePolish(audio.processTracks(audio.createPolish(episode)));
   const board = moments.createBoard(episode);
   const withMoment = moments.addMoment(board, "caption", { time: "1:00", text: "Welcome back", speakerRole: "Host" });
   const momentsSummary = moments.summarizeBoard(withMoment);

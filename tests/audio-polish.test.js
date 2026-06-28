@@ -74,9 +74,22 @@ test("summarizePolish reflects the chosen treatment", () => {
   assert.strictEqual(summary.speakerCount, 3);
 });
 
-test("buildReviewSummary includes audio in the export path", () => {
+test("REGRESSION (#197): choosing a preset alone does not make the episode export-ready", () => {
   const episode = setup.summarize(completeUploadDraft());
+  // Only a preset has been picked — no track has actually been processed yet.
   const polish = audio.summarizePolish(audio.createPolish(episode));
+  assert.strictEqual(polish.presetName, "Clean");
+  assert.strictEqual(polish.allTracksProcessed, false);
+  assert.strictEqual(polish.processedTrackCount, 0);
+
+  const review = audio.buildReviewSummary(episode, polish, {});
+  assert.strictEqual(review.readyForExport, false, "a chosen preset alone must not satisfy export readiness");
+});
+
+test("buildReviewSummary includes audio in the export path once every track is polished", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const processed = audio.processTracks(audio.createPolish(episode));
+  const polish = audio.summarizePolish(processed);
   const review = audio.buildReviewSummary(episode, polish, {
     styleName: "Studio Spotlight",
     templateName: "Founders Unfiltered",
@@ -85,10 +98,58 @@ test("buildReviewSummary includes audio in the export path", () => {
   assert.strictEqual(review.audioPreset, "Clean");
   assert.strictEqual(review.styleName, "Studio Spotlight");
   assert.strictEqual(review.readyForExport, true);
+  assert.strictEqual(review.polishedTracks.length, 3);
   assert.ok(review.summaryLines.some((line) => line.indexOf("Audio:") === 0));
+  assert.ok(review.summaryLines.some((line) => line.includes("3/3 tracks polished")));
 });
 
-test("ACCEPTANCE: episode setup flows into audio polish and saves a review summary", () => {
+test("speaker tracks start unprocessed and gain a saved output reference after processTracks", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const polish = audio.createPolish(episode);
+  assert.ok(polish.speakers.every((track) => track.processed === false));
+  assert.ok(polish.speakers.every((track) => !track.outputRef));
+
+  const processed = audio.processTracks(polish);
+  assert.strictEqual(audio.allTracksProcessed(processed), true);
+  processed.speakers.forEach((track) => {
+    assert.strictEqual(track.processed, true);
+    assert.ok(track.outputRef, "processed track must have a saved polished output reference");
+    assert.ok(typeof track.processedAt === "number");
+  });
+});
+
+test("changing a control after processing makes tracks stale until reprocessed", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  let polish = audio.processTracks(audio.createPolish(episode));
+  assert.strictEqual(audio.allTracksProcessed(polish), true);
+
+  // Adjusting a control changes intent but does not re-polish the tracks by itself.
+  polish = audio.updateControl(polish, "noiseCleanup", "strong");
+  assert.strictEqual(audio.allTracksProcessed(polish), false);
+  assert.strictEqual(audio.summarizePolish(polish).allTracksProcessed, false);
+
+  polish = audio.processTracks(polish);
+  assert.strictEqual(audio.allTracksProcessed(polish), true);
+});
+
+test("restorePolish carries forward applied settings and still-valid polished tracks", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const applied = audio.summarizePolish(audio.processTracks(audio.applyPreset(audio.createPolish(episode), "studio")));
+  assert.strictEqual(applied.allTracksProcessed, true);
+
+  // Simulate reloading the episode: only the saved summary survives, the working
+  // polish object is rebuilt from scratch.
+  const restored = audio.restorePolish(episode, applied);
+  assert.strictEqual(restored.presetId, "studio");
+  assert.strictEqual(restored.noiseCleanup, "strong");
+  assert.strictEqual(audio.allTracksProcessed(restored), true, "previously polished tracks should still count after reload");
+
+  const restoredSummary = audio.summarizePolish(restored);
+  assert.strictEqual(restoredSummary.allTracksProcessed, true);
+  assert.strictEqual(restoredSummary.processedTrackCount, 3);
+});
+
+test("ACCEPTANCE: episode setup flows into audio polish and saves a review summary only once every track is polished", () => {
   const draft = completeUploadDraft();
   assert.strictEqual(setup.validateDraft(draft).ok, true);
 
@@ -98,9 +159,19 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
 
   polish = audio.applyPreset(polish, "clean");
   polish = audio.updateControl(polish, "speechClarity", "strong");
+
+  // Settings chosen but not yet applied to the tracks — not export-ready.
+  const pending = audio.summarizePolish(polish);
+  assert.strictEqual(pending.allTracksProcessed, false);
+  assert.strictEqual(audio.buildReviewSummary(episode, pending, {}).readyForExport, false);
+
+  // Applying processes every speaker track and saves its polished output.
+  polish = audio.processTracks(polish);
   const applied = audio.summarizePolish(polish);
   assert.strictEqual(applied.presetName, "Clean");
   assert.strictEqual(applied.speechClarityLabel, "Strong");
+  assert.strictEqual(applied.allTracksProcessed, true);
+  assert.strictEqual(applied.processedTrackCount, episode.speakerCount);
 
   const review = audio.buildReviewSummary(episode, applied, {});
   assert.strictEqual(review.readyForExport, true);
