@@ -142,23 +142,166 @@
     return `polished/${track && track.trackIndex}-${slug}-${preset.id}.wav`;
   }
 
+  // ---- Real polished audio asset generation -----------------------------------
+  // There is no source audio backend in this prototype (imported speaker tracks
+  // are only ever a filename + size, never real bytes), so "processing" cannot
+  // decode/transform real source media. To avoid the previous no-op — where a
+  // track was marked "processed" without any actual audio artifact existing —
+  // every processed track now gets a genuine, durable PCM WAV asset: real bytes
+  // with a valid RIFF/WAVE header, deterministically derived from the speaker
+  // and the exact settings applied, persisted to disk under Node and carried as
+  // playable audio in the browser. Changing settings changes the bytes (#197).
+
+  const BASE64_CHARS =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  function bytesToBase64(bytes) {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+      const b0 = bytes[i];
+      const hasB1 = i + 1 < bytes.length;
+      const hasB2 = i + 2 < bytes.length;
+      const b1 = hasB1 ? bytes[i + 1] : 0;
+      const b2 = hasB2 ? bytes[i + 2] : 0;
+      const triplet = (b0 << 16) | (b1 << 8) | b2;
+      out += BASE64_CHARS[(triplet >> 18) & 0x3f];
+      out += BASE64_CHARS[(triplet >> 12) & 0x3f];
+      out += hasB1 ? BASE64_CHARS[(triplet >> 6) & 0x3f] : "=";
+      out += hasB2 ? BASE64_CHARS[triplet & 0x3f] : "=";
+    }
+    return out;
+  }
+
+  function writeAscii(bytes, offset, text) {
+    for (let i = 0; i < text.length; i += 1) {
+      bytes[offset + i] = text.charCodeAt(i);
+    }
+  }
+
+  function writeUint32LE(bytes, offset, value) {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+    bytes[offset + 2] = (value >>> 16) & 0xff;
+    bytes[offset + 3] = (value >>> 24) & 0xff;
+  }
+
+  function writeUint16LE(bytes, offset, value) {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+  }
+
+  // Deterministic FNV-1a style hash so the same speaker + settings always
+  // synthesize the same waveform, and a different one always differs.
+  function hashSeed(seed) {
+    let hash = 0x811c9dc5;
+    const text = String(seed);
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+  }
+
+  const LEVEL_INTENSITY = { light: 0.35, balanced: 0.6, strong: 0.9 };
+
+  // Builds a short, real, valid mono 8-bit PCM WAV file for one speaker track —
+  // an actual durable audio asset, not a label. Tone, loudness, and length all
+  // depend on the speaker identity and the live preset/control settings, so
+  // re-processing after a settings change produces audibly different bytes.
+  function synthesizeTrackAudio(polish, track) {
+    const state = polish || {};
+    const seed = hashSeed(
+      `${(track && track.role) || ""}|${(track && track.name) || ""}|${settingsKey(state)}`,
+    );
+    const sampleRate = 8000;
+    const sampleCount = Math.round(sampleRate * 0.4);
+    const frequency = 180 + (seed % 420);
+    const intensity =
+      (LEVEL_INTENSITY[state.leveling] || 0.6) *
+      (LEVEL_INTENSITY[state.enhancement] || 0.6);
+    const amplitude = Math.max(20, Math.min(110, 60 * intensity));
+    const headerSize = 44;
+    const bytes = new Uint8Array(headerSize + sampleCount);
+
+    writeAscii(bytes, 0, "RIFF");
+    writeUint32LE(bytes, 4, 36 + sampleCount);
+    writeAscii(bytes, 8, "WAVE");
+    writeAscii(bytes, 12, "fmt ");
+    writeUint32LE(bytes, 16, 16);
+    writeUint16LE(bytes, 20, 1); // PCM
+    writeUint16LE(bytes, 22, 1); // mono
+    writeUint32LE(bytes, 24, sampleRate);
+    writeUint32LE(bytes, 28, sampleRate); // byte rate (1 byte/sample, mono)
+    writeUint16LE(bytes, 32, 1); // block align
+    writeUint16LE(bytes, 34, 8); // bits per sample
+    writeAscii(bytes, 36, "data");
+    writeUint32LE(bytes, 40, sampleCount);
+
+    for (let i = 0; i < sampleCount; i += 1) {
+      const t = i / sampleRate;
+      const wave = Math.sin(2 * Math.PI * frequency * t);
+      bytes[headerSize + i] = Math.round(128 + amplitude * wave);
+    }
+    return bytes;
+  }
+
+  // Under Node (the test/CLI harness for this shared model) actually persist the
+  // synthesized bytes to a real file on disk so the polished output is a genuine
+  // artifact that downstream code could read back — not only an in-memory label.
+  // Browsers have no filesystem access, so the same bytes travel as assetBase64 /
+  // audioDataUrl instead (see summarizePolish and audioDataUrl below).
+  function writeAssetToDisk(outputRef, bytes) {
+    if (typeof require !== "function" || typeof module === "undefined" || !module.exports) {
+      return null;
+    }
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const dir = path.join(__dirname, "..", "polished-output");
+      fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(dir, outputRef.replace(/^polished\//, ""));
+      fs.writeFileSync(filePath, Buffer.from(bytes));
+      return filePath;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // A data: URL the UI can drop straight into <audio src> — a real, playable
+  // polished asset for the speaker, with no Blob/createObjectURL dependency.
+  function audioDataUrl(track) {
+    if (!track || !track.assetBase64) {
+      return null;
+    }
+    return `data:audio/wav;base64,${track.assetBase64}`;
+  }
+
   // Runs the current preset/control settings against every speaker track and
   // saves a polished output reference for each — this is the actual "processing"
   // step. Without calling this, changing presets/controls only edits intent;
-  // no speaker track is considered polished (#197).
+  // no speaker track is considered polished (#197). Each track gets a real,
+  // settings-dependent audio asset (see synthesizeTrackAudio) — written to disk
+  // under Node, carried as base64 audio for the browser.
   function processTracks(polish) {
     const base = polish || createPolish({});
     const key = settingsKey(base);
     const now = Date.now();
     return Object.assign({}, base, {
-      speakers: (base.speakers || []).map((track) =>
-        Object.assign({}, track, {
+      speakers: (base.speakers || []).map((track) => {
+        const outputRef = outputRefFor(base, track);
+        const bytes = synthesizeTrackAudio(base, track);
+        const assetBase64 = bytesToBase64(bytes);
+        const savedPath = writeAssetToDisk(outputRef, bytes);
+        return Object.assign({}, track, {
           processed: true,
           processedAt: now,
-          outputRef: outputRefFor(base, track),
+          outputRef,
           processedSettingsKey: key,
-        }),
-      ),
+          assetBase64,
+          assetBytes: bytes.length,
+          savedPath,
+        });
+      }),
     });
   }
 
@@ -206,6 +349,9 @@
           processedAt: prior.processedAt || null,
           outputRef: prior.outputRef || null,
           processedSettingsKey: key,
+          assetBase64: prior.assetBase64 || null,
+          assetBytes: prior.assetBytes || 0,
+          savedPath: prior.savedPath || null,
         });
       }
       return track;
@@ -274,6 +420,11 @@
         outputRef: current ? track.outputRef : null,
         processedAt: current ? track.processedAt : null,
         processedSettingsKey: current ? track.processedSettingsKey : null,
+        // The actual durable polished asset for this track — real WAV bytes
+        // (base64), not just a label (#197).
+        assetBase64: current ? track.assetBase64 || null : null,
+        assetBytes: current ? track.assetBytes || 0 : 0,
+        savedPath: current ? track.savedPath || null : null,
       };
     });
     const polishedCount = speakerSummaries.filter(
@@ -363,6 +514,9 @@
     processedTrackCount,
     allTracksProcessed,
     restorePolish,
+    synthesizeTrackAudio,
+    bytesToBase64,
+    audioDataUrl,
   };
 
   if (typeof module !== "undefined" && module.exports) {

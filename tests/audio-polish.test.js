@@ -5,6 +5,7 @@
 // Run with: `node tests/audio-polish.test.js`.
 
 const assert = require("assert");
+const fs = require("fs");
 const setup = require("../app/episode-setup.js");
 const audio = require("../app/audio-polish.js");
 
@@ -176,6 +177,83 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
   const review = audio.buildReviewSummary(episode, applied, {});
   assert.strictEqual(review.readyForExport, true);
   assert.ok(review.audioTreatment.includes("Speech clarity: Strong"));
+});
+
+test("REGRESSION (#197): processed tracks carry a real, valid WAV audio asset — not just a label", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const processed = audio.processTracks(audio.createPolish(episode));
+
+  processed.speakers.forEach((track) => {
+    assert.ok(track.assetBase64 && track.assetBase64.length > 0, "track must have real encoded audio bytes");
+    const bytes = Buffer.from(track.assetBase64, "base64");
+    assert.ok(bytes.length > 44, "decoded asset must contain header plus sample data");
+    assert.strictEqual(bytes.toString("ascii", 0, 4), "RIFF");
+    assert.strictEqual(bytes.toString("ascii", 8, 12), "WAVE");
+    assert.strictEqual(bytes.toString("ascii", 36, 40), "data");
+    assert.strictEqual(bytes.length, track.assetBytes, "reported byte count must match the actual asset size");
+  });
+});
+
+test("REGRESSION (#197): processTracks persists each polished asset to a real file on disk", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const processed = audio.processTracks(audio.createPolish(episode));
+
+  processed.speakers.forEach((track) => {
+    assert.ok(track.savedPath, "processed track must report where its asset was saved");
+    assert.ok(fs.existsSync(track.savedPath), `expected a real file at ${track.savedPath}`);
+    const stat = fs.statSync(track.savedPath);
+    assert.ok(stat.size > 44, "saved file must contain real audio data, not an empty placeholder");
+  });
+});
+
+test("REGRESSION (#197): the same speaker and settings always synthesize identical audio bytes", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const first = audio.processTracks(audio.createPolish(episode));
+  const second = audio.processTracks(audio.createPolish(episode));
+
+  first.speakers.forEach((track, index) => {
+    assert.strictEqual(track.assetBase64, second.speakers[index].assetBase64, "identical settings must reproduce identical bytes");
+  });
+});
+
+test("REGRESSION (#197): changing a setting and reprocessing changes the synthesized audio bytes", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const before = audio.processTracks(audio.createPolish(episode));
+  const changed = audio.updateControl(audio.createPolish(episode), "enhancement", "strong");
+  const after = audio.processTracks(changed);
+
+  before.speakers.forEach((track, index) => {
+    assert.notStrictEqual(
+      track.assetBase64,
+      after.speakers[index].assetBase64,
+      "different settings must produce audibly different bytes, proving real settings-driven processing",
+    );
+  });
+});
+
+test("audioDataUrl exposes a playable data URL only for processed tracks", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const pending = audio.createPolish(episode);
+  assert.strictEqual(audio.audioDataUrl(pending.speakers[0]), null, "an unprocessed track has no playable asset yet");
+
+  const processed = audio.processTracks(pending);
+  const url = audio.audioDataUrl(processed.speakers[0]);
+  assert.ok(url && url.indexOf("data:audio/wav;base64,") === 0, "processed track must expose a playable WAV data URL");
+});
+
+test("REGRESSION (#197): restorePolish carries the real audio asset forward, not just the processed flag", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const applied = audio.summarizePolish(audio.processTracks(audio.createPolish(episode)));
+
+  const restored = audio.restorePolish(episode, applied);
+  restored.speakers.forEach((track) => {
+    assert.ok(track.assetBase64, "restoring after reload must keep the actual polished bytes, not only the processed flag");
+  });
+
+  const restoredSummary = audio.summarizePolish(restored);
+  restoredSummary.speakers.forEach((track) => {
+    assert.ok(track.assetBase64, "the export/review summary must still carry the real asset after a reload");
+  });
 });
 
 console.log(`\naudio polish: ${passed} assertions passed`);

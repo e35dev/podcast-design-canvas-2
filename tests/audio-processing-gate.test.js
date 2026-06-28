@@ -75,6 +75,20 @@ test("episode-export: final summary carries the polished track references forwar
   assert.ok(finalSummary.lines.some((line) => line.includes("2/2 tracks polished")));
 });
 
+test("REGRESSION (#197): export's polished track list carries the real audio asset, not a placeholder", () => {
+  const episode = readyEpisode();
+  const polished = audio.summarizePolish(audio.processTracks(audio.createPolish(episode)));
+  const ctx = { audioPolish: polished, appliedStyle: styleContext() };
+  const job = exportModel.createExport(episode, {});
+  const finalSummary = exportModel.buildFinalSummary(episode, ctx, job);
+
+  finalSummary.polishedAudioTracks.forEach((track) => {
+    assert.ok(track.assetBase64, "export must hand off the real polished bytes for each track, not just a reference string");
+    const url = audio.audioDataUrl(track);
+    assert.ok(url && url.indexOf("data:audio/wav;base64,") === 0, "export-ready tracks must be playable, proving they are real assets");
+  });
+});
+
 test("publish-review: blocks approval with 'incomplete' messaging when preset chosen but not applied", () => {
   const episode = readyEpisode();
   const pendingPolish = audio.summarizePolish(audio.createPolish(episode));

@@ -1983,6 +1983,17 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-track-player {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin-top: 10px;
+}
+
+.export-polished-audio .audio-track {
+  background: #fff;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;

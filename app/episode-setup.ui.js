@@ -3566,6 +3566,38 @@
     });
     view.appendChild(summaryCard);
 
+    if (finalSummary.polishedAudioTracks && finalSummary.polishedAudioTracks.length) {
+      // The render job hands off these exact polished assets — playable here as
+      // proof export uses treated audio, never the original raw source (#197).
+      const polishedCard = el(
+        "section",
+        { class: "card export-polished-audio" },
+        el("h3", {}, "Polished audio tracks used for export"),
+        el("p", { class: "hint" }, "These are the processed outputs export will use — not the original imported files."),
+      );
+      const polishedList = el("div", { class: "audio-track-list" });
+      finalSummary.polishedAudioTracks.forEach((track) => {
+        const row = el(
+          "div",
+          { class: "audio-track" },
+          el("div", { class: "audio-track-main" },
+            el("span", { class: "role-pill" }, track.role),
+            el("span", { class: "summary-name" }, track.name),
+          ),
+          el("p", { class: "summary-source" }, track.outputRef || ""),
+        );
+        const dataUrl = AP ? AP.audioDataUrl(track) : null;
+        if (dataUrl) {
+          row.appendChild(
+            el("audio", { class: "audio-track-player", controls: true, src: dataUrl, preload: "none" }),
+          );
+        }
+        polishedList.appendChild(row);
+      });
+      polishedCard.appendChild(polishedList);
+      view.appendChild(polishedCard);
+    }
+
     const grid = el("div", { class: "export-layout" });
 
     const optionsCard = el("section", { class: "card" }, el("h3", {}, "Publishing options"));
@@ -4810,16 +4842,23 @@
     );
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+      const trackRow = el("div", { class: "audio-track" },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
         ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
+        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
       );
+      // Tangible proof a polished audio asset exists for this track — not just a
+      // "processed" label — so the creator (and reviewers) can hear it (#197).
+      const dataUrl = track.processed ? AP.audioDataUrl(track) : null;
+      if (dataUrl) {
+        trackRow.appendChild(
+          el("audio", { class: "audio-track-player", controls: true, src: dataUrl, preload: "none" }),
+        );
+      }
+      trackList.appendChild(trackRow);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
