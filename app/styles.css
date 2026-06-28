@@ -2053,6 +2053,52 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-track-complete {
+  border-color: rgba(34, 153, 84, 0.5);
+  background: rgba(34, 153, 84, 0.05);
+}
+
+.audio-track-blocked {
+  border-color: rgba(214, 122, 0, 0.55);
+  background: rgba(214, 122, 0, 0.05);
+}
+
+.audio-track-status {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.audio-track-status.is-complete {
+  color: #1e7a45;
+  background: rgba(34, 153, 84, 0.14);
+}
+
+.audio-track-status.is-blocked {
+  color: #9a5800;
+  background: rgba(214, 122, 0, 0.16);
+}
+
+.audio-track-derived {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted, #6b7280);
+  word-break: break-word;
+}
+
+.audio-polish-complete-note {
+  margin-top: 10px;
+  font-weight: 600;
+  color: #1e7a45;
+}
+
+.audio-polish-blocked-note {
+  margin-top: 10px;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;

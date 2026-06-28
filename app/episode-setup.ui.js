@@ -52,6 +52,7 @@
   let layoutCustomized = false;
   let audioPolish = null;
   let appliedAudioPolish = null;
+  let audioPolishResult = null;
   const TPL_STORAGE_KEY = "pdc-show-templates";
   const GALLERY_STORAGE_KEY = "pdc-creator-gallery";
   let templateStore = TM ? TM.deserializeStore(safeLoadTemplates()) : { templates: [] };
@@ -344,6 +345,65 @@
     });
   }
 
+  // Read a stored media blob back out of IndexedDB so audio polish can process the REAL
+  // bytes (not just the asset metadata). Returns null when the record is missing.
+  function readSourceMediaBlob(assetId) {
+    const id = trim(assetId);
+    if (!id) {
+      return Promise.resolve(null);
+    }
+    return openSourceMediaDb().then((db) => new Promise((resolve) => {
+      let record = null;
+      const tx = db.transaction(SOURCE_MEDIA_STORE, "readonly");
+      tx.oncomplete = () => {
+        db.close();
+        resolve(record);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(null);
+      };
+      const getReq = tx.objectStore(SOURCE_MEDIA_STORE).get(id);
+      getReq.onsuccess = () => {
+        record = getReq.result || null;
+      };
+      getReq.onerror = () => {
+        record = null;
+      };
+    })).catch(() => null);
+  }
+
+  // Before polishing, make sure each uploaded speaker's REAL bytes are available as a
+  // base64 dataUrl on its sourceMedia. When the bytes live in IndexedDB (storage:
+  // "indexedDB", no inline dataUrl), read the blob back and encode it so the polish
+  // transform operates on the actual imported media. Mutates the live setup draft so the
+  // hydrated bytes also flow into the next session snapshot. Resolves even if a read
+  // fails (the polish model then falls back to an asset-identity seed).
+  function hydrateSourceMediaBytes() {
+    const speakers = (state && Array.isArray(state.speakers)) ? state.speakers : [];
+    const jobs = speakers.map((speaker) => {
+      const media = speaker && speaker.sourceMedia;
+      if (!media || !media.assetId || trim(media.dataUrl)) {
+        return Promise.resolve();
+      }
+      return readSourceMediaBlob(media.assetId).then((record) => {
+        const blob = record && record.blob;
+        if (!blob || typeof blob.arrayBuffer !== "function") {
+          if (record && typeof record.dataUrl === "string" && record.dataUrl) {
+            media.dataUrl = record.dataUrl;
+          }
+          return;
+        }
+        return readFileAsDataUrl(blob).then((dataUrl) => {
+          if (dataUrl) {
+            media.dataUrl = dataUrl;
+          }
+        });
+      }).catch(() => {});
+    });
+    return Promise.all(jobs);
+  }
+
   function sourceMediaAssetId(index, file) {
     const scope = [activeShowId || "new-show", activeEpisodeId || "new-episode", `speaker-${index + 1}`]
       .join("-");
@@ -388,6 +448,7 @@
       styleSelection: styleSelection,
       appliedStyle: appliedStyle,
       appliedAudioPolish: appliedAudioPolish,
+      audioPolishResult: audioPolishResult,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
       publishReviewApprovedAt: publishReviewApprovedAt,
@@ -424,6 +485,7 @@
     styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
     appliedStyle = data.appliedStyle || null;
     appliedAudioPolish = data.appliedAudioPolish || null;
+    audioPolishResult = data.audioPolishResult || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
     publishReviewApprovedAt = data.publishReviewApprovedAt || null;
@@ -1580,6 +1642,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishResult = null;
     activeTemplateId = null;
     canvasDoc = null;
     canvasLayerCounter = 20;
@@ -1651,7 +1714,8 @@
     styleSelection = STY ? STY.createSelection() : null;
     layoutCustomized = false;
     audioPolish = AP ? AP.createPolish(ES.summarize(state)) : null;
-    appliedAudioPolish = AP && audioPolish ? AP.summarizePolish(audioPolish) : null;
+    audioPolishResult = AP && audioPolish ? AP.summarizePolishResult(audioPolish, ES.summarize(state)) : null;
+    appliedAudioPolish = audioPolishResult || (AP && audioPolish ? AP.summarizePolish(audioPolish) : null);
     activeTemplateId = null;
     canvasDoc = null;
     exportJob = null;
@@ -1744,6 +1808,7 @@
     layoutCustomized = false;
     audioPolish = null;
     appliedAudioPolish = null;
+    audioPolishResult = null;
     activeTemplateId = null;
     activeGalleryListingId = null;
     canvasDoc = null;
@@ -2663,6 +2728,7 @@
     if (AP) {
       audioPolish = AP.createPolish(summary);
       appliedAudioPolish = null;
+      audioPolishResult = null;
     }
     contextApproved = false;
     contextReview = SC ? SC.createReview(summary) : null;
@@ -4997,33 +5063,102 @@
 
     const tracksCard = el("section", { class: "card" }, el("h3", {}, "Speaker tracks"));
     tracksCard.appendChild(
-      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
+      el("p", { class: "hint" }, "Each imported source receives the treatment you choose above. Apply creates a polished track derived from the real uploaded media."),
     );
     const trackList = el("div", { class: "audio-track-list" });
+    // Preview the result for the current settings so creators see exactly what Apply will
+    // produce (status per speaker), but only persist on Apply.
+    const preview = AP.summarizePolishResult(audioPolish, summary);
+    const previewById = {};
+    (preview.tracks || []).forEach((row) => { previewById[`${row.role}|${row.name}`] = row; });
+    const applied = audioPolishResult && AP.isPolishComplete(audioPolishResult)
+      ? audioPolishResult
+      : null;
+    const appliedById = {};
+    if (applied) {
+      (applied.tracks || []).forEach((row) => { appliedById[`${row.role}|${row.name}`] = row; });
+    }
     audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+      const key = `${track.role}|${track.name}`;
+      const row = appliedById[key] || previewById[key] || {};
+      const done = row.status === "complete" && row.output;
+      const sourceName = (row.sourceTrack && row.sourceTrack.fileName) || track.sourceLabel;
+      const trackEl = el("div", { class: `audio-track${done ? " audio-track-complete" : " audio-track-blocked"}` },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
+          el("span", { class: `audio-track-status${done ? " is-complete" : " is-blocked"}` },
+            done ? "Complete" : "Needs source media"),
         ),
+        el("p", { class: "summary-source" },
+          done
+            ? `${sourceName} → ${row.output.derivedFrom} (${row.output.durationLabel})`
+            : `${sourceName} · ${row.statusLabel || "Needs source media"}`),
       );
+      if (done) {
+        trackEl.appendChild(
+          el("p", { class: "audio-track-derived hint" },
+            `Polished from real media · source ${row.output.sourceByteLength}B (#${row.output.sourceChecksum}) → polished ${row.output.polishedByteLength}B (#${row.output.polishedChecksum})`),
+        );
+        trackEl.appendChild(
+          el("span", { class: "audio-track-badge" },
+            `${preview.presetName} · ${preview.treatmentLine}`),
+        );
+      }
+      trackList.appendChild(trackEl);
     });
     tracksCard.appendChild(trackList);
+    if (preview.blockedCount > 0) {
+      tracksCard.appendChild(
+        el("p", { class: "field-error audio-polish-blocked-note" },
+          `${preview.blockedCount} speaker${preview.blockedCount === 1 ? "" : "s"} need imported source media before audio polish can complete: ${preview.blockedRoles.join(", ")}.`),
+      );
+    } else if (applied) {
+      tracksCard.appendChild(
+        el("p", { class: "audio-polish-complete-note" },
+          `Audio polish complete · ${applied.polishedCount} polished track${applied.polishedCount === 1 ? "" : "s"} (originals preserved).`),
+      );
+    }
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
-    const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+    const applyLabel = preview.blockedCount > 0 ? "Apply audio polish →" : "Apply audio & continue →";
+    const applyButton = el("button", { type: "button", class: "primary" }, applyLabel);
     applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
-      }
+      applyButton.disabled = true;
+      // Preserve the four chosen levels — rebuilding the polish below must keep them.
+      const polishLevels = {};
+      AP.CONTROLS.forEach((control) => { polishLevels[control.id] = audioPolish[control.id]; });
+      // Read the REAL imported bytes back out of IndexedDB (when they live there) so the
+      // polish transform runs on the actual uploaded media, then rebuild the summary +
+      // polish from the hydrated draft so the polished payload is derived from those bytes.
+      hydrateSourceMediaBytes().then(() => {
+        const hydratedSummary = ES.summarize(state);
+        audioPolish = AP.applyPreset(
+          Object.assign({}, audioPolish, { speakers: AP.buildSpeakerTracks(hydratedSummary) }),
+          audioPolish.presetId,
+        );
+        // Re-carry the four chosen levels onto the rebuilt polish (applyPreset reset them).
+        AP.CONTROLS.forEach((control) => {
+          audioPolish[control.id] = polishLevels[control.id];
+        });
+        const result = AP.summarizePolishResult(audioPolish, hydratedSummary);
+        audioPolishResult = result;
+        // appliedAudioPolish keeps the rolled-up summary fields the rest of the workspace
+        // already reads, now backed by the real polished result (tracks + completion).
+        appliedAudioPolish = result;
+        persistEpisodeSession();
+        if (!AP.isPolishComplete(result)) {
+          // Some speakers lack imported media — surface honestly, do not complete/advance.
+          renderAudioPolish(hydratedSummary);
+          return;
+        }
+        if (STY && !appliedStyle) {
+          renderStyle(hydratedSummary);
+        } else {
+          renderWorkspace(hydratedSummary);
+        }
+      });
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {

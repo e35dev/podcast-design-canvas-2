@@ -26,6 +26,20 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  // The actual polished track records produced by audio polish (#257). Export and review
+  // consume THESE records — the polished outputs derived from the real imported media —
+  // not a preset name or a count.
+  function polishedOutputs(audioPolish) {
+    const tracks = audioPolish && Array.isArray(audioPolish.tracks) ? audioPolish.tracks : [];
+    return tracks.filter((track) => track && track.status === "complete" && track.output
+      && track.output.derivedFrom && track.polishedId);
+  }
+
+  function blockedPolishTracks(audioPolish) {
+    const tracks = audioPolish && Array.isArray(audioPolish.tracks) ? audioPolish.tracks : [];
+    return tracks.filter((track) => track && (track.status !== "complete" || !track.output));
+  }
+
   function getPlatform(id) {
     return PLATFORMS.find((item) => item.id === id) || PLATFORMS[0];
   }
@@ -118,8 +132,16 @@
   function validateReadiness(context) {
     const ctx = context || {};
     const missing = [];
-    if (!ctx.audioPolish || !ctx.audioPolish.presetName) {
+    const audio = ctx.audioPolish;
+    if (!audio || !audio.presetName) {
       missing.push("audio");
+    } else if (Array.isArray(audio.tracks) && audio.tracks.length) {
+      // When audio polish produced per-speaker track records, export requires a polished
+      // output for every assigned speaker — a speaker still needing imported source media
+      // is not export-ready (this is exactly where #217/#219 fell down).
+      if (blockedPolishTracks(audio).length || !polishedOutputs(audio).length) {
+        missing.push("audio");
+      }
     }
     if (!ctx.appliedStyle || !ctx.appliedStyle.presetName) {
       missing.push("style");
@@ -156,6 +178,13 @@
 
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
       lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
+      const polishedTracks = polishedOutputs(ctx.audioPolish);
+      if (polishedTracks.length) {
+        lines.push(`Polished tracks: using ${polishedTracks.length} polished track${polishedTracks.length === 1 ? "" : "s"} (originals preserved)`);
+        polishedTracks.forEach((track) => {
+          lines.push(`  · ${track.role} ${track.name}: ${track.polishedId} ← ${track.output.derivedFrom}`);
+        });
+      }
     }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
@@ -260,6 +289,8 @@
     getResolution,
     getCaptionMode,
     createExport,
+    polishedOutputs,
+    blockedPolishTracks,
     validateReadiness,
     validatePublishReviewGate,
     validateExportAuthorization,

@@ -98,13 +98,40 @@
       ));
     }
 
-    if (context.audioPolish && context.audioPolish.presetName) {
+    const audioPolish = context.audioPolish;
+    const polishedTracks = audioPolish && Array.isArray(audioPolish.tracks)
+      ? audioPolish.tracks.filter((track) => track && track.status === "complete" && track.output && track.output.derivedFrom)
+      : [];
+    const blockedTracks = audioPolish && Array.isArray(audioPolish.tracks)
+      ? audioPolish.tracks.filter((track) => track && (track.status !== "complete" || !track.output))
+      : [];
+    if (audioPolish && audioPolish.presetName && Array.isArray(audioPolish.tracks) && audioPolish.tracks.length && blockedTracks.length) {
+      // Audio was opened but some speakers still lack imported source media — the polished
+      // tracks the export will use are incomplete, so this blocks publish honestly.
+      checks.push(check(
+        "audio-incomplete",
+        "audio",
+        "blocker",
+        "Audio polish incomplete",
+        `${blockedTracks.length} speaker${blockedTracks.length === 1 ? "" : "s"} still need imported source media before audio polish can finish.`,
+        { label: "Polish audio", target: FIX_TARGETS.audio },
+      ));
+    } else if (audioPolish && audioPolish.presetName && polishedTracks.length) {
       checks.push(check(
         "audio-ready",
         "audio",
         "ok",
         "Audio polished",
-        `${context.audioPolish.presetName} · ${context.audioPolish.treatmentLine || "treatment applied"}`,
+        `${audioPolish.presetName} · using ${polishedTracks.length} polished track${polishedTracks.length === 1 ? "" : "s"} (originals preserved)`,
+        null,
+      ));
+    } else if (audioPolish && audioPolish.presetName) {
+      checks.push(check(
+        "audio-ready",
+        "audio",
+        "ok",
+        "Audio polished",
+        `${audioPolish.presetName} · ${audioPolish.treatmentLine || "treatment applied"}`,
         null,
       ));
     } else {
@@ -218,7 +245,10 @@
       ));
     }
 
-    const exportReady = Boolean(context.audioPolish && context.audioPolish.presetName
+    const audioExportReady = Boolean(audioPolish && audioPolish.presetName
+      && (!Array.isArray(audioPolish.tracks) || !audioPolish.tracks.length
+        || (polishedTracks.length && !blockedTracks.length)));
+    const exportReady = Boolean(audioExportReady
       && context.appliedStyle && context.appliedStyle.presetName);
     if (exportReady) {
       checks.push(check(

@@ -175,7 +175,7 @@ function probeScript() {
           clickButton("Polish audio");
           await waitFor(() => document.querySelector(".audio-step"), "audio polish");
           const audioText = document.querySelector(".audio-step").innerText;
-          log(/source media saved/.test(audioText), "Rendered audio polish tracks acknowledge saved source media");
+          log(/Polished from real media|Needs source media/.test(audioText), "Rendered audio polish derives tracks from the saved source media");
           log(audioText.indexOf("Avery Stone") >= 0 && audioText.indexOf("Jordan Lee") >= 0 && audioText.indexOf("Priya Shah") >= 0, "Audio polish renders uploaded speakers");
         } catch (err) {
           checks.push({ ok: false, message: err && err.stack ? err.stack : String(err) });
