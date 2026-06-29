@@ -121,6 +121,7 @@ function probeScript() {
           const moments = document.querySelector(".moments-step").innerText;
           log(/Polished audio ready/.test(moments), "Visual moments surfaces the polished audio outputs");
           log(/Polished audio ready — 3 playable tracks/.test(moments), "Visual moments confirms three polished tracks carried in");
+          log(document.querySelectorAll(".moments-audio-track-preview").length >= 3, "Visual moments exposes inline polished audio players");
           log(document.querySelectorAll(".timeline-speaker").length > 0, "Visual moments keeps the episode speaker context");
 
           clickButton("Hear polished audio");

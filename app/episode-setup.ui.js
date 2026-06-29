@@ -5593,7 +5593,10 @@
     );
 
     if (appliedAudioPolish && appliedAudioPolish.allTracksPolished) {
-      const polishedCount = appliedAudioPolish.polishedTrackCount || 0;
+      const polishedTracks = Array.isArray(appliedAudioPolish.polishedTracks)
+        ? appliedAudioPolish.polishedTracks.filter((track) => track.status === "complete")
+        : [];
+      const polishedCount = appliedAudioPolish.polishedTrackCount || polishedTracks.length;
       const audioBanner = el(
         "section",
         { class: "card moments-audio-confirm" },
@@ -5603,6 +5606,26 @@
           `Polished audio ready — ${polishedCount} playable track${polishedCount === 1 ? "" : "s"} carried into visual editing for ${summary.episodeName}.`,
         ),
       );
+      if (polishedTracks.length) {
+        const trackList = el("div", { class: "moments-audio-tracks" });
+        polishedTracks.forEach((track) => {
+          const row = el("div", { class: "moments-audio-track" },
+            el("span", { class: "role-pill" }, track.role || "Speaker"),
+            el("span", { class: "summary-name" }, track.name || `Track ${track.trackIndex}`),
+          );
+          const asset = track.polishedAsset || null;
+          const previewUrl = asset ? polishedPreviewById[asset.assetId] : null;
+          if (previewUrl) {
+            row.appendChild(el("audio", {
+              class: "moments-audio-track-preview",
+              controls: true,
+              src: previewUrl,
+            }));
+          }
+          trackList.appendChild(row);
+        });
+        audioBanner.appendChild(trackList);
+      }
       const hearLink = el(
         "button",
         { type: "button", class: "link-button moments-audio-confirm-link" },

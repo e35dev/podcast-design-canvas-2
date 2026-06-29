@@ -2118,6 +2118,27 @@ button.ghost:hover,
   white-space: nowrap;
 }
 
+.moments-audio-tracks {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.moments-audio-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.moments-audio-track-preview {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 100%;
+  height: 32px;
+}
+
 .audio-track-evidence {
   display: grid;
   gap: 6px;

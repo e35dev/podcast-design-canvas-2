@@ -6,6 +6,7 @@ import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
+import { minimalWavBase64 } from "./browser-fixtures.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = 8771;
@@ -47,7 +48,7 @@ function findChrome() {
   return "";
 }
 
-function probeScript() {
+function probeScript(wavBase64) {
   return `
     (function () {
       const checks = [];
@@ -92,12 +93,17 @@ function probeScript() {
         input.value = value;
         input.dispatchEvent(new Event("input", { bubbles: true }));
       }
-      function setMediaFile(selector, fileName, content) {
+      function setMediaFile(selector, fileName) {
         const input = document.querySelector(selector);
         if (!input) {
           throw new Error("File input missing: " + selector);
         }
-        const file = new File([content], fileName, { type: "audio/wav" });
+        const binary = atob(${JSON.stringify(wavBase64)});
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const file = new File([bytes], fileName, { type: "audio/wav" });
         const transfer = new DataTransfer();
         transfer.items.add(file);
         input.files = transfer.files;
@@ -156,9 +162,9 @@ function probeScript() {
           fill("#f-sp-0-name", "Avery Stone");
           fill("#f-sp-1-name", "Jordan Lee");
           fill("#f-sp-2-name", "Priya Shah");
-          setMediaFile("#f-sp-0-source", "avery-host.wav", "host-real-media");
-          setMediaFile("#f-sp-1-source", "jordan-guest.wav", "guest-one-real-media");
-          setMediaFile("#f-sp-2-source", "priya-guest.wav", "guest-two-real-media");
+          setMediaFile("#f-sp-0-source", "avery-host.wav");
+          setMediaFile("#f-sp-1-source", "jordan-guest.wav");
+          setMediaFile("#f-sp-2-source", "priya-guest.wav");
           await waitFor(() => {
             return Array.from(document.querySelectorAll(".chosen-file"))
               .filter((node) => /source media saved/.test(node.textContent || "")).length === 3;
@@ -177,6 +183,19 @@ function probeScript() {
           const audioText = document.querySelector(".audio-step").innerText;
           log(/source media saved/.test(audioText), "Rendered audio polish tracks acknowledge saved source media");
           log(audioText.indexOf("Avery Stone") >= 0 && audioText.indexOf("Jordan Lee") >= 0 && audioText.indexOf("Priya Shah") >= 0, "Audio polish renders uploaded speakers");
+
+          clickButton("Apply audio polish");
+          await waitFor(() => {
+            const step = document.querySelector(".audio-step");
+            return step && /Polish applied/.test(step.innerText) && step.querySelectorAll(".audio-track-evidence").length >= 3;
+          }, "polished track evidence");
+          clickButton("Continue to visual moments");
+          await waitFor(() => document.querySelector(".moments-step"), "visual moments editor");
+          const momentsText = document.querySelector(".moments-step").innerText;
+          log(/Polished audio ready/.test(momentsText), "Visual moments surfaces polished audio outputs (#269)");
+          log(momentsText.indexOf("Durable media ingest") >= 0, "Visual moments keeps the same episode context (#269)");
+          log(document.querySelectorAll(".moments-audio-track-preview").length >= 3, "Visual moments exposes playable polished tracks (#269)");
+          log(document.querySelectorAll(".timeline-speaker").length > 0, "Visual moments keeps speaker timeline context (#269)");
         } catch (err) {
           checks.push({ ok: false, message: err && err.stack ? err.stack : String(err) });
         }
@@ -194,6 +213,7 @@ function probeScript() {
 }
 
 function probeHtml() {
+  const wavBase64 = minimalWavBase64();
   return `<!doctype html>
     <html lang="en">
       <head><meta charset="utf-8"><title>Source media ingest probe</title></head>
@@ -201,7 +221,7 @@ function probeHtml() {
         <div id="page-intro"></div>
         <div id="app"></div>
         ${scriptTagsFromIndex()}
-        <script>${probeScript()}</script>
+        <script>${probeScript(wavBase64)}</script>
       </body>
     </html>`;
 }
@@ -245,7 +265,7 @@ const result = spawnSync(chrome, [
   "--disable-gpu",
   "--no-sandbox",
   "--disable-dev-shm-usage",
-  "--virtual-time-budget=10000",
+  "--virtual-time-budget=20000",
   "--dump-dom",
   `http://127.0.0.1:${port}/probe.html`,
 ], {

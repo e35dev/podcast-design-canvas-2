@@ -160,6 +160,7 @@ test("ACCEPTANCE: visual moments keeps polished-track outputs and episode contex
   assert.ok(momentsBlock.includes("moments-audio-confirm"), "visual moments surfaces the polished audio outputs");
   assert.ok(momentsBlock.includes("Polished audio ready"), "polished audio confirmation is shown at Step 4");
   assert.ok(momentsBlock.includes("Hear polished audio"), "creator can revisit the polished tracks");
+  assert.ok(momentsBlock.includes("moments-audio-track-preview"), "visual moments embeds playable polished tracks");
   assert.ok(momentsBlock.includes("Add visual moments to ${summary.episodeName}"), "visual moments keeps the episode context");
   assert.ok(ui.includes("VM.speakerOptions(summary)"), "moment editing keeps the episode speakers");
 });

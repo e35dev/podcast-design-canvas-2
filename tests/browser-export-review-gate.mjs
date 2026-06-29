@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { minimalWavFile } from "./browser-fixtures.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = 8767;
@@ -36,10 +37,16 @@ function startServer() {
 async function completeSetup(page) {
   await page.getByRole("button", { name: "Start blank episode" }).click();
   await page.waitForSelector("form.setup-import");
+  await page.locator("#mode-upload").click();
+  await page.waitForSelector("#f-sp-0-source");
   await page.locator("#f-episodeName").fill("Founders Unfiltered #7");
   await page.locator("#f-sp-0-name").fill("Sam Rivera");
   await page.locator("#f-sp-1-name").fill("Dana Kim");
   await page.locator("#f-sp-2-name").fill("Alex Chen");
+  await page.locator("#f-sp-0-source").setInputFiles(minimalWavFile("sam.wav"));
+  await page.locator("#f-sp-1-source").setInputFiles(minimalWavFile("dana.wav"));
+  await page.locator("#f-sp-2-source").setInputFiles(minimalWavFile("alex.wav"));
+  await page.locator(".chosen-file").filter({ hasText: "source media saved" }).nth(2).waitFor({ state: "visible" });
   await page.locator(".setup-preset-card").first().click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
@@ -49,6 +56,7 @@ async function polishAudioFromWorkspace(page) {
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").first().click();
   await page.getByRole("button", { name: "Apply audio polish" }).click();
+  await page.locator(".audio-step").getByText(/Polish applied/).waitFor({ state: "visible" });
   await page.getByRole("button", { name: "Continue to visual moments →" }).waitFor({ state: "visible" });
   await page.getByRole("button", { name: "← Back to workspace" }).click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
