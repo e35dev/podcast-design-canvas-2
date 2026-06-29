@@ -142,20 +142,26 @@ test("ACCEPTANCE: persisted library episode record matches fresh setup data", ()
 
 test("ACCEPTANCE: applied audio polish offers a forward action into visual moments (#269)", () => {
   const audioBlock = ui.slice(ui.indexOf("function renderAudioPolish"), ui.indexOf("function renderMomentPreview"));
-  assert.ok(audioBlock.includes("Apply audio polish"), "apply uses a dedicated apply label");
+  assert.ok(audioBlock.includes("Apply audio & continue →"), "apply advances through the forward production action");
   assert.ok(audioBlock.includes("Continue to visual moments →"), "post-apply shows a forward CTA into visual moments");
   assert.ok(audioBlock.includes("← Back to setup"), "back to setup remains available after apply");
   assert.ok(audioBlock.includes("← Back to workspace"), "a non-setup return path is also offered");
+  assert.ok(ui.includes("function advanceToVisualMoments"), "audio polish shares one advance helper");
 
-  const ctaIdx = audioBlock.indexOf("audio-continue-moments");
-  assert.ok(ctaIdx >= 0, "forward CTA is identifiable");
-  const ctaHandler = audioBlock.slice(ctaIdx, ctaIdx + 500);
-  assert.ok(ctaHandler.includes("renderVisualMoments(summary)"), "forward CTA opens the visual moments editor");
-  assert.ok(ctaHandler.includes('lastView = "moments"'), "forward CTA records moments as the resume view");
+  const advanceIdx = ui.indexOf("function advanceToVisualMoments");
+  assert.ok(advanceIdx >= 0, "advance helper is identifiable");
+  const advanceHandler = ui.slice(advanceIdx, advanceIdx + 300);
+  assert.ok(advanceHandler.includes("renderVisualMoments(summary)"), "advance opens the visual moments editor");
+  assert.ok(advanceHandler.includes('lastView = "moments"'), "advance records moments as the resume view");
+
+  const applyIdx = audioBlock.indexOf("Apply audio & continue →");
+  const applyHandler = audioBlock.slice(applyIdx, applyIdx + 700);
+  assert.ok(applyHandler.includes("advanceToVisualMoments(summary)"), "successful apply auto-advances into visual moments");
 });
 
 test("ACCEPTANCE: visual moments keeps polished-track outputs and episode context (#269)", () => {
   const momentsBlock = ui.slice(ui.indexOf("function renderVisualMoments"), ui.indexOf("function renderStyle"));
+  assert.ok(momentsBlock.includes('setStep("Step 4 of 7 · Visual moments")'), "visual moments advances the step indicator to Step 4");
   assert.ok(momentsBlock.includes("appliedAudioPolish.allTracksPolished"), "visual moments reads the polished audio state");
   assert.ok(momentsBlock.includes("moments-audio-confirm"), "visual moments surfaces the polished audio outputs");
   assert.ok(momentsBlock.includes("Polished audio ready"), "polished audio confirmation is shown at Step 4");

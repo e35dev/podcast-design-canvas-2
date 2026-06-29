@@ -5270,6 +5270,12 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
+  function advanceToVisualMoments(summary) {
+    lastView = "moments";
+    persistEpisodeSession();
+    renderVisualMoments(summary);
+  }
+
   function renderAudioPolish(summary) {
     if (!audioPolish) {
       audioPolish = AP.createPolish(summary);
@@ -5290,7 +5296,7 @@
       }
     }
     root.innerHTML = "";
-    setStep("Step 3 of 8 · Audio polish");
+    setStep("Step 3 of 7 · Audio polish");
 
     const view = el("div", { class: "audio-step" });
     view.appendChild(
@@ -5395,9 +5401,7 @@
         "Continue to visual moments →",
       );
       continueButton.addEventListener("click", () => {
-        lastView = "moments";
-        persistEpisodeSession();
-        renderVisualMoments(summary);
+        advanceToVisualMoments(summary);
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
@@ -5415,7 +5419,7 @@
       actions.appendChild(backToWorkspace);
       actions.appendChild(back);
     } else {
-      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio polish");
+      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
       applyButton.addEventListener("click", () => {
         applyButton.disabled = true;
         applyButton.textContent = "Polishing tracks…";
@@ -5424,8 +5428,10 @@
           if (!result.ok) {
             polishError.textContent = result.error || "Audio polish could not finish for every track.";
             polishError.hidden = false;
+            renderAudioPolish(summary);
+            return;
           }
-          renderAudioPolish(summary);
+          advanceToVisualMoments(summary);
         }).catch(() => {
           polishError.textContent = "Audio polish could not finish for every track.";
           polishError.hidden = false;
@@ -5566,7 +5572,7 @@
   function renderVisualMoments(summary) {
     ensureMomentsBoard(summary);
     root.innerHTML = "";
-    setStep("Step 6 of 8 · Visual moments");
+    setStep("Step 4 of 7 · Visual moments");
 
     const list = VM.listMoments(momentsBoard);
     // Keep the selected moment valid; default to the first moment so a preview is shown.

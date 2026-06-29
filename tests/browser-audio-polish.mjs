@@ -106,19 +106,9 @@ function probeScript() {
           log(beforeApply.indexOf("Sam Rivera") >= 0, "Audio polish renders demo speakers");
           log(/source media saved/.test(beforeApply), "Demo speakers show saved source media");
           clickButton("Apply audio");
-          await waitFor(() => {
-            const step = document.querySelector(".audio-step");
-            return step && /Polish applied/.test(step.innerText) && step.querySelectorAll(".audio-track-evidence").length >= 3;
-          }, "polished track evidence");
-          const afterApply = document.querySelector(".audio-step").innerText;
-          log(/Polish applied — 3 polished tracks/.test(afterApply), "Apply reports three polished tracks");
-          log(/polished track saved/.test(afterApply), "Speaker badges show polished track saved");
-          log(document.querySelectorAll(".audio-track-metrics").length === 3, "Each track shows before/after metrics");
-          log(document.querySelectorAll(".audio-track-download").length === 3, "Each track exposes a polished WAV download");
-
-          clickButton("Continue to visual moments");
-          await waitFor(() => document.querySelector(".moments-step"), "visual moments editor");
+          await waitFor(() => document.querySelector(".moments-step"), "visual moments editor after apply");
           const moments = document.querySelector(".moments-step").innerText;
+          log(/Step 4 of 7/.test(document.querySelector(".workflow-step-indicator")?.innerText || ""), "Step indicator advances to Step 4");
           log(/Polished audio ready/.test(moments), "Visual moments surfaces the polished audio outputs");
           log(/Polished audio ready — 3 playable tracks/.test(moments), "Visual moments confirms three polished tracks carried in");
           log(document.querySelectorAll(".moments-audio-track-preview").length >= 3, "Visual moments exposes inline polished audio players");

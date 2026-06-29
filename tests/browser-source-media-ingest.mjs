@@ -184,14 +184,10 @@ function probeScript(wavBase64) {
           log(/source media saved/.test(audioText), "Rendered audio polish tracks acknowledge saved source media");
           log(audioText.indexOf("Avery Stone") >= 0 && audioText.indexOf("Jordan Lee") >= 0 && audioText.indexOf("Priya Shah") >= 0, "Audio polish renders uploaded speakers");
 
-          clickButton("Apply audio polish");
-          await waitFor(() => {
-            const step = document.querySelector(".audio-step");
-            return step && /Polish applied/.test(step.innerText) && step.querySelectorAll(".audio-track-evidence").length >= 3;
-          }, "polished track evidence");
-          clickButton("Continue to visual moments");
-          await waitFor(() => document.querySelector(".moments-step"), "visual moments editor");
+          clickButton("Apply audio");
+          await waitFor(() => document.querySelector(".moments-step"), "visual moments editor after apply");
           const momentsText = document.querySelector(".moments-step").innerText;
+          log(/Step 4 of 7/.test(document.querySelector(".workflow-step-indicator")?.innerText || ""), "Step indicator advances to Step 4 (#269)");
           log(/Polished audio ready/.test(momentsText), "Visual moments surfaces polished audio outputs (#269)");
           log(momentsText.indexOf("Durable media ingest") >= 0, "Visual moments keeps the same episode context (#269)");
           log(document.querySelectorAll(".moments-audio-track-preview").length >= 3, "Visual moments exposes playable polished tracks (#269)");

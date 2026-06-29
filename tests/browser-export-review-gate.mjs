@@ -55,9 +55,9 @@ async function polishAudioFromWorkspace(page) {
   await page.locator("#workspace-primary-next, .workspace-checklist-open").filter({ hasText: "Polish audio" }).first().click();
   await page.locator(".audio-step").waitFor();
   await page.locator(".audio-preset-card").first().click();
-  await page.getByRole("button", { name: "Apply audio polish" }).click();
-  await page.locator(".audio-step").getByText(/Polish applied/).waitFor({ state: "visible" });
-  await page.getByRole("button", { name: "Continue to visual moments →" }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Apply audio & continue →" }).click();
+  await page.locator(".moments-step").waitFor({ state: "visible" });
+  await page.getByText("Step 4 of 7").waitFor({ state: "visible" });
   await page.getByRole("button", { name: "← Back to workspace" }).click();
   await page.locator(".guided-workspace").waitFor({ state: "visible" });
 }
