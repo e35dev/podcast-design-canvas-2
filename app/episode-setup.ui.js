@@ -1900,6 +1900,16 @@
       renderStyle(summary);
       return;
     }
+    if (destination === "moments") {
+      lastView = "moments";
+      // Resuming the post-audio visual moments handoff keeps the polished tracks
+      // available and shows the forward Step 4 indicator (#269).
+      const fromAudio = Boolean(appliedAudioPolish && appliedAudioPolish.allTracksPolished);
+      renderVisualMoments(summary, fromAudio
+        ? { stepLabel: (FLOW ? FLOW.nextStepAfterAudio().stepLabel : "Step 4 of 8 · Visual moments"), fromAudio: true }
+        : undefined);
+      return;
+    }
     if (destination === "context") {
       lastView = "context";
       if (!contextReview) {
@@ -5389,22 +5399,23 @@
     });
 
     if (hasApplied) {
-      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
-      continueButton.addEventListener("click", () => {
-        lastView = STY && !appliedStyle ? "style" : "workspace";
+      // Post-apply the polished tracks are saved; the primary forward action opens the
+      // visual moments / captions / overlays workflow for the same episode (#269),
+      // carrying the polished-track outputs and speaker/episode context. The moments
+      // step is reached as the next step, so its indicator advances to Step 4.
+      const nextStep = FLOW ? FLOW.nextStepAfterAudio() : { stepLabel: "Step 4 of 8 · Visual moments" };
+      const momentsButton = el("button", { type: "button", class: "primary" }, "Add visual moments →");
+      momentsButton.addEventListener("click", () => {
+        lastView = "moments";
         persistEpisodeSession();
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        renderVisualMoments(summary, { stepLabel: nextStep.stepLabel, fromAudio: true });
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
         invalidateAppliedPolish();
         renderAudioPolish(summary);
       });
-      actions.appendChild(continueButton);
+      actions.appendChild(momentsButton);
       actions.appendChild(reapply);
       actions.appendChild(back);
     } else {
@@ -5556,10 +5567,14 @@
     return card;
   }
 
-  function renderVisualMoments(summary) {
+  function renderVisualMoments(summary, options) {
     ensureMomentsBoard(summary);
     root.innerHTML = "";
-    setStep("Step 6 of 8 · Visual moments");
+    // Reached from the workspace this is canonically Step 6, but the post-audio forward
+    // action (#269) advances the indicator straight to the visual moments workflow as the
+    // next step after Step 3 audio polish, so honour the caller's step label when given.
+    const stepLabel = options && options.stepLabel ? options.stepLabel : "Step 6 of 8 · Visual moments";
+    setStep(stepLabel);
 
     const list = VM.listMoments(momentsBoard);
     // Keep the selected moment valid; default to the first moment so a preview is shown.

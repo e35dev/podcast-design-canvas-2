@@ -109,6 +109,39 @@
     return "setup";
   }
 
+  // After audio polish is applied, the canonical forward action opens the visual
+  // moments / captions / overlays workflow for the same episode (#269). Returns the
+  // workflow step the creator advances into and the indicator label to show.
+  function nextStepAfterAudio() {
+    return {
+      id: "moments",
+      label: "Visual moments",
+      stepLabel: "Step 4 of 8 · Visual moments",
+      step: 4,
+      total: WORKFLOW_TOTAL,
+    };
+  }
+
+  // Build the context the visual moments workflow needs when entered straight from
+  // applied audio polish: the polished-track outputs plus the episode/speaker context.
+  // DOM-free so the post-audio handoff can be asserted in tests.
+  function momentsContextFromAudio(summary, appliedAudioPolish) {
+    const ep = summary && typeof summary === "object" ? summary : {};
+    const applied = appliedAudioPolish && typeof appliedAudioPolish === "object" ? appliedAudioPolish : {};
+    const speakers = Array.isArray(ep.speakers) ? ep.speakers : [];
+    const polishedTracks = Array.isArray(applied.polishedTracks) ? applied.polishedTracks : [];
+    return {
+      episodeName: trim(ep.episodeName),
+      speakers,
+      speakerCount: typeof ep.speakerCount === "number" ? ep.speakerCount : speakers.length,
+      polishedTracks,
+      polishedTrackCount: typeof applied.polishedTrackCount === "number"
+        ? applied.polishedTrackCount
+        : polishedTracks.length,
+      allTracksPolished: Boolean(applied.allTracksPolished),
+    };
+  }
+
   function summarizeResumeAction(episode) {
     const ep = episode || {};
     return {
@@ -132,6 +165,8 @@
     latestResumableDraft,
     resumeDestination,
     summarizeResumeAction,
+    nextStepAfterAudio,
+    momentsContextFromAudio,
   };
 
   if (typeof module !== "undefined" && module.exports) {

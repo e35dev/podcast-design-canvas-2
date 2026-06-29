@@ -93,4 +93,85 @@ test("ACCEPTANCE: draft episode resume lands in workspace when progress was save
   assert.ok(/Resume draft episode/.test(resume.actionLabel));
 });
 
+test("nextStepAfterAudio advances the indicator into the visual moments workflow (#269)", () => {
+  const next = flow.nextStepAfterAudio();
+  assert.strictEqual(next.id, "moments");
+  assert.strictEqual(next.step, 4);
+  assert.strictEqual(next.stepLabel, "Step 4 of 8 · Visual moments");
+  // The forward step must be the visual moments workflow, not "Choose a style".
+  assert.ok(/Visual moments/i.test(next.stepLabel));
+  assert.ok(!/style/i.test(next.stepLabel));
+});
+
+test("momentsContextFromAudio carries polished tracks + speaker/episode context (#269)", () => {
+  const summary = {
+    episodeName: "Founders — Episode 12",
+    speakerCount: 2,
+    speakers: [
+      { role: "Host", name: "Avery" },
+      { role: "Guest 1", name: "Jordan" },
+    ],
+  };
+  const applied = {
+    allTracksPolished: true,
+    polishedTrackCount: 2,
+    polishedTracks: [
+      { trackIndex: 0, status: "complete", polishedAsset: { assetId: "a1" } },
+      { trackIndex: 1, status: "complete", polishedAsset: { assetId: "a2" } },
+    ],
+  };
+  const context = flow.momentsContextFromAudio(summary, applied);
+  assert.strictEqual(context.episodeName, "Founders — Episode 12");
+  assert.strictEqual(context.speakerCount, 2);
+  assert.strictEqual(context.speakers.length, 2);
+  assert.strictEqual(context.speakers[0].name, "Avery");
+  // Step 4 visual moments has access to the polished-track outputs from audio polish.
+  assert.strictEqual(context.polishedTrackCount, 2);
+  assert.strictEqual(context.polishedTracks.length, 2);
+  assert.strictEqual(context.polishedTracks[0].polishedAsset.assetId, "a1");
+  assert.strictEqual(context.allTracksPolished, true);
+});
+
+test("momentsContextFromAudio degrades safely without applied polish", () => {
+  const context = flow.momentsContextFromAudio({ episodeName: "Untitled" }, null);
+  assert.strictEqual(context.episodeName, "Untitled");
+  assert.strictEqual(context.speakerCount, 0);
+  assert.deepStrictEqual(context.polishedTracks, []);
+  assert.strictEqual(context.allTracksPolished, false);
+});
+
+test("UI wires the post-audio forward action to the visual moments editor (#269)", () => {
+  // After Apply, the primary forward action opens the visual moments workflow...
+  assert.ok(ui.includes("Add visual moments →"));
+  assert.ok(ui.includes("FLOW.nextStepAfterAudio()"));
+  // ...by rendering the moments editor with the forward Step 4 indicator.
+  assert.ok(/renderVisualMoments\(summary,\s*\{\s*stepLabel:[^}]*fromAudio:\s*true/.test(ui));
+  // Back-to-setup remains available, so it is not the only post-apply path.
+  assert.ok(ui.includes("← Back to setup"));
+  // The forward step is the moments editor, not the style chooser.
+  assert.ok(ui.includes("renderVisualMoments"));
+});
+
+test("ACCEPTANCE: applied audio polish continues forward to the Step 4 visual moments workflow (#269)", () => {
+  const next = flow.nextStepAfterAudio();
+  const summary = {
+    episodeName: "Founders — Episode 12",
+    speakerCount: 2,
+    speakers: [{ role: "Host", name: "Avery" }, { role: "Guest 1", name: "Jordan" }],
+  };
+  const applied = {
+    allTracksPolished: true,
+    polishedTrackCount: 2,
+    polishedTracks: [{ trackIndex: 0 }, { trackIndex: 1 }],
+  };
+  const context = flow.momentsContextFromAudio(summary, applied);
+  // Advances to Step 4 visual moments...
+  assert.strictEqual(next.step, 4);
+  assert.strictEqual(next.id, "moments");
+  // ...with access to the polished tracks and the correct speakers/episode context.
+  assert.strictEqual(context.polishedTracks.length, 2);
+  assert.strictEqual(context.speakerCount, 2);
+  assert.strictEqual(context.episodeName, "Founders — Episode 12");
+});
+
 console.log(`\nworkflow progress: ${passed} assertions passed`);
