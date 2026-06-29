@@ -51,6 +51,25 @@ test("validateBrandKit rejects invalid colors and accepts a complete kit", () =>
   assert.strictEqual(brandKit.validateBrandKit(sampleKit("show-1")).ok, true);
 });
 
+test("validateBrandKit rejects unknown type and caption style ids (#204)", () => {
+  const invalidType = brandKit.createBrandKit("show-1");
+  invalidType.typeStyle = "not-a-real-style";
+  const typeResult = brandKit.validateBrandKit(invalidType);
+  assert.strictEqual(typeResult.ok, false);
+  assert.strictEqual(typeResult.error, "Choose a type style.");
+
+  const invalidCaption = brandKit.createBrandKit("show-1");
+  invalidCaption.captionStyle = "also-bogus";
+  const captionResult = brandKit.validateBrandKit(invalidCaption);
+  assert.strictEqual(captionResult.ok, false);
+  assert.strictEqual(captionResult.error, "Choose a caption style.");
+
+  const invalidBoth = brandKit.createBrandKit("show-1");
+  invalidBoth.typeStyle = "not-a-real-style";
+  invalidBoth.captionStyle = "also-bogus";
+  assert.strictEqual(brandKit.validateBrandKit(invalidBoth).ok, false);
+});
+
 test("addOverlayAsset and removeOverlayAsset manage reusable overlay assets", () => {
   brandKit._resetOverlayCounter();
   let kit = sampleKit("show-1");
