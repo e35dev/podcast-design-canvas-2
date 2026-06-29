@@ -2185,6 +2185,27 @@ button.ghost:hover,
   align-items: start;
 }
 
+.moments-polished-card {
+  margin-bottom: 16px;
+}
+
+.moments-polished-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.moments-polished-item {
+  font-size: 13px;
+  color: var(--ink-soft);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(108, 76, 255, 0.08);
+}
+
 @media (max-width: 760px) {
   .moments-layout {
     grid-template-columns: 1fr;

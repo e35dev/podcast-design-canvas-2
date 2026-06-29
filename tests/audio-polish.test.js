@@ -227,4 +227,42 @@ test("ACCEPTANCE: episode setup flows into audio polish and saves a review summa
   assert.ok(review.audioTreatment.includes("Speech clarity: Strong"));
 });
 
+test("carryPolishedTracks carries completed polished outputs for the visual moments step", () => {
+  const episode = setup.summarize(completeUploadDraft());
+  const applied = appliedPolishForEpisode(episode);
+  assert.strictEqual(applied.polishComplete, true);
+
+  const carried = audio.carryPolishedTracks(applied);
+  assert.strictEqual(carried.length, 3);
+  carried.forEach((track, index) => {
+    assert.strictEqual(track.trackIndex, index + 1);
+    assert.ok(track.role, "carried track keeps its speaker role");
+    assert.ok(track.name, "carried track keeps its speaker name");
+    assert.ok(/-polished\.wav$/.test(track.fileName), "carried track shows the polished filename, not the raw source");
+    assert.ok(track.assetId, "carried track keeps its polished asset id");
+    assert.strictEqual(track.mimeType, "audio/wav");
+    assert.ok(track.durationSeconds >= 0);
+  });
+});
+
+test("carryPolishedTracks drops tracks that are not complete polished outputs", () => {
+  const incomplete = {
+    polishedTracks: [
+      { trackIndex: 1, role: "Host", name: "A", status: "complete", polishedAsset: { assetId: "p1", fileName: "host-polished.wav", durationSeconds: 1.5, mimeType: "audio/wav" } },
+      { trackIndex: 2, role: "Guest 1", name: "B", status: "needs-media", polishedAsset: null },
+      { trackIndex: 3, role: "Guest 2", name: "C", status: "failed", polishedAsset: null },
+    ],
+  };
+  const carried = audio.carryPolishedTracks(incomplete);
+  assert.strictEqual(carried.length, 1);
+  assert.strictEqual(carried[0].role, "Host");
+  assert.strictEqual(carried[0].fileName, "host-polished.wav");
+});
+
+test("carryPolishedTracks handles a polish summary with no polished outputs yet", () => {
+  assert.deepStrictEqual(audio.carryPolishedTracks({}), []);
+  assert.deepStrictEqual(audio.carryPolishedTracks(null), []);
+  assert.deepStrictEqual(audio.carryPolishedTracks(undefined), []);
+});
+
 console.log(`\naudio polish: ${passed} assertions passed`);
