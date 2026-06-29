@@ -465,6 +465,21 @@
     polishedPreviewById = {};
   }
 
+  // After polish produces real per-speaker tracks, move the guided workflow forward
+  // instead of stranding the creator on Step 3 (#265). When the style step is still
+  // open it is the next step (Step 4); once style is chosen, return to the workspace
+  // hub so the creator picks up the next outstanding stage.
+  function advanceFromAudioPolish(summary) {
+    persistEpisodeSession();
+    if (STY && !appliedStyle) {
+      lastView = "style";
+      renderStyle(summary);
+      return;
+    }
+    lastView = "workspace";
+    renderWorkspace(summary);
+  }
+
   function buildPolishedEvidence(polishedTrack) {
     const metrics = polishedTrack && polishedTrack.metrics ? polishedTrack.metrics : null;
     const wrap = el("div", { class: "audio-track-evidence" });
@@ -5417,8 +5432,10 @@
           if (!result.ok) {
             polishError.textContent = result.error || "Audio polish could not finish for every track.";
             polishError.hidden = false;
+            renderAudioPolish(summary);
+            return;
           }
-          renderAudioPolish(summary);
+          advanceFromAudioPolish(summary);
         }).catch(() => {
           polishError.textContent = "Audio polish could not finish for every track.";
           polishError.hidden = false;
@@ -5869,6 +5886,26 @@
         el("p", { class: "hint" }, "Pick a preset card, then inspect the larger live preview — layout, speaker names, and captions update as you switch."),
       ),
     );
+
+    if (appliedAudioPolish && appliedAudioPolish.allTracksPolished) {
+      const polishedCount = appliedAudioPolish.polishedTrackCount || 0;
+      const confirm = el(
+        "section",
+        { class: "card style-audio-confirm" },
+        el(
+          "p",
+          { class: "style-audio-confirm-line" },
+          `Audio polished — ${polishedCount} playable track${polishedCount === 1 ? "" : "s"} saved to this episode.`,
+        ),
+      );
+      const hearLink = el("button", { type: "button", class: "link-button style-audio-confirm-link" }, "Hear polished audio");
+      hearLink.addEventListener("click", () => {
+        lastView = "audio";
+        renderAudioPolish(summary);
+      });
+      confirm.appendChild(hearLink);
+      view.appendChild(confirm);
+    }
 
     const layoutGrid = el("div", { class: "style-layout" });
 

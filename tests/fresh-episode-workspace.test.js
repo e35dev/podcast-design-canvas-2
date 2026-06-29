@@ -102,6 +102,21 @@ test("ACCEPTANCE: workspace checklist and audio tracks reflect the fresh setup s
   assert.ok(!polish.exportAudioTracks.some((track) => /founders unfiltered|building in public|episode 12/i.test(track.name)));
 });
 
+test("ACCEPTANCE: applying audio polish advances the workflow forward to Step 4 (#265)", () => {
+  assert.ok(ui.includes("function advanceFromAudioPolish"));
+
+  const applyBlock = ui.slice(ui.indexOf("\"Apply audio & continue →\""), ui.indexOf("actions.appendChild(applyButton)"));
+  assert.ok(applyBlock.includes("advanceFromAudioPolish(summary)"), "Apply handler advances forward on success");
+  assert.ok(!applyBlock.includes("renderAudioPolish(summary);\n          }"), "Apply no longer re-renders the audio step on success");
+
+  const advanceBlock = ui.slice(ui.indexOf("function advanceFromAudioPolish"), ui.indexOf("function buildPolishedEvidence"));
+  assert.ok(advanceBlock.includes("renderStyle(summary)"), "advance targets the style step (Step 4)");
+  assert.ok(advanceBlock.includes("persistEpisodeSession()"), "advance persists the session before moving on");
+
+  assert.ok(ui.includes("style-audio-confirm"), "style step confirms polished audio is saved");
+  assert.ok(ui.includes("Hear polished audio"), "style step links back to playable polished outputs");
+});
+
 test("ACCEPTANCE: setup handoff persists a new library episode instead of reusing show identity start", () => {
   assert.ok(ui.includes("function ensureFreshEpisodeRecord"));
   assert.ok(ui.includes("function refreshProductionArtifactsForFreshEpisode"));

@@ -106,12 +106,17 @@ function probeScript() {
           log(beforeApply.indexOf("Sam Rivera") >= 0, "Audio polish renders demo speakers");
           log(/source media saved/.test(beforeApply), "Demo speakers show saved source media");
           clickButton("Apply audio");
+          await waitFor(() => document.querySelector(".style-step .style-audio-confirm"), "advance to style step");
+          log(Boolean(document.querySelector(".style-step")), "Apply advances forward to Step 4 (style)");
+          const confirmText = document.querySelector(".style-audio-confirm").innerText;
+          log(/3 playable tracks saved/.test(confirmText), "Style step confirms three polished tracks saved");
+          clickButton("Hear polished audio");
           await waitFor(() => {
             const step = document.querySelector(".audio-step");
-            return step && /Polish applied/.test(step.innerText) && step.querySelectorAll(".audio-track-evidence").length >= 3;
+            return step && step.querySelectorAll(".audio-track-evidence").length >= 3;
           }, "polished track evidence");
           const afterApply = document.querySelector(".audio-step").innerText;
-          log(/Polish applied — 3 polished tracks/.test(afterApply), "Apply reports three polished tracks");
+          log(/Polish applied — 3 polished tracks/.test(afterApply), "Revisiting audio shows three polished tracks");
           log(/polished track saved/.test(afterApply), "Speaker badges show polished track saved");
           log(document.querySelectorAll(".audio-track-metrics").length === 3, "Each track shows before/after metrics");
           log(document.querySelectorAll(".audio-track-download").length === 3, "Each track exposes a polished WAV download");
