@@ -5389,26 +5389,33 @@
     });
 
     if (hasApplied) {
-      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      const continueButton = el(
+        "button",
+        { type: "button", class: "primary", id: "audio-continue-moments" },
+        "Continue to visual moments →",
+      );
       continueButton.addEventListener("click", () => {
-        lastView = STY && !appliedStyle ? "style" : "workspace";
+        lastView = "moments";
         persistEpisodeSession();
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        renderVisualMoments(summary);
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
         invalidateAppliedPolish();
         renderAudioPolish(summary);
       });
+      const backToWorkspace = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+      backToWorkspace.addEventListener("click", () => {
+        lastView = "workspace";
+        persistEpisodeSession();
+        renderWorkspace(summary);
+      });
       actions.appendChild(continueButton);
       actions.appendChild(reapply);
+      actions.appendChild(backToWorkspace);
       actions.appendChild(back);
     } else {
-      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
+      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio polish");
       applyButton.addEventListener("click", () => {
         applyButton.disabled = true;
         applyButton.textContent = "Polishing tracks…";
@@ -5584,6 +5591,31 @@
         ),
       ),
     );
+
+    if (appliedAudioPolish && appliedAudioPolish.allTracksPolished) {
+      const polishedCount = appliedAudioPolish.polishedTrackCount || 0;
+      const audioBanner = el(
+        "section",
+        { class: "card moments-audio-confirm" },
+        el(
+          "p",
+          { class: "moments-audio-confirm-line" },
+          `Polished audio ready — ${polishedCount} playable track${polishedCount === 1 ? "" : "s"} carried into visual editing for ${summary.episodeName}.`,
+        ),
+      );
+      const hearLink = el(
+        "button",
+        { type: "button", class: "link-button moments-audio-confirm-link" },
+        "Hear polished audio",
+      );
+      hearLink.addEventListener("click", () => {
+        lastView = "audio";
+        persistEpisodeSession();
+        renderAudioPolish(summary);
+      });
+      audioBanner.appendChild(hearLink);
+      view.appendChild(audioBanner);
+    }
 
     // Add-moment palette
     const palette = el(

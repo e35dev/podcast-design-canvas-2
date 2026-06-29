@@ -140,4 +140,28 @@ test("ACCEPTANCE: persisted library episode record matches fresh setup data", ()
   assert.ok(stored.episodes.length === 1);
 });
 
+test("ACCEPTANCE: applied audio polish offers a forward action into visual moments (#269)", () => {
+  const audioBlock = ui.slice(ui.indexOf("function renderAudioPolish"), ui.indexOf("function renderMomentPreview"));
+  assert.ok(audioBlock.includes("Apply audio polish"), "apply uses a dedicated apply label");
+  assert.ok(audioBlock.includes("Continue to visual moments →"), "post-apply shows a forward CTA into visual moments");
+  assert.ok(audioBlock.includes("← Back to setup"), "back to setup remains available after apply");
+  assert.ok(audioBlock.includes("← Back to workspace"), "a non-setup return path is also offered");
+
+  const ctaIdx = audioBlock.indexOf("audio-continue-moments");
+  assert.ok(ctaIdx >= 0, "forward CTA is identifiable");
+  const ctaHandler = audioBlock.slice(ctaIdx, ctaIdx + 500);
+  assert.ok(ctaHandler.includes("renderVisualMoments(summary)"), "forward CTA opens the visual moments editor");
+  assert.ok(ctaHandler.includes('lastView = "moments"'), "forward CTA records moments as the resume view");
+});
+
+test("ACCEPTANCE: visual moments keeps polished-track outputs and episode context (#269)", () => {
+  const momentsBlock = ui.slice(ui.indexOf("function renderVisualMoments"), ui.indexOf("function renderStyle"));
+  assert.ok(momentsBlock.includes("appliedAudioPolish.allTracksPolished"), "visual moments reads the polished audio state");
+  assert.ok(momentsBlock.includes("moments-audio-confirm"), "visual moments surfaces the polished audio outputs");
+  assert.ok(momentsBlock.includes("Polished audio ready"), "polished audio confirmation is shown at Step 4");
+  assert.ok(momentsBlock.includes("Hear polished audio"), "creator can revisit the polished tracks");
+  assert.ok(momentsBlock.includes("Add visual moments to ${summary.episodeName}"), "visual moments keeps the episode context");
+  assert.ok(ui.includes("VM.speakerOptions(summary)"), "moment editing keeps the episode speakers");
+});
+
 console.log(`\nfresh episode workspace: ${passed} assertions passed`);
