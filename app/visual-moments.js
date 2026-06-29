@@ -72,7 +72,7 @@
     const minutes = Math.floor((safe % 3600) / 60);
     const seconds = safe % 60;
     if (hours > 0) {
-      return `${hours}:${pad2(minutes)}:${pad2(seconds)}`;
+      return `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
     }
     return `${minutes}:${pad2(seconds)}`;
   }

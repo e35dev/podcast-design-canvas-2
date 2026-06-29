@@ -62,14 +62,16 @@ test("hour-plus timestamps keep their hour component through parse and format (#
   assert.strictEqual(moments.parseTime("01:12:34"), 4354);
   assert.strictEqual(moments.parseTime("1:12:34"), 4354);
   assert.strictEqual(moments.parseTime(4354), 4354);
-  // Display keeps the hour rather than collapsing to 12:34.
-  assert.strictEqual(moments.formatTime(4354), "1:12:34");
-  assert.strictEqual(moments.normalizeTime("01:12:34"), "1:12:34");
-  assert.strictEqual(moments.normalizeTime("2:00:00"), "2:00:00");
+  // Display keeps the full hour rather than collapsing to 12:34.
+  assert.strictEqual(moments.formatTime(4354), "01:12:34");
+  assert.strictEqual(moments.normalizeTime("01:12:34"), "01:12:34");
+  assert.strictEqual(moments.normalizeTime("1:12:34"), "01:12:34");
+  assert.strictEqual(moments.normalizeTime("2:00:00"), "02:00:00");
   // Minutes that exceed an hour roll up into the hour component.
-  assert.strictEqual(moments.normalizeTime("72:34"), "1:12:34");
+  assert.strictEqual(moments.normalizeTime("72:34"), "01:12:34");
   // Sub-hour timestamps are unchanged.
   assert.strictEqual(moments.formatTime(754), "12:34");
+  assert.strictEqual(moments.formatTime(3600), "01:00:00");
 });
 
 test("hour-plus moments survive editing, ordering, and a save round trip at the right time (#266)", () => {
@@ -78,24 +80,24 @@ test("hour-plus moments survive editing, ordering, and a save round trip at the 
   board = moments.addMoment(board, "title", { time: "5:00", text: "Early chapter" });
 
   const ordered = moments.listMoments(board);
-  assert.deepStrictEqual(ordered.map((m) => m.time), ["5:00", "1:12:34"], "sorted across the hour boundary");
+  assert.deepStrictEqual(ordered.map((m) => m.time), ["5:00", "01:12:34"], "sorted across the hour boundary");
 
   const hourMoment = ordered.find((m) => m.text === "Hour-plus insight");
   assert.strictEqual(hourMoment.seconds, 4354);
-  assert.strictEqual(hourMoment.time, "1:12:34");
+  assert.strictEqual(hourMoment.time, "01:12:34");
 
   board = moments.updateMoment(board, hourMoment.id, { time: "01:45:09" });
-  assert.strictEqual(moments.getMoment(board, hourMoment.id).time, "1:45:09");
+  assert.strictEqual(moments.getMoment(board, hourMoment.id).time, "01:45:09");
   assert.strictEqual(moments.getMoment(board, hourMoment.id).seconds, 6309);
 
   const episode = completeEpisode();
   const restored = moments.deserializeBoard(moments.serializeBoard(board), episode);
   const restoredHour = moments.listMoments(restored).find((m) => m.text === "Hour-plus insight");
-  assert.strictEqual(restoredHour.time, "1:45:09");
+  assert.strictEqual(restoredHour.time, "01:45:09");
   assert.strictEqual(restoredHour.seconds, 6309);
 
   const preview = moments.previewMoment(restored, restoredHour.id);
-  assert.ok(preview.effect.indexOf("1:45:09") >= 0, "preview/review keeps the hour component");
+  assert.ok(preview.effect.indexOf("01:45:09") >= 0, "preview/review keeps the hour component");
 });
 
 test("adding moments places them in timeline order with stable ids", () => {
