@@ -5389,15 +5389,11 @@
     });
 
     if (hasApplied) {
-      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue to visual moments →");
       continueButton.addEventListener("click", () => {
-        lastView = STY && !appliedStyle ? "style" : "workspace";
+        lastView = "moments";
         persistEpisodeSession();
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        renderVisualMoments(summary);
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
@@ -5584,6 +5580,38 @@
         ),
       ),
     );
+
+    // The polished-track outputs from Step 3 are carried into this step so captions and
+    // moments are timed against the treated audio, not the raw source.
+    const carriedPolished = appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)
+      ? appliedAudioPolish.polishedTracks.filter((track) => track && track.status === "complete")
+      : [];
+    if (carriedPolished.length) {
+      const polishedCard = el(
+        "section",
+        { class: "card moments-polished-card" },
+        el("h3", {}, "Polished audio carried into this step"),
+        el(
+          "p",
+          { class: "hint" },
+          `${carriedPolished.length} polished track${carriedPolished.length === 1 ? "" : "s"} from audio polish — captions and moments below are timed to this treated audio.`,
+        ),
+      );
+      const polishedList = el("ul", { class: "moments-polished-list" });
+      carriedPolished.forEach((track) => {
+        const asset = track.polishedAsset || {};
+        const duration = asset.durationSeconds ? ` · ${Number(asset.durationSeconds).toFixed(1)}s` : "";
+        polishedList.appendChild(
+          el(
+            "li",
+            { class: "moments-polished-item", "data-polished-track": String(track.trackIndex != null ? track.trackIndex : "") },
+            `${track.role || "Speaker"} · ${track.name || ""} · ${asset.fileName || "polished.wav"}${duration}`,
+          ),
+        );
+      });
+      polishedCard.appendChild(polishedList);
+      view.appendChild(polishedCard);
+    }
 
     // Add-moment palette
     const palette = el(
