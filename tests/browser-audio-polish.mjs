@@ -1,4 +1,4 @@
-// Browser-runtime acceptance for audio polish Apply path (#257).
+// Browser-runtime acceptance for audio polish Apply path (#257, #269).
 // Run: node tests/browser-audio-polish.mjs
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -106,15 +106,16 @@ function probeScript() {
           log(beforeApply.indexOf("Sam Rivera") >= 0, "Audio polish renders demo speakers");
           log(/source media saved/.test(beforeApply), "Demo speakers show saved source media");
           clickButton("Apply audio");
-          await waitFor(() => {
-            const step = document.querySelector(".audio-step");
-            return step && /Polish applied/.test(step.innerText) && step.querySelectorAll(".audio-track-evidence").length >= 3;
-          }, "polished track evidence");
-          const afterApply = document.querySelector(".audio-step").innerText;
-          log(/Polish applied — 3 polished tracks/.test(afterApply), "Apply reports three polished tracks");
-          log(/polished track saved/.test(afterApply), "Speaker badges show polished track saved");
-          log(document.querySelectorAll(".audio-track-metrics").length === 3, "Each track shows before/after metrics");
-          log(document.querySelectorAll(".audio-track-download").length === 3, "Each track exposes a polished WAV download");
+          await waitFor(() => document.querySelector(".moments-step"), "visual moments step");
+          const momentsStep = document.querySelector(".moments-step");
+          const momentsText = momentsStep.innerText;
+          log(/Add visual moments to Founders Unfiltered #7/.test(momentsText), "Apply continues into visual moments for the same episode");
+          log(momentsText.indexOf("Sam Rivera") >= 0, "Visual moments timeline keeps demo speakers");
+          log(/Polished audio tracks/.test(momentsText), "Visual moments screen shows polished audio recap");
+          log(document.querySelectorAll(".moments-audio-recap .audio-track-download").length >= 3, "Moments screen exposes polished WAV downloads");
+          const stepLabel = document.querySelector(".workflow-step-label");
+          log(Boolean(stepLabel && /Visual moments/i.test(stepLabel.textContent || "")), "Step indicator advances to visual moments");
+          log(Boolean(document.querySelector(".moments-step .moment-add")), "Visual moments editor is available");
         } catch (err) {
           checks.push({ ok: false, message: err && err.stack ? err.stack : String(err) });
         }

@@ -2178,6 +2178,18 @@ button.ghost:hover,
   color: var(--ink-soft);
 }
 
+.audio-polish-blocker {
+  margin-top: 12px;
+}
+
+.moments-audio-recap {
+  margin-bottom: 20px;
+}
+
+.moments-audio-recap .audio-track-list {
+  margin-top: 12px;
+}
+
 .moments-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);

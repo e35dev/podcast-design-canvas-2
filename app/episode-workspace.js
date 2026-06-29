@@ -142,7 +142,9 @@
       "Visual moments",
       momentTotal > 0
         ? STATUS.COMPLETE
-        : styleApplied && audioApplied ? STATUS.ATTENTION : STATUS.PENDING,
+        : audioApplied
+          ? STATUS.ATTENTION
+          : STATUS.PENDING,
       momentTotal > 0
         ? `${momentVisible} of ${momentTotal} moment${momentTotal === 1 ? "" : "s"} live`
         : "Add captions, titles, b-roll, and callouts at key points.",
@@ -213,6 +215,10 @@
 
   function pickCurrentStage(stages) {
     const list = Array.isArray(stages) ? stages : [];
+    const momentsAttention = list.find((item) => item.id === "moments" && item.status === STATUS.ATTENTION);
+    if (momentsAttention) {
+      return momentsAttention;
+    }
     // Surface canvas editor before audio polish when a show template is the recommended next step (#190).
     const templateAttention = list.find((item) => item.id === "template" && item.status === STATUS.ATTENTION);
     if (templateAttention) {
