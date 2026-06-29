@@ -5041,7 +5041,7 @@
       canvasDoc = CE.createFromStyle(appliedStyle, summary, styleSelection);
     }
     root.innerHTML = "";
-    setStep("Step 5 of 8 · Canvas editor");
+    setStep("Step 6 of 8 · Canvas editor");
 
     const evaluation = CL.evaluateLayout(canvasDoc.layers);
     const view = el("div", { class: "canvas-step" });
@@ -5389,15 +5389,11 @@
     });
 
     if (hasApplied) {
-      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue to visual moments →");
       continueButton.addEventListener("click", () => {
-        lastView = STY && !appliedStyle ? "style" : "workspace";
+        lastView = "moments";
         persistEpisodeSession();
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        renderVisualMoments(summary);
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
@@ -5415,14 +5411,20 @@
         polishError.hidden = true;
         applyAudioPolish(summary).then((result) => {
           if (!result.ok) {
+            applyButton.disabled = false;
+            applyButton.textContent = "Apply audio & continue →";
             polishError.textContent = result.error || "Audio polish could not finish for every track.";
             polishError.hidden = false;
+            return;
           }
-          renderAudioPolish(summary);
+          lastView = "moments";
+          persistEpisodeSession();
+          renderVisualMoments(summary);
         }).catch(() => {
+          applyButton.disabled = false;
+          applyButton.textContent = "Apply audio & continue →";
           polishError.textContent = "Audio polish could not finish for every track.";
           polishError.hidden = false;
-          renderAudioPolish(summary);
         });
       });
       actions.appendChild(applyButton);
@@ -5559,7 +5561,7 @@
   function renderVisualMoments(summary) {
     ensureMomentsBoard(summary);
     root.innerHTML = "";
-    setStep("Step 6 of 8 · Visual moments");
+    setStep("Step 4 of 8 · Visual moments");
 
     const list = VM.listMoments(momentsBoard);
     // Keep the selected moment valid; default to the first moment so a preview is shown.
@@ -5584,6 +5586,54 @@
         ),
       ),
     );
+
+    if (appliedAudioPolish && appliedAudioPolish.allTracksPolished) {
+      const handoffCard = el("section", { class: "card audio-handoff-card" },
+        el("h3", {}, "Polished audio"),
+        el("p", { class: "hint" },
+          `${appliedAudioPolish.presetName} treatment applied · ${appliedAudioPolish.polishedTrackCount} polished track${appliedAudioPolish.polishedTrackCount === 1 ? "" : "s"} saved for this episode.`),
+      );
+      const handoffTrackList = el("div", { class: "audio-track-list" });
+      (appliedAudioPolish.polishedTracks || []).forEach((track) => {
+        const trackNode = el("div", { class: "audio-track" },
+          el("div", { class: "audio-track-main" },
+            el("span", { class: "role-pill" }, track.role),
+            el("span", { class: "summary-name" }, track.name),
+          ),
+          el("span", { class: "audio-track-badge" }, `${appliedAudioPolish.presetName} treatment · ${track.name} · polished track saved`),
+        );
+        if (track.status === "complete") {
+          const asset = track.polishedAsset;
+          const previewUrl = asset ? polishedPreviewById[asset.assetId] : null;
+          const evidence = el("div", { class: "audio-track-evidence" });
+          if (track.metrics) {
+            const gain = track.metrics.gainDb > 0 ? `+${track.metrics.gainDb}` : `${track.metrics.gainDb}`;
+            evidence.appendChild(el("p", { class: "audio-track-metrics" },
+              `Level ${gain} dB · input RMS ${track.metrics.inputRms} → ${track.metrics.outputRms} · peak ${track.metrics.inputPeak} → ${track.metrics.outputPeak}`));
+          }
+          if (previewUrl) {
+            evidence.appendChild(el("audio", { class: "audio-track-preview", controls: true, src: previewUrl }));
+            evidence.appendChild(el("a", {
+              class: "link-button audio-track-download",
+              href: previewUrl,
+              download: asset.fileName || "polished.wav",
+            }, `Download ${asset.fileName || "polished.wav"}`));
+          } else if (asset) {
+            evidence.appendChild(el("p", { class: "hint" }, `Saved ${asset.fileName} (${asset.byteLength} bytes)`));
+          }
+          trackNode.appendChild(evidence);
+        }
+        handoffTrackList.appendChild(trackNode);
+      });
+      handoffCard.appendChild(handoffTrackList);
+      const reapplyBtn = el("button", { type: "button", class: "link-button" }, "Re-apply audio polish →");
+      reapplyBtn.addEventListener("click", () => {
+        invalidateAppliedPolish();
+        renderAudioPolish(summary);
+      });
+      handoffCard.appendChild(reapplyBtn);
+      view.appendChild(handoffCard);
+    }
 
     // Add-moment palette
     const palette = el(
@@ -5850,7 +5900,7 @@
 
   function renderStyle(summary) {
     root.innerHTML = "";
-    setStep("Step 4 of 8 · Choose a style");
+    setStep("Step 5 of 8 · Choose a style");
     if (!styleSelection) {
       styleSelection = STY.createSelection();
     }

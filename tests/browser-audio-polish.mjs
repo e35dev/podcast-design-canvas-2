@@ -107,14 +107,17 @@ function probeScript() {
           log(/source media saved/.test(beforeApply), "Demo speakers show saved source media");
           clickButton("Apply audio");
           await waitFor(() => {
-            const step = document.querySelector(".audio-step");
-            return step && /Polish applied/.test(step.innerText) && step.querySelectorAll(".audio-track-evidence").length >= 3;
-          }, "polished track evidence");
-          const afterApply = document.querySelector(".audio-step").innerText;
-          log(/Polish applied — 3 polished tracks/.test(afterApply), "Apply reports three polished tracks");
-          log(/polished track saved/.test(afterApply), "Speaker badges show polished track saved");
-          log(document.querySelectorAll(".audio-track-metrics").length === 3, "Each track shows before/after metrics");
-          log(document.querySelectorAll(".audio-track-download").length === 3, "Each track exposes a polished WAV download");
+            const momentsStep = document.querySelector(".moments-step");
+            return momentsStep && momentsStep.querySelectorAll(".audio-track-evidence").length >= 3;
+          }, "visual moments step with polished track evidence");
+          const momentsStep = document.querySelector(".moments-step");
+          log(Boolean(momentsStep), "Apply auto-advances to the visual moments editor");
+          log(/Visual moments/.test(momentsStep ? momentsStep.innerText : ""), "Visual moments editor is shown after applying polish");
+          const stepCount = document.querySelector(".workflow-step-count");
+          log(stepCount && /Step 4/.test(stepCount.textContent), "Step indicator advances to Step 4 · Visual moments");
+          log(/polished track saved/.test(momentsStep ? momentsStep.innerText : ""), "Polished audio card shows per-speaker track status");
+          log(document.querySelectorAll(".audio-track-metrics").length >= 3, "Each speaker track shows before/after metrics");
+          log(document.querySelectorAll(".audio-track-download").length >= 3, "Each speaker track exposes a polished WAV download");
         } catch (err) {
           checks.push({ ok: false, message: err && err.stack ? err.stack : String(err) });
         }

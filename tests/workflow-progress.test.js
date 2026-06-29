@@ -33,8 +33,11 @@ test("parseStepLabel and stepIndicatorForLabel expose prominent workflow progres
 
 test("stepIndicatorForWorkspaceStage maps the active production stage to a step", () => {
   const indicator = flow.stepIndicatorForWorkspaceStage("style");
-  assert.strictEqual(indicator.step, 4);
+  assert.strictEqual(indicator.step, 5);
   assert.strictEqual(indicator.labelText, "Choose a style");
+  const momentsIndicator = flow.stepIndicatorForWorkspaceStage("moments");
+  assert.strictEqual(momentsIndicator.step, 4);
+  assert.strictEqual(momentsIndicator.labelText, "Visual moments");
 });
 
 test("latestResumableDraft prefers the newest draft or in-progress episode", () => {

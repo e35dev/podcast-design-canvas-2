@@ -12,9 +12,9 @@
     { num: 1, id: "setup", label: "Set up episode" },
     { num: 2, id: "context", label: "Review context" },
     { num: 3, id: "audio", label: "Audio polish" },
-    { num: 4, id: "style", label: "Choose a style" },
-    { num: 5, id: "canvas", label: "Canvas editor" },
-    { num: 6, id: "moments", label: "Visual moments" },
+    { num: 4, id: "moments", label: "Visual moments" },
+    { num: 5, id: "style", label: "Choose a style" },
+    { num: 6, id: "canvas", label: "Canvas editor" },
     { num: 7, id: "review", label: "Publish review" },
     { num: 8, id: "export", label: "Export & publish" },
   ];
@@ -22,9 +22,9 @@
   const WORKSPACE_STAGE_STEP = {
     setup: 1,
     audio: 3,
-    style: 4,
-    template: 5,
-    moments: 6,
+    moments: 4,
+    style: 5,
+    template: 6,
     review: 7,
     export: 8,
   };
