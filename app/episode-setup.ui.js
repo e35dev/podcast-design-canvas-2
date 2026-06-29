@@ -1876,10 +1876,25 @@
     return Promise.all(jobs);
   }
 
+  function continueToVisualMoments(summary) {
+    lastView = "moments";
+    persistEpisodeSession();
+    renderVisualMoments(summary);
+  }
+
   function resumeEpisodeView(destination, summary) {
     if (destination === "workspace") {
       lastView = "workspace";
       renderWorkspace(summary);
+      return;
+    }
+    if (destination === "moments") {
+      lastView = "moments";
+      if (appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)) {
+        restorePolishedPreviewUrls(appliedAudioPolish.polishedTracks).then(() => renderVisualMoments(summary));
+        return;
+      }
+      renderVisualMoments(summary);
       return;
     }
     if (destination === "audio") {
@@ -5353,6 +5368,17 @@
     const polishedTracks = appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)
       ? appliedAudioPolish.polishedTracks
       : [];
+    const speakers = Array.isArray(audioPolish.speakers) ? audioPolish.speakers : [];
+    const sourceMediaReady = speakers.length > 0 && speakers.every((track) => track.hasSourceMedia);
+    if (!hasApplied && !sourceMediaReady) {
+      tracksCard.appendChild(
+        el(
+          "p",
+          { class: "error audio-polish-blocker" },
+          "Upload a synced audio or video file for every speaker in setup before applying polish. A Riverside link alone does not include downloadable speaker tracks in this preview build.",
+        ),
+      );
+    }
     if (hasApplied) {
       const polishedCount = appliedAudioPolish.polishedTrackCount || 0;
       tracksCard.appendChild(
@@ -5389,15 +5415,9 @@
     });
 
     if (hasApplied) {
-      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue to visual moments →");
       continueButton.addEventListener("click", () => {
-        lastView = STY && !appliedStyle ? "style" : "workspace";
-        persistEpisodeSession();
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        continueToVisualMoments(summary);
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
@@ -5408,29 +5428,40 @@
       actions.appendChild(reapply);
       actions.appendChild(back);
     } else {
-      const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
-      applyButton.addEventListener("click", () => {
-        applyButton.disabled = true;
-        applyButton.textContent = "Polishing tracks…";
+      const uploadFiles = el(
+        "button",
+        { type: "button", class: "primary" },
+        sourceMediaReady ? "Apply audio & continue →" : "Upload speaker files in setup →",
+      );
+      uploadFiles.addEventListener("click", () => {
+        if (!sourceMediaReady) {
+          showErrors = false;
+          renderSetup();
+          return;
+        }
+        uploadFiles.disabled = true;
+        uploadFiles.textContent = "Polishing tracks…";
         polishError.hidden = true;
         applyAudioPolish(summary).then((result) => {
           if (!result.ok) {
             polishError.textContent = result.error || "Audio polish could not finish for every track.";
             polishError.hidden = false;
+            renderAudioPolish(summary);
+            return;
           }
-          renderAudioPolish(summary);
+          continueToVisualMoments(summary);
         }).catch(() => {
           polishError.textContent = "Audio polish could not finish for every track.";
           polishError.hidden = false;
           renderAudioPolish(summary);
         });
       });
-      actions.appendChild(applyButton);
+      actions.appendChild(uploadFiles);
       actions.appendChild(back);
     }
 
-    view.appendChild(actions);
     view.appendChild(polishError);
+    view.appendChild(actions);
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
@@ -5556,8 +5587,65 @@
     return card;
   }
 
+  function renderPolishedAudioRecap(summary) {
+    if (!AP || !appliedAudioPolish || !appliedAudioPolish.allTracksPolished) {
+      return null;
+    }
+    const polishState = audioPolish || AP.createPolish(summary);
+    const polishedTracks = Array.isArray(appliedAudioPolish.polishedTracks)
+      ? appliedAudioPolish.polishedTracks
+      : [];
+    const polishedCount = appliedAudioPolish.polishedTrackCount || polishedTracks.length;
+    const card = el(
+      "section",
+      { class: "card moments-audio-recap" },
+      el("h3", {}, "Polished audio tracks"),
+      el(
+        "p",
+        { class: "hint" },
+        `${appliedAudioPolish.presetName} — ${polishedCount} polished track${polishedCount === 1 ? "" : "s"} saved for this episode. Preview or download each treated speaker track below.`,
+      ),
+    );
+    const trackList = el("div", { class: "audio-track-list" });
+    polishState.speakers.forEach((track) => {
+      const polishedTrack = AP.polishedTrackForSpeaker(polishedTracks, track.trackIndex);
+      const trackNode = el(
+        "div",
+        { class: "audio-track" },
+        el(
+          "div",
+          { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
+        ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
+        el("span", { class: "audio-track-badge" }, AP.speakerIndicator(polishState, track, polishedTrack)),
+      );
+      if (polishedTrack && polishedTrack.status === "complete") {
+        trackNode.appendChild(buildPolishedEvidence(polishedTrack));
+      }
+      trackList.appendChild(trackNode);
+    });
+    card.appendChild(trackList);
+    return card;
+  }
+
   function renderVisualMoments(summary) {
     ensureMomentsBoard(summary);
+    if (appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)) {
+      const missingPreview = appliedAudioPolish.polishedTracks.some((track) => {
+        const asset = track && track.polishedAsset;
+        return asset && asset.assetId && !polishedPreviewById[asset.assetId];
+      });
+      if (missingPreview && !renderVisualMoments._restoringPreviews) {
+        renderVisualMoments._restoringPreviews = true;
+        restorePolishedPreviewUrls(appliedAudioPolish.polishedTracks).finally(() => {
+          renderVisualMoments._restoringPreviews = false;
+          renderVisualMoments(summary);
+        });
+        return;
+      }
+    }
     root.innerHTML = "";
     setStep("Step 6 of 8 · Visual moments");
 
@@ -5584,6 +5672,11 @@
         ),
       ),
     );
+
+    const audioRecap = renderPolishedAudioRecap(summary);
+    if (audioRecap) {
+      view.appendChild(audioRecap);
+    }
 
     // Add-moment palette
     const palette = el(
@@ -5668,15 +5761,34 @@
 
     const doneButton = el("button", { type: "button", class: "primary" }, "Save moments & continue →");
     doneButton.addEventListener("click", () => {
+      lastView = "workspace";
       persistMoments();
+      persistEpisodeSession();
       renderWorkspace(summary);
+    });
+    const backAudio = el("button", { type: "button", class: "ghost" }, "← Back to audio polish");
+    backAudio.addEventListener("click", () => {
+      if (!audioPolish) {
+        audioPolish = AP.createPolish(summary);
+      }
+      renderAudioPolish(summary);
+    });
+    const backSetup = el("button", { type: "button", class: "ghost" }, "← Back to setup");
+    backSetup.addEventListener("click", () => {
+      persistMoments();
+      renderSetup();
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => {
+      lastView = "workspace";
       persistMoments();
+      persistEpisodeSession();
       renderWorkspace(summary);
     });
-    view.appendChild(el("div", { class: "actions" }, doneButton, back));
+    const backActions = appliedAudioPolish && appliedAudioPolish.allTracksPolished
+      ? [doneButton, backAudio, backSetup, back]
+      : [doneButton, back, backSetup];
+    view.appendChild(el("div", { class: "actions" }, backActions));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });

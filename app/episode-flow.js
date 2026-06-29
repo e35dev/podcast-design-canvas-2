@@ -100,11 +100,16 @@
 
   function resumeDestination(session) {
     const data = session && typeof session === "object" ? session : {};
-    if (data.workspaceReached || data.lastView === "workspace") {
+    const lastView = trim(data.lastView) || "setup";
+    const productionViews = new Set(["audio", "style", "context", "moments", "workspace"]);
+    if (data.setupComplete && productionViews.has(lastView)) {
+      return lastView;
+    }
+    if (data.workspaceReached || lastView === "workspace") {
       return "workspace";
     }
-    if (data.setupComplete && data.lastView && data.lastView !== "setup") {
-      return data.lastView;
+    if (data.setupComplete && lastView !== "setup") {
+      return lastView;
     }
     return "setup";
   }
