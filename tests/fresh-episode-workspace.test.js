@@ -72,6 +72,13 @@ test("ACCEPTANCE: fresh handoff summary rejects seeded demo episode titles", () 
   assert.strictEqual(setup.isFreshHandoffSummary(setup.summarize(demo)), false);
 });
 
+test("ACCEPTANCE: riverside-only setup does not fake-complete audio polish without uploaded bytes", () => {
+  const summary = setup.summarize(completeFreshDraft());
+  const polish = audio.applyPolishForEpisode(summary).applied;
+  assert.strictEqual(polish.polishComplete, false);
+  assert.ok(polish.exportAudioTracks.every((track) => !track.usesPolishedAudio));
+});
+
 test("ACCEPTANCE: workspace checklist and audio tracks reflect the fresh setup summary", () => {
   const summary = setup.summarize(completeFreshDraft());
   const selection = style.applyPresetToSelection(style.createSelection(), "studio-spotlight", false);

@@ -157,6 +157,19 @@ test("polishSamples transforms audio and encodeWav round-trips in Node", () => {
   assert.strictEqual(decoded.samples.length, polished.length);
 });
 
+test("riverside-only episodes do not fake-complete polish without uploaded speaker media", () => {
+  const draft = setup.createDraft();
+  draft.episodeName = "Indie Makers Weekly — Episode 3";
+  draft.riversideLink = "https://riverside.fm/studio/indie-makers-ep3";
+  const episode = setup.summarize(draft);
+  const applied = audio.applyPolishForEpisode(episode).applied;
+  assert.strictEqual(applied.polishComplete, false);
+  assert.strictEqual(applied.allTracksPolished, false);
+  assert.strictEqual(applied.polishedTrackCount, 0);
+  assert.ok(applied.exportAudioTracks.every((track) => !track.usesPolishedAudio));
+  assert.ok(applied.polishedTracks.every((track) => track.status === "needs-media"));
+});
+
 test("processPolishTracks creates polished outputs for every source track", () => {
   const episode = setup.summarize(completeUploadDraft());
   const polish = audio.createPolish(episode);

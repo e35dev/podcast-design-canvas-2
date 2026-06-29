@@ -1033,6 +1033,35 @@
     return section;
   }
 
+  function renderHomeActiveStepBanner() {
+    if (!AP || !SR) {
+      return null;
+    }
+    const banner = el(
+      "section",
+      { class: "card home-active-step-banner" },
+      el("p", { class: "eyebrow" }, "Active step"),
+      el("h2", { class: "home-active-step-title" }, "Polish real speaker audio tracks"),
+      el(
+        "p",
+        { class: "hint home-active-step-lead" },
+        "Open the audio polish demo with bundled sample recordings — apply a preset, generate polished WAV files per speaker, and continue to style.",
+      ),
+    );
+    const demoBtn = el(
+      "button",
+      {
+        type: "button",
+        class: "btn-primary home-primary-cta home-active-step-cta",
+        id: "home-audio-polish-demo",
+      },
+      "Open audio polish demo →",
+    );
+    demoBtn.addEventListener("click", () => openAudioPolishDemo());
+    banner.appendChild(demoBtn);
+    return banner;
+  }
+
   function renderShowLibrary(quickAddError) {
     if (!LIB) {
       setPageIntro("episode-setup");
@@ -1215,7 +1244,14 @@
     const presetCreateLink = el("button", { type: "button", class: "link-button" }, "Create show with preset picker →");
     presetCreateLink.addEventListener("click", () => renderNewShowForm("", "", null));
 
-    const viewParts = [header, showsPanel];
+    const viewParts = [];
+    if (!shows.length) {
+      const activeStepBanner = renderHomeActiveStepBanner();
+      if (activeStepBanner) {
+        viewParts.push(activeStepBanner);
+      }
+    }
+    viewParts.push(header, showsPanel);
     if (shows.length) {
       viewParts.push(
         el(
@@ -4042,6 +4078,20 @@
       summaryCard.appendChild(el("p", { class: "export-summary-line" }, line));
     });
     view.appendChild(summaryCard);
+
+    if (exportJob.audioTracks && exportJob.audioTracks.length) {
+      const audioPlanCard = el("section", { class: "card export-audio-plan" }, el("h3", {}, "Polished audio in this export"));
+      exportJob.audioTracks.forEach((track) => {
+        audioPlanCard.appendChild(
+          el(
+            "p",
+            { class: "export-audio-line" },
+            `${track.role} · ${track.fileName} · asset ${track.assetId}`,
+          ),
+        );
+      });
+      view.appendChild(audioPlanCard);
+    }
 
     const grid = el("div", { class: "export-layout" });
 

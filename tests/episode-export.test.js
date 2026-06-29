@@ -157,10 +157,38 @@ test("runExport completes with a ready-to-download filename", () => {
   assert.strictEqual(result.state.status, "ready");
   assert.strictEqual(result.state.progress, 100);
   assert.strictEqual(result.state.downloadName, "Founders-Unfiltered-7-1080p.mp4");
+  assert.strictEqual(result.state.audioTracks.length, 3);
+  assert.ok(result.state.audioTracks.every((track) => track.assetId && track.fileName));
+  assert.ok(result.state.audioSource.startsWith("polished-wav:"));
+  assert.strictEqual(result.state.usesPolishedAudio, true);
 
   const summary = exportApi.summarizeExport(result.state);
   assert.strictEqual(summary.ready, true);
   assert.strictEqual(summary.downloadName, "Founders-Unfiltered-7-1080p.mp4");
+  assert.strictEqual(summary.audioTrackCount, 3);
+  assert.strictEqual(summary.usesPolishedAudio, true);
+});
+
+test("buildFinalSummary lists polished audio assets wired into the export job", () => {
+  const review = require("../app/publish-review.js");
+  const contextApi = require("../app/social-context.js");
+  const episode = setup.summarize(completeUploadDraft());
+  const ctx = completeContext(episode);
+  ctx.publishReview = review.approveReview(review.createReview(episode, {
+    audioPolish: ctx.audioPolish,
+    appliedStyle: ctx.appliedStyle,
+    templateName: ctx.templateName,
+    contextApproved: true,
+    contextSummary: contextApi.summarizeReview(contextApi.approveReview(contextApi.createReview(episode))),
+    momentsSummary: ctx.momentsSummary,
+    captionCount: 1,
+  })).review;
+  ctx.publishReviewApproved = true;
+  const job = exportApi.createExport(episode, { templateName: "Founders Unfiltered" });
+  const result = exportApi.runExport(job, episode, ctx);
+  const summary = exportApi.buildFinalSummary(episode, ctx, result.state);
+  assert.ok(summary.lines.some((line) => line.indexOf("Audio render:") === 0));
+  assert.ok(summary.lines.some((line) => /polished\.wav/.test(line)));
 });
 
 test("ACCEPTANCE: review episode choices, pick export options, start export, reach ready state", () => {

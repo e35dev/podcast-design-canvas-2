@@ -156,9 +156,12 @@
     if (polishedTrack && polishedTrack.status === "failed") {
       return `${preset.name} treatment · ${name} · polish failed`;
     }
+    if (polishedTrack && polishedTrack.status === "needs-media") {
+      return `${preset.name} treatment · ${name} · upload source media to polish`;
+    }
     const sourceCue = speaker && speaker.sourceMode === "upload"
       ? (speaker.hasSourceMedia ? "source media saved" : "source media pending")
-      : "source linked";
+      : "source media required";
     return `${preset.name} treatment · ${name} · ${sourceCue}`;
   }
 
@@ -417,27 +420,27 @@
   function computePolishCompletion(speakers, polishedTracks) {
     const list = Array.isArray(speakers) ? speakers : [];
     const results = Array.isArray(polishedTracks) ? polishedTracks : [];
-    const processable = list.filter((speaker) => speaker && speaker.hasSourceMedia).length;
-    const completed = results.filter((track) => track.status === "complete").length;
-    const linked = results.filter((track) => track.status === "linked").length;
-    const failed = results.filter((track) => track.status === "failed").length;
-    if (failed > 0) {
+    if (!list.length) {
       return false;
     }
-    if (processable > 0) {
-      return completed === processable;
+    if (results.some((track) => track.status === "failed")) {
+      return false;
     }
-    return linked === list.length && list.length > 0;
+    if (results.length !== list.length) {
+      return false;
+    }
+    return results.every((track) => track.status === "complete");
   }
 
-  function linkedTrackResult(track) {
+  function needsMediaTrackResult(track) {
     return {
       trackIndex: track.trackIndex,
       role: track.role,
       name: track.name,
-      status: "linked",
+      status: "needs-media",
       polishedAsset: null,
       usesOriginal: true,
+      error: "Upload speaker media to polish this track.",
     };
   }
 
@@ -488,7 +491,7 @@
     const speakers = Array.isArray(state.speakers) ? state.speakers : [];
     const results = speakers.map((track) => {
       if (!track.hasSourceMedia) {
-        return linkedTrackResult(track);
+        return needsMediaTrackResult(track);
       }
       try {
         return completeTrackResult(track, state, loadTrackSamples(track));
@@ -506,7 +509,7 @@
     for (let index = 0; index < speakers.length; index += 1) {
       const track = speakers[index];
       if (!track.hasSourceMedia) {
-        results.push(linkedTrackResult(track));
+        results.push(needsMediaTrackResult(track));
         continue;
       }
       try {
