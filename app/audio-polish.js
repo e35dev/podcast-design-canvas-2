@@ -551,6 +551,30 @@
     }));
   }
 
+  // The polished-track outputs carried forward into the visual moments step so captions
+  // and moments are timed against the treated audio. DOM-free so the UI wiring and the
+  // tests share one source of truth. Only complete polished tracks are carried; tracks
+  // that still need media or failed are dropped so the visual step never times moments
+  // against missing or raw audio.
+  function carryPolishedTracks(polishSummary) {
+    const summary = polishSummary || {};
+    const tracks = Array.isArray(summary.polishedTracks) ? summary.polishedTracks : [];
+    return tracks
+      .filter((track) => track && track.status === "complete" && track.polishedAsset)
+      .map((track) => {
+        const asset = track.polishedAsset || {};
+        return {
+          trackIndex: track.trackIndex != null ? track.trackIndex : null,
+          role: track.role || "Speaker",
+          name: track.name || "",
+          fileName: asset.fileName || "polished.wav",
+          durationSeconds: Number(asset.durationSeconds) || 0,
+          assetId: asset.assetId || "",
+          mimeType: asset.mimeType || "audio/wav",
+        };
+      });
+  }
+
   function isPolishReady(summary) {
     if (!summary || !summary.presetName) {
       return false;
@@ -655,6 +679,7 @@
     applyPolishForEpisode,
     polishedTrackForSpeaker,
     resolveExportAudioTracks,
+    carryPolishedTracks,
     isPolishReady,
     summarizePolish,
     buildReviewSummary,

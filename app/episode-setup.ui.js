@@ -5583,9 +5583,7 @@
 
     // The polished-track outputs from Step 3 are carried into this step so captions and
     // moments are timed against the treated audio, not the raw source.
-    const carriedPolished = appliedAudioPolish && Array.isArray(appliedAudioPolish.polishedTracks)
-      ? appliedAudioPolish.polishedTracks.filter((track) => track && track.status === "complete")
-      : [];
+    const carriedPolished = AP && appliedAudioPolish ? AP.carryPolishedTracks(appliedAudioPolish) : [];
     if (carriedPolished.length) {
       const polishedCard = el(
         "section",
@@ -5599,13 +5597,12 @@
       );
       const polishedList = el("ul", { class: "moments-polished-list" });
       carriedPolished.forEach((track) => {
-        const asset = track.polishedAsset || {};
-        const duration = asset.durationSeconds ? ` · ${Number(asset.durationSeconds).toFixed(1)}s` : "";
+        const duration = track.durationSeconds ? ` · ${track.durationSeconds.toFixed(1)}s` : "";
         polishedList.appendChild(
           el(
             "li",
             { class: "moments-polished-item", "data-polished-track": String(track.trackIndex != null ? track.trackIndex : "") },
-            `${track.role || "Speaker"} · ${track.name || ""} · ${asset.fileName || "polished.wav"}${duration}`,
+            `${track.role} · ${track.name} · ${track.fileName}${duration}`,
           ),
         );
       });
