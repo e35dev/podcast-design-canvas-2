@@ -48,6 +48,14 @@
     return CAPTION_STYLES.find((item) => item.id === id) || CAPTION_STYLES[0];
   }
 
+  function hasTypeStyle(id) {
+    return TYPE_STYLES.some((item) => item.id === id);
+  }
+
+  function hasCaptionStyle(id) {
+    return CAPTION_STYLES.some((item) => item.id === id);
+  }
+
   function getOverlayKind(id) {
     return OVERLAY_KINDS.find((item) => item.id === id) || OVERLAY_KINDS[0];
   }
@@ -93,10 +101,10 @@
         return { ok: false, error: `Use a valid hex color for ${colorKeys[i]}.` };
       }
     }
-    if (!getTypeStyle(k.typeStyle)) {
+    if (!hasTypeStyle(k.typeStyle)) {
       return { ok: false, error: "Choose a type style." };
     }
-    if (!getCaptionStyle(k.captionStyle)) {
+    if (!hasCaptionStyle(k.captionStyle)) {
       return { ok: false, error: "Choose a caption style." };
     }
     return { ok: true };
