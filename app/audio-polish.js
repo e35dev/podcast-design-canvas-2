@@ -628,6 +628,42 @@
     };
   }
 
+  // Recap of the applied polished tracks, for the downstream visual-moments step
+  // (#269): once audio polish is applied and the creator continues into visual
+  // editing, that step must still expose the polished-track outputs (speaker,
+  // treatment metric, saved file) so the polished audio stays accessible. Pure +
+  // DOM-free so the UI and tests share one shape.
+  function buildPolishedRecap(polishSummary) {
+    const summary = polishSummary && typeof polishSummary === "object" ? polishSummary : {};
+    const tracks = Array.isArray(summary.polishedTracks) ? summary.polishedTracks : [];
+    const rows = tracks
+      .filter((track) => track && track.status === "complete")
+      .map((track) => {
+        const metrics = track.metrics && typeof track.metrics === "object" ? track.metrics : null;
+        const asset = track.polishedAsset && typeof track.polishedAsset === "object" ? track.polishedAsset : {};
+        let metricLine = null;
+        if (metrics && typeof metrics.gainDb === "number") {
+          const gain = metrics.gainDb > 0 ? `+${metrics.gainDb}` : `${metrics.gainDb}`;
+          metricLine = `Level ${gain} dB · RMS ${metrics.inputRms} → ${metrics.outputRms}`;
+        }
+        return {
+          trackIndex: track.trackIndex,
+          role: track.role || "Speaker",
+          name: track.name || "Unnamed speaker",
+          fileName: asset.fileName || "polished.wav",
+          assetId: asset.assetId || "",
+          byteLength: Number(asset.byteLength) || 0,
+          metricLine: metricLine,
+        };
+      });
+    return {
+      count: rows.length,
+      presetName: summary.presetName || null,
+      treatmentLine: summary.treatmentLine || null,
+      tracks: rows,
+    };
+  }
+
   const api = {
     QUALITY_PRESETS,
     CONTROLS,
@@ -657,6 +693,7 @@
     resolveExportAudioTracks,
     isPolishReady,
     summarizePolish,
+    buildPolishedRecap,
     buildReviewSummary,
   };
 

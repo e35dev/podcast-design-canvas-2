@@ -5389,23 +5389,31 @@
     });
 
     if (hasApplied) {
-      const continueButton = el("button", { type: "button", class: "primary" }, "Continue →");
+      // #269: applied audio polish must continue forward into visual editing, not
+      // dead-end back at the workspace hub. The primary action advances straight to
+      // the visual moments step (which carries the same episode, speakers, selected
+      // style, social context, and the polished tracks). Back-to-setup stays
+      // available but is no longer the only post-apply path.
+      const continueButton = el("button", { type: "button", class: "primary" }, "Continue to visual moments →");
       continueButton.addEventListener("click", () => {
-        lastView = STY && !appliedStyle ? "style" : "workspace";
+        lastView = "moments";
         persistEpisodeSession();
-        if (STY && !appliedStyle) {
-          renderStyle(summary);
-        } else {
-          renderWorkspace(summary);
-        }
+        navigateWorkspaceStage("moments", summary);
       });
       const reapply = el("button", { type: "button", class: "ghost" }, "Re-apply polish");
       reapply.addEventListener("click", () => {
         invalidateAppliedPolish();
         renderAudioPolish(summary);
       });
+      const toWorkspace = el("button", { type: "button", class: "ghost" }, "Back to workspace");
+      toWorkspace.addEventListener("click", () => {
+        lastView = "workspace";
+        persistEpisodeSession();
+        renderWorkspace(summary);
+      });
       actions.appendChild(continueButton);
       actions.appendChild(reapply);
+      actions.appendChild(toWorkspace);
       actions.appendChild(back);
     } else {
       const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
@@ -5584,6 +5592,39 @@
         ),
       ),
     );
+
+    // Polished audio tracks recap (#269): keep the applied audio-polish outputs
+    // accessible after the creator continues from audio polish into visual editing.
+    if (AP && appliedAudioPolish) {
+      const recap = AP.buildPolishedRecap(appliedAudioPolish);
+      if (recap.count > 0) {
+        const recapCard = el("section", { class: "card moments-audio-recap" });
+        recapCard.appendChild(el("h3", {}, "Polished audio tracks"));
+        const subtitle = recap.presetName
+          ? `${recap.presetName} — ${recap.count} polished track${recap.count === 1 ? "" : "s"} carried over from audio polish.`
+          : `${recap.count} polished track${recap.count === 1 ? "" : "s"} carried over from audio polish.`;
+        recapCard.appendChild(el("p", { class: "hint" }, subtitle));
+        const recapList = el("div", { class: "audio-track-list moments-audio-recap-list" });
+        appliedAudioPolish.polishedTracks
+          .filter((track) => track && track.status === "complete")
+          .forEach((track) => {
+            const trackNode = el(
+              "div",
+              { class: "audio-track" },
+              el(
+                "div",
+                { class: "audio-track-main" },
+                el("span", { class: "role-pill" }, track.role || "Speaker"),
+                el("span", { class: "summary-name" }, track.name || "Unnamed speaker"),
+              ),
+            );
+            trackNode.appendChild(buildPolishedEvidence(track));
+            recapList.appendChild(trackNode);
+          });
+        recapCard.appendChild(recapList);
+        view.appendChild(recapCard);
+      }
+    }
 
     // Add-moment palette
     const palette = el(
